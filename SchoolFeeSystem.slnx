@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="SchoolFeeSystem.Application/SchoolFeeSystem.Application.csproj" />
+  <Project Path="SchoolFeeSystem.Core/SchoolFeeSystem.Core.csproj" />
+  <Project Path="SchoolFeeSystem.Infrastructure/SchoolFeeSystem.Infrastructure.csproj" />
+  <Project Path="SchoolFeeSystem.Presentation/SchoolFeeSystem.Presentation.csproj" />
+</Solution>

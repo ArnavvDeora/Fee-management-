@@ -1,0 +1,46 @@
+﻿<UserControl x:Class="SchoolFeeSystem.Presentation.Views.ClassView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignHeight="600" d:DesignWidth="900" Background="White">
+    <Grid Margin="20">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="300"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <StackPanel Grid.Column="0" Margin="0,0,20,0">
+            <TextBlock Text="Manage Classes" FontSize="22" FontWeight="Bold" Margin="0,0,0,20" Foreground="#2C3E50"/>
+
+            <TextBlock Text="Class Name (e.g. 8th)" FontWeight="SemiBold" Margin="0,10,0,5"/>
+            <TextBox Text="{Binding ClassName}" Padding="8" FontSize="14"/>
+
+            <TextBlock Text="Section (e.g. B)" FontWeight="SemiBold" Margin="0,15,0,5"/>
+            <TextBox Text="{Binding Section}" Padding="8" FontSize="14"/>
+
+            <Button Content="Create Class" Command="{Binding AddClassCommand}" 
+                    Margin="0,30,0,0" Height="45" FontSize="16" FontWeight="Bold"
+                    Background="#3498DB" Foreground="White" BorderThickness="0">
+                <Button.Resources>
+                    <Style TargetType="Border">
+                        <Setter Property="CornerRadius" Value="5"/>
+                    </Style>
+                </Button.Resources>
+            </Button>
+        </StackPanel>
+
+        <DockPanel Grid.Column="1">
+            <TextBlock Text="Existing Classes" DockPanel.Dock="Top" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" Foreground="#7F8C8D"/>
+            <DataGrid ItemsSource="{Binding ClassList}" AutoGenerateColumns="False" IsReadOnly="True" 
+                      GridLinesVisibility="Horizontal" RowHeight="35" FontSize="14">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="50"/>
+                    <DataGridTextColumn Header="Class Name" Binding="{Binding Name}" Width="*"/>
+                    <DataGridTextColumn Header="Section" Binding="{Binding Section}" Width="100"/>
+                    <DataGridTextColumn Header="Full Name" Binding="{Binding DisplayName}" Width="*"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </DockPanel>
+    </Grid>
+</UserControl>
