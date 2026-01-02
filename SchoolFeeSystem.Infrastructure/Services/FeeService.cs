@@ -21,7 +21,19 @@ namespace SchoolFeeSystem.Infrastructure.Services
             _context.FeeStructures.Add(fee);
             _context.SaveChanges();
         }
+        public void DeleteFeeStructure(int feeId)
+        {
+            var fee = _context.FeeStructures.Find(feeId);
+            if (fee != null)
+            {
+                // Optional: Remove linked student fees if nobody has paid yet
+                var linkedFees = _context.StudentFees.Where(sf => sf.FeeStructureId == feeId).ToList();
+                _context.StudentFees.RemoveRange(linkedFees);
 
+                _context.FeeStructures.Remove(fee);
+                _context.SaveChanges();
+            }
+        }
         public List<FeeStructure> GetFeesByClass(int classId)
         {
             return _context.FeeStructures

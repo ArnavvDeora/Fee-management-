@@ -11,33 +11,53 @@
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <StackPanel Grid.Column="0" Margin="0,0,20,0">
-            <TextBlock Text="Add New Student" FontSize="20" FontWeight="Bold" Margin="0,0,0,20"/>
+        <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" Margin="0,0,20,0">
+            <StackPanel>
+                <TextBlock Text="Add New Student" FontSize="22" FontWeight="Bold" Margin="0,0,0,20" Foreground="#2C3E50"/>
 
-            <TextBlock Text="Full Name"/>
-            <TextBox Text="{Binding NewStudent.FullName}" Margin="0,0,0,10" Padding="5"/>
+                <TextBlock Text="Roll Number" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                <TextBox Text="{Binding NewStudent.RollNumber}" Padding="5" Margin="0,0,0,5"/>
 
-            <TextBlock Text="Father Name"/>
-            <TextBox Text="{Binding NewStudent.FatherName}" Margin="0,0,0,10" Padding="5"/>
+                <TextBlock Text="Full Name" FontWeight="SemiBold" Margin="0,10,0,5"/>
+                <TextBox Text="{Binding NewStudent.FullName}" Padding="5" Margin="0,0,0,5"/>
 
-            <TextBlock Text="Contact Number"/>
-            <TextBox Text="{Binding NewStudent.ContactNumber}" Margin="0,0,0,10" Padding="5"/>
+                <TextBlock Text="Father Name" FontWeight="SemiBold" Margin="0,10,0,5"/>
+                <TextBox Text="{Binding NewStudent.FatherName}" Padding="5" Margin="0,0,0,5"/>
 
-            <TextBlock Text="Select Standard" FontWeight="SemiBold" Margin="0,10,0,5"/>
-            <ComboBox ItemsSource="{Binding Standards}" SelectedItem="{Binding SelectedStandard}" 
-                      Padding="5" Margin="0,0,0,5"/>
+                <TextBlock Text="Father's Contact" FontWeight="SemiBold" Margin="0,10,0,5"/>
+                <TextBox Text="{Binding NewStudent.FatherContact}" Padding="5" Margin="0,0,0,5"/>
 
-            <TextBlock Text="Select Section" FontWeight="SemiBold" Margin="0,10,0,5"/>
-            <ComboBox ItemsSource="{Binding Sections}" SelectedItem="{Binding SelectedSection}" 
-                      Padding="5" Margin="0,0,0,20"/>
-            <Button Content="Save Student" Command="{Binding AddStudentCommand}" Height="40" Background="#2ECC71" Foreground="White" FontWeight="Bold"/>
-        </StackPanel>
+                <TextBlock Text="Student Contact" FontWeight="SemiBold" Margin="0,10,0,5"/>
+                <TextBox Text="{Binding NewStudent.ContactNumber}" Padding="5" Margin="0,0,0,5"/>
 
+                <TextBlock Text="Address" FontWeight="SemiBold" Margin="0,10,0,5"/>
+                <TextBox Text="{Binding NewStudent.Address}" Padding="5" Margin="0,0,0,5" Height="60" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+
+                <TextBlock Text="Select Standard" FontWeight="SemiBold" Margin="0,10,0,5"/>
+                <ComboBox ItemsSource="{Binding Standards}" SelectedItem="{Binding SelectedStandard}" 
+                          Padding="5" Margin="0,0,0,5"/>
+
+                <TextBlock Text="Select Section" FontWeight="SemiBold" Margin="0,10,0,5"/>
+                <ComboBox ItemsSource="{Binding Sections}" SelectedItem="{Binding SelectedSection}" 
+                          Padding="5" Margin="0,0,0,20"/>
+
+                <Button Content="Save Student" Command="{Binding AddStudentCommand}" 
+                        Height="45" FontSize="16" FontWeight="Bold" Margin="0,0,0,20"
+                        Background="#2ECC71" Foreground="White" BorderThickness="0">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="5"/>
+                        </Style>
+                    </Button.Resources>
+                </Button>
+            </StackPanel>
+        </ScrollViewer>
         <DockPanel Grid.Column="1">
             <TextBlock Text="Student List" DockPanel.Dock="Top" FontSize="20" FontWeight="Bold" Margin="0,0,0,10"/>
             <DataGrid ItemsSource="{Binding Students}" AutoGenerateColumns="False" IsReadOnly="True" GridLinesVisibility="Horizontal">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="50"/>
+                    <DataGridTextColumn Header="Roll No" Binding="{Binding RollNumber}" Width="60"/>
                     <DataGridTextColumn Header="Name" Binding="{Binding FullName}" Width="*"/>
                     <DataGridTextColumn Header="Father" Binding="{Binding FatherName}" Width="150"/>
                     <DataGridTextColumn Header="Class" Binding="{Binding Class.DisplayName}" Width="80"/>

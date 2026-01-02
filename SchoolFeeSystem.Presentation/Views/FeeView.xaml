@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             mc:Ignorable="d" d:DesignHeight="600" d:DesignWidth="800" Background="White">
+             mc:Ignorable="d" d:DesignHeight="600" d:DesignWidth="900" Background="White">
     <Grid Margin="20">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="300"/>
@@ -11,31 +11,44 @@
         </Grid.ColumnDefinitions>
 
         <StackPanel Grid.Column="0" Margin="0,0,20,0">
-            <TextBlock Text="Create Fee Structure" FontSize="20" FontWeight="Bold" Margin="0,0,0,20"/>
+            <TextBlock Text="Create Fee Structure" FontSize="18" FontWeight="Bold" Margin="0,0,0,20"/>
 
-            <TextBlock Text="Select Class"/>
+            <TextBlock Text="Select Class" FontWeight="SemiBold" Margin="0,0,0,5"/>
             <ComboBox ItemsSource="{Binding Classes}" SelectedItem="{Binding SelectedClass}" 
-                      DisplayMemberPath="DisplayName" Margin="0,0,0,15" Padding="5"/>
+                      DisplayMemberPath="DisplayName" Padding="5" Margin="0,0,0,20"/>
 
-            <TextBlock Text="Fee Name (e.g. Tuition)"/>
-            <TextBox Text="{Binding FeeName}" Margin="0,0,0,15" Padding="5"/>
+            <TextBlock Text="Fee Name (e.g. Tuition)" FontWeight="SemiBold" Margin="0,0,0,5"/>
+            <TextBox Text="{Binding FeeName}" Padding="5" Margin="0,0,0,20"/>
 
-            <TextBlock Text="Amount"/>
-            <TextBox Text="{Binding Amount}" Margin="0,0,0,15" Padding="5"/>
+            <TextBlock Text="Amount" FontWeight="SemiBold" Margin="0,0,0,5"/>
+            <TextBox Text="{Binding Amount}" Padding="5" Margin="0,0,0,20"/>
 
-            <TextBlock Text="Due Date"/>
+            <TextBlock Text="Due Date" FontWeight="SemiBold" Margin="0,0,0,5"/>
             <DatePicker SelectedDate="{Binding DueDate}" Margin="0,0,0,20"/>
 
-            <Button Content="Save Fee" Command="{Binding SaveFeeCommand}" Height="40" Background="#3498DB" Foreground="White"/>
+            <Button Content="Save Fee" Command="{Binding SaveFeeCommand}" 
+                    Background="#3498DB" Foreground="White" Height="40" FontSize="14" BorderThickness="0"/>
         </StackPanel>
 
         <DockPanel Grid.Column="1">
             <TextBlock Text="Existing Fees for Selected Class" DockPanel.Dock="Top" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
-            <DataGrid ItemsSource="{Binding ClassFees}" AutoGenerateColumns="False" IsReadOnly="True">
+
+            <DataGrid ItemsSource="{Binding ClassFees}" AutoGenerateColumns="False" IsReadOnly="True" GridLinesVisibility="Horizontal">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Fee Name" Binding="{Binding FeeName}" Width="*"/>
-                    <DataGridTextColumn Header="Amount" Binding="{Binding Amount, StringFormat=C}" Width="100"/>
+                    <DataGridTextColumn Header="Amount" Binding="{Binding Amount, StringFormat={}{0:C}}" Width="100"/>
                     <DataGridTextColumn Header="Due Date" Binding="{Binding DueDate, StringFormat=d}" Width="100"/>
+
+                    <DataGridTemplateColumn Width="80">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button Content="Delete" 
+                                        Command="{Binding DataContext.DeleteFeeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
+                                        CommandParameter="{Binding}"
+                                        Background="#E74C3C" Foreground="White" BorderThickness="0" Padding="5,2" Margin="2"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                 </DataGrid.Columns>
             </DataGrid>
         </DockPanel>
