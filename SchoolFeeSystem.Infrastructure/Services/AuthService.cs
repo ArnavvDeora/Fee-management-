@@ -1,8 +1,10 @@
-﻿using System.Linq;
-using SchoolFeeSystem.Core.Entities;
+﻿using SchoolFeeSystem.Core.Entities;
 using SchoolFeeSystem.Core.Interfaces;
 using SchoolFeeSystem.Infrastructure.Data;
-using SchoolFeeSystem.Infrastructure.Security;
+using System.Linq;
+
+// Ensure BCrypt is available
+using BCrypt.Net;
 
 namespace SchoolFeeSystem.Infrastructure.Services
 {
@@ -15,16 +17,25 @@ namespace SchoolFeeSystem.Infrastructure.Services
             _context = context;
         }
 
-        public User? Login(string username, string password)
+        public User Login(string username, string password)
         {
             // 1. Find user by username
             var user = _context.Users.SingleOrDefault(u => u.Username == username);
+
+            // 2. User not found? Fail.
             if (user == null) return null;
 
-            // 2. Verify password using our Argon2 helper
-            bool isValid = PasswordHasher.VerifyPassword(password, user.PasswordHash, user.Salt);
+            // 3. Verify Password
+            // OLD WAY (Broken): if (user.PasswordHash == password) 
+            // NEW WAY (Fixed): Decrypts the hash and compares it
+            bool isPasswordValid = BCrypt.Net.BCrypt.Verify(password, user.PasswordHash);
 
-            return isValid ? user : null;
+            if (isPasswordValid)
+            {
+                return user;
+            }
+
+            return null; // Password wrong
         }
     }
 }

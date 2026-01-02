@@ -2,7 +2,9 @@
 using CommunityToolkit.Mvvm.Input;
 using SchoolFeeSystem.Core.Interfaces;
 using System.Windows;
-using SchoolFeeSystem.Presentation.Views; // Needed for DashboardView
+using Microsoft.Extensions.DependencyInjection;
+using SchoolFeeSystem.Presentation.Views;
+using System.Windows.Controls; // Needed for PasswordBox
 
 namespace SchoolFeeSystem.Presentation.ViewModels
 {
@@ -18,8 +20,14 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             _authService = authService;
         }
 
-        public void Login(string password)
+        // --- THE MISSING LINE WAS HERE! ---
+        [RelayCommand]
+        public void Login(object parameter)
         {
+            // Safely get the password from the box
+            var passwordBox = parameter as PasswordBox;
+            var password = passwordBox?.Password;
+
             if (string.IsNullOrWhiteSpace(Username) || string.IsNullOrWhiteSpace(password))
             {
                 MessageBox.Show("Please enter username and password.");
@@ -29,19 +37,20 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             var user = _authService.Login(Username, password);
             if (user != null)
             {
-                // 1. Get the Dashboard Window using our new App.Services
-                var dashboard = App.Current.Services.GetService(typeof(DashboardView)) as Window;
+                // 1. Get the Main Selection View (The Hub)
+                var selectionScreen = App.Current.Services.GetRequiredService<MainSelectionView>();
 
-                if (dashboard != null)
+                // 2. Swap the content
+                if (Application.Current.MainWindow != null)
                 {
-                    dashboard.Show();
+                    Application.Current.MainWindow.Content = selectionScreen;
 
-                    // 2. Close the Login Window (which is currently the main window)
-                    // We check if Windows[0] exists to avoid crashes
-                    if (Application.Current.Windows.Count > 0)
-                    {
-                        Application.Current.Windows[0].Close();
-                    }
+                    // 3. Resize for the main app
+                    Application.Current.MainWindow.Width = 1100;
+                    Application.Current.MainWindow.Height = 700;
+                    Application.Current.MainWindow.WindowState = WindowState.Normal;
+                    Application.Current.MainWindow.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                    Application.Current.MainWindow.Title = "School Management System";
                 }
             }
             else

@@ -1,9 +1,10 @@
-﻿using System.Windows;
-using SchoolFeeSystem.Presentation.ViewModels;
+﻿using SchoolFeeSystem.Presentation.ViewModels;
+using System.Windows;
+using System.Windows.Controls;
 
 namespace SchoolFeeSystem.Presentation.Views
 {
-    public partial class DashboardView : Window
+    public partial class DashboardView : UserControl
     {
         public DashboardView(DashboardViewModel viewModel)
         {

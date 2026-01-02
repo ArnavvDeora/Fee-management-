@@ -1,47 +1,57 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using Microsoft.Data.Sqlite;
 using SchoolFeeSystem.Core.Entities;
+using System.Linq;
 
 namespace SchoolFeeSystem.Infrastructure.Data
 {
     public class AppDbContext : DbContext
     {
-        private static string _dbPassword = "YourSecureRuntimePassword";
-
+        // Tables
         public DbSet<User> Users { get; set; }
-        public DbSet<Student> Students { get; set; }
         public DbSet<Class> Classes { get; set; }
+        public DbSet<Student> Students { get; set; }
         public DbSet<FeeStructure> FeeStructures { get; set; }
-
-        // UNCOMMENT THESE NOW:
         public DbSet<StudentFee> StudentFees { get; set; }
         public DbSet<Transaction> Transactions { get; set; }
 
+        // HR Tables
+        public DbSet<Employee> Employees { get; set; }
+        public DbSet<SalaryRecord> SalaryRecords { get; set; }
+
+        public AppDbContext()
+        {
+            // --- TEMPORARY FIX: RUN THIS ONCE ---
+            Database.EnsureDeleted();
+            // ------------------------------------
+
+            Database.EnsureCreated();
+
+            if (!Users.Any())
+            {
+                var admin = new User
+                {
+                    Username = "admin",
+                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
+                    Role = UserRole.Admin
+                };
+                Users.Add(admin);
+                SaveChanges();
+            }
+        }
+
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
-            if (!optionsBuilder.IsConfigured)
-            {
-                var connectionStringBuilder = new SqliteConnectionStringBuilder
-                {
-                    DataSource = "school_fees.db",
-                    Mode = SqliteOpenMode.ReadWriteCreate,
-                    // Password = _dbPassword 
-                };
-
-                optionsBuilder.UseSqlite(connectionStringBuilder.ToString());
-            }
+            optionsBuilder.UseSqlite("Data Source=school_fees.db");
         }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            base.OnModelCreating(modelBuilder);
-
-            modelBuilder.Entity<User>().HasIndex(u => u.Username).IsUnique();
+            // FIX 3: Changed 'c.ClassName' to 'c.Name' (This was causing the crash)
             modelBuilder.Entity<Class>()
-        .HasIndex(c => new { c.Name, c.Section })
-        .IsUnique();
-        }
+                .HasIndex(c => new { c.Name, c.Section })
+                .IsUnique();
 
-        public static void SetDbPassword(string password) => _dbPassword = password;
+            base.OnModelCreating(modelBuilder);
+        }
     }
 }

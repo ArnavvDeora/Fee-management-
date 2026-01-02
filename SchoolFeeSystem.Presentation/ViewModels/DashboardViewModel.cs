@@ -1,7 +1,7 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Windows;
-using Microsoft.Extensions.DependencyInjection; // Need this for getting services
+using Microsoft.Extensions.DependencyInjection;
 using SchoolFeeSystem.Presentation.Views;
 
 namespace SchoolFeeSystem.Presentation.ViewModels
@@ -13,51 +13,54 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
         public DashboardViewModel()
         {
-            CurrentView = "Welcome! Select an option from the left.";
-        }
-
-        [RelayCommand]
-
-        public void ShowStudents()
-        {
-            // Switch the main view to StudentView
+            // Default view
             CurrentView = App.Current.Services.GetRequiredService<StudentView>();
         }
+
+        // --- Navigation Commands ---
+
         [RelayCommand]
-        public void ShowFees()
-        {
-            CurrentView = App.Current.Services.GetRequiredService<FeeView>();
-        }
+        public void ShowStudents() => CurrentView = App.Current.Services.GetRequiredService<StudentView>();
+
         [RelayCommand]
-        public void ShowFeeCollection()
-        {
-            CurrentView = App.Current.Services.GetRequiredService<FeeCollectionView>();
-        }
+        public void ShowFees() => CurrentView = App.Current.Services.GetRequiredService<FeeView>();
+
         [RelayCommand]
-        public void ShowReports()
-        {
-            CurrentView = App.Current.Services.GetRequiredService<ReportsView>();
-        }
+        public void ShowFeeCollection() => CurrentView = App.Current.Services.GetRequiredService<FeeCollectionView>();
+
         [RelayCommand]
-        public void ShowClasses()
-        {
-            CurrentView = App.Current.Services.GetRequiredService<ClassView>();
-        }
+        public void ShowReports() => CurrentView = App.Current.Services.GetRequiredService<ReportsView>();
+
         [RelayCommand]
-        public void ShowHelp()
+        public void ShowClasses() => CurrentView = App.Current.Services.GetRequiredService<ClassView>();
+
+        [RelayCommand]
+        public void ShowHelp() => CurrentView = App.Current.Services.GetRequiredService<HelpView>();
+
+        // --- NEW: Back Button Logic ---
+        [RelayCommand]
+        public void GoBack()
         {
-            CurrentView = App.Current.Services.GetRequiredService<HelpView>();
+            // Navigate back to the Hub
+            var selectionScreen = App.Current.Services.GetRequiredService<MainSelectionView>();
+            Application.Current.MainWindow.Content = selectionScreen;
         }
+
+        // --- FIXED: Logout Logic ---
         [RelayCommand]
         public void Logout()
         {
-            var loginWindow = App.Current.Services.GetRequiredService<LoginView>();
-            loginWindow.Show();
+            // Get the Login UserControl
+            var loginScreen = App.Current.Services.GetRequiredService<LoginView>();
 
-            if (Application.Current.Windows.Count > 0)
-            {
-                Application.Current.Windows[0]?.Close();
-            }
+            // Set it as the main content (Swapping instead of closing windows)
+            Application.Current.MainWindow.Content = loginScreen;
+
+            // Resize window to look like a Login screen
+            Application.Current.MainWindow.Width = 450;
+            Application.Current.MainWindow.Height = 550;
+            Application.Current.MainWindow.WindowState = WindowState.Normal;
+            Application.Current.MainWindow.Title = "Login";
         }
     }
 }

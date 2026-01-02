@@ -12,11 +12,11 @@ namespace SchoolFeeSystem.Core.Entities
 
         public int StudentId { get; set; }
         [ForeignKey("StudentId")]
-        public virtual Student Student { get; set; }
+        public virtual Student Student { get; set; } = null!;
 
         public int FeeStructureId { get; set; }
         [ForeignKey("FeeStructureId")]
-        public virtual FeeStructure FeeStructure { get; set; }
+        public virtual FeeStructure FeeStructure { get; set; } = null!;
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal AmountPaid { get; set; } = 0;

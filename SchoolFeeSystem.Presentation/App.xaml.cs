@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Windows;
-using System.Globalization; 
-using System.Windows.Markup; 
+using System.Globalization;
+using System.Windows.Markup;
 using Microsoft.Extensions.DependencyInjection;
 using SchoolFeeSystem.Core.Interfaces;
 using SchoolFeeSystem.Infrastructure.Data;
@@ -15,7 +15,7 @@ namespace SchoolFeeSystem.Presentation
     {
         private ServiceProvider _serviceProvider;
 
-        // 1. Allow access to the current App instance and Services from anywhere
+        // Allow access to the current App instance and Services from anywhere
         public new static App Current => (App)Application.Current;
         public IServiceProvider Services => _serviceProvider;
 
@@ -30,7 +30,7 @@ namespace SchoolFeeSystem.Presentation
                 new FrameworkPropertyMetadata(
                     XmlLanguage.GetLanguage(CultureInfo.CurrentCulture.IetfLanguageTag)));
 
-            // 2. Existing startup logic
+            // 2. Setup Dependency Injection
             var services = new ServiceCollection();
             ConfigureServices(services);
             _serviceProvider = services.BuildServiceProvider();
@@ -38,36 +38,43 @@ namespace SchoolFeeSystem.Presentation
 
         private void ConfigureServices(IServiceCollection services)
         {
-            // Inside ConfigureServices method...
-
-            services.AddTransient<StudentViewModel>();
-            services.AddTransient<StudentView>(); // The new UserControl
             // --- Database ---
             services.AddDbContext<AppDbContext>();
 
-            // --- Services ---
+            // --- Services (Logic) ---
             services.AddTransient<IAuthService, AuthService>();
-            services.AddTransient<IStudentService, StudentService>(); // Added for Student Management
-
-            // --- ViewModels ---
-            services.AddTransient<LoginViewModel>();
-            services.AddTransient<DashboardViewModel>(); // Added for Dashboard Logic
-
-            // --- Views ---
-            services.AddTransient<LoginView>();
-            services.AddTransient<DashboardView>();      // Added for the Dashboard Window
+            services.AddTransient<IStudentService, StudentService>();
             services.AddTransient<IFeeService, FeeService>();
-            services.AddTransient<FeeViewModel>();
-            services.AddTransient<FeeView>();
             services.AddTransient<IFeeCollectionService, FeeCollectionService>();
-            services.AddTransient<FeeCollectionViewModel>();
-            services.AddTransient<FeeCollectionView>();
             services.AddTransient<IReportService, ReportService>();
+            services.AddTransient<IPayrollService, PayrollService>(); // <--- THIS WAS MISSING!
+
+            // --- ViewModels (The Connectors) ---
+            services.AddTransient<LoginViewModel>();
+            services.AddTransient<DashboardViewModel>();
+            services.AddTransient<MainSelectionViewModel>();
+            services.AddTransient<PayrollDashboardViewModel>();
+
+            services.AddTransient<StudentViewModel>();
+            services.AddTransient<FeeViewModel>();
+            services.AddTransient<FeeCollectionViewModel>();
             services.AddTransient<ReportsViewModel>();
-            services.AddTransient<ReportsView>();
             services.AddTransient<ClassViewModel>();
-            services.AddTransient<ClassView>();
             services.AddTransient<HelpViewModel>();
+
+            // --- Views (The Screens) ---
+            services.AddSingleton<MainWindow>(); // <--- This registers the Main Shell
+
+            services.AddTransient<LoginView>();
+            services.AddTransient<MainSelectionView>();
+            services.AddTransient<DashboardView>();
+            services.AddTransient<PayrollDashboardView>();
+
+            services.AddTransient<StudentView>();
+            services.AddTransient<FeeView>();
+            services.AddTransient<FeeCollectionView>();
+            services.AddTransient<ReportsView>();
+            services.AddTransient<ClassView>();
             services.AddTransient<HelpView>();
         }
 
@@ -75,16 +82,24 @@ namespace SchoolFeeSystem.Presentation
         {
             base.OnStartup(e);
 
-            // Initialize DB and Seed Admin User
-            using (var scope = _serviceProvider.CreateScope())
-            {
-                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                DbInitializer.Initialize(context);
-            }
+            // 1. Get the MainWindow (The Shell)
+            // If this fails, it means 'services.AddSingleton<MainWindow>()' above didn't run.
+            var mainWindow = Services.GetRequiredService<MainWindow>();
 
-            // Show Login Window
-            var loginWindow = _serviceProvider.GetRequiredService<LoginView>();
-            loginWindow.Show();
+            // 2. Get the Login View (The Content)
+            var loginView = Services.GetRequiredService<LoginView>();
+
+            // 3. Put Login View INSIDE Main Window
+            mainWindow.Content = loginView;
+
+            // 4. Set Initial Size for Login
+            mainWindow.Width = 450;
+            mainWindow.Height = 550;
+            mainWindow.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            mainWindow.Title = "Login";
+
+            // 5. Show the Main Window
+            mainWindow.Show();
         }
     }
 }

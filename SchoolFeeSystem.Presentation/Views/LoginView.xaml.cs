@@ -1,9 +1,10 @@
-﻿using System.Windows;
-using SchoolFeeSystem.Presentation.ViewModels;
+﻿using SchoolFeeSystem.Presentation.ViewModels;
+using System.Windows;
+using System.Windows.Controls;
 
 namespace SchoolFeeSystem.Presentation.Views
 {
-    public partial class LoginView : Window
+    public partial class LoginView : UserControl
     {
         private readonly LoginViewModel _viewModel;
 
