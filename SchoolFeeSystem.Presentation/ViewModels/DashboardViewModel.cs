@@ -17,6 +17,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         }
 
         [RelayCommand]
+
         public void ShowStudents()
         {
             // Switch the main view to StudentView
@@ -41,6 +42,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         public void ShowClasses()
         {
             CurrentView = App.Current.Services.GetRequiredService<ClassView>();
+        }
+        [RelayCommand]
+        public void ShowHelp()
+        {
+            CurrentView = App.Current.Services.GetRequiredService<HelpView>();
         }
         [RelayCommand]
         public void Logout()

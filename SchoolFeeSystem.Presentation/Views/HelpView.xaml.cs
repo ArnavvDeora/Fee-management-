@@ -3,9 +3,9 @@ using SchoolFeeSystem.Presentation.ViewModels;
 
 namespace SchoolFeeSystem.Presentation.Views
 {
-    public partial class FeeView : UserControl
+    public partial class HelpView : UserControl
     {
-        public FeeView(FeeViewModel viewModel) // Uses FeeViewModel
+        public HelpView(HelpViewModel viewModel)
         {
             InitializeComponent();
             DataContext = viewModel;

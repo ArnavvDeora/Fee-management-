@@ -67,6 +67,8 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<ReportsView>();
             services.AddTransient<ClassViewModel>();
             services.AddTransient<ClassView>();
+            services.AddTransient<HelpViewModel>();
+            services.AddTransient<HelpView>();
         }
 
         protected override void OnStartup(StartupEventArgs e)
