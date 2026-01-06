@@ -12,7 +12,7 @@ namespace SchoolFeeSystem.Core.Interfaces
         // Salary Processing
         List<SalaryRecord> GenerateMonthlyPayroll(string monthYear);
         void PaySalary(int salaryRecordId);
-
+        void UpdateEmployee(Employee employee);
         // Dashboard Real Data Helpers
         int GetTotalEmployees();
         decimal GetTotalPayoutForMonth(string monthYear);
@@ -22,6 +22,7 @@ namespace SchoolFeeSystem.Core.Interfaces
         // Lists for the Dashboard
         List<SalaryRecord> GetRecentPaidSalaries(int count);
         List<Employee> GetRecentEmployees(int count);
+        List<Employee> SearchStaff(string query, string staffType);
         Dictionary<string, decimal> GetPayoutHistory(int monthsToLookBack);
     }
 }

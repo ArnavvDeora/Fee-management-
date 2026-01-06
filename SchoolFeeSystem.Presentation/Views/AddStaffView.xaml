@@ -1,0 +1,93 @@
+﻿<UserControl x:Class="SchoolFeeSystem.Presentation.Views.AddStaffView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignHeight="700" d:DesignWidth="1100" Background="#F8F9FA">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <Grid Margin="50">
+            <StackPanel MaxWidth="800" HorizontalAlignment="Center">
+
+                <TextBlock Text="Add New Staff Member" FontSize="24" FontWeight="Bold" Foreground="#2C3E50" Margin="0,0,0,30"/>
+
+                <Border Background="White" CornerRadius="10" Padding="30">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="20" ShadowDepth="0" Color="#D6DBDF"/>
+                    </Border.Effect>
+
+                    <StackPanel>
+                        <TextBlock Text="Staff Type" FontWeight="SemiBold" Foreground="#7F8C8D" Margin="0,0,0,5"/>
+                        <ComboBox SelectedValue="{Binding StaffType}" SelectedValuePath="Content" Padding="10" Margin="0,0,0,20">
+                            <ComboBoxItem Content="Teaching" IsSelected="True"/>
+                            <ComboBoxItem Content="Non-Teaching"/>
+                        </ComboBox>
+
+                        <Grid Margin="0,0,0,20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="15"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="First Name" FontWeight="SemiBold" Foreground="#7F8C8D"/>
+                                <TextBox Text="{Binding FirstName}" Padding="10" Margin="0,5,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Last Name" FontWeight="SemiBold" Foreground="#7F8C8D"/>
+                                <TextBox Text="{Binding LastName}" Padding="10" Margin="0,5,0,0"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="15"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Designation (e.g. Senior Teacher)" FontWeight="SemiBold" Foreground="#7F8C8D"/>
+                                <TextBox Text="{Binding Designation}" Padding="10" Margin="0,5,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Department (e.g. Math, Science)" FontWeight="SemiBold" Foreground="#7F8C8D"/>
+                                <TextBox Text="{Binding Department}" Padding="10" Margin="0,5,0,0"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="15"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Email Address" FontWeight="SemiBold" Foreground="#7F8C8D"/>
+                                <TextBox Text="{Binding Email}" Padding="10" Margin="0,5,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Phone Number" FontWeight="SemiBold" Foreground="#7F8C8D"/>
+                                <TextBox Text="{Binding Phone}" Padding="10" Margin="0,5,0,0"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <TextBlock Text="Base Monthly Salary (₹)" FontWeight="SemiBold" Foreground="#7F8C8D" Margin="0,0,0,5"/>
+                        <TextBox Text="{Binding BaseSalary}" Padding="10" Margin="0,0,0,30"/>
+
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="Cancel" Command="{Binding GoBackCommand}" Background="Transparent" Foreground="#7F8C8D" BorderThickness="0" Margin="0,0,15,0"/>
+                            <Button Content="Save Employee" Command="{Binding SaveEmployeeCommand}" Padding="20,10" Background="#27AE60" Foreground="White" BorderThickness="0" FontWeight="Bold">
+                                <Button.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius" Value="5"/>
+                                    </Style>
+                                </Button.Resources>
+                            </Button>
+                        </StackPanel>
+
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</UserControl>

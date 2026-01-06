@@ -128,6 +128,12 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
         // --- Navigation ---
         [RelayCommand]
+        public void GoToManageStaff()
+        {
+            var staffView = App.Current.Services.GetRequiredService<StaffDirectoryView>();
+            Application.Current.MainWindow.Content = staffView;
+        }
+        [RelayCommand]
         public void GoBack()
         {
             var selectionScreen = App.Current.Services.GetRequiredService<MainSelectionView>();
@@ -135,6 +141,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         }
 
         [RelayCommand]
+
         public void Logout()
         {
             var loginScreen = App.Current.Services.GetRequiredService<LoginView>();

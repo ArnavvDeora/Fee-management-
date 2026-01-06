@@ -1,0 +1,203 @@
+﻿<UserControl x:Class="SchoolFeeSystem.Presentation.Views.StaffDirectoryView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignHeight="700" d:DesignWidth="1100"
+             Background="#F8F9FA">
+
+    <Grid Margin="30">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <Button Content="⬅ Back" Command="{Binding GoBackCommand}" HorizontalAlignment="Left" Background="Transparent" BorderThickness="0" Foreground="#7F8C8D" FontWeight="Bold" Cursor="Hand"/>
+            <TextBlock Text="Staff Directory" FontSize="28" FontWeight="Bold" Foreground="#2C3E50" Margin="0,10,0,5"/>
+            <TextBlock Text="Manage employee records, departments, and contact details." FontSize="14" Foreground="#7F8C8D"/>
+        </StackPanel>
+
+        <Grid Grid.Row="1" Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="White" CornerRadius="8" BorderBrush="#E0E0E0" BorderThickness="1" Height="45" Margin="0,0,20,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="🔍" VerticalAlignment="Center" Margin="15,0,10,0" Opacity="0.5"/>
+                    <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" 
+                             VerticalContentAlignment="Center" BorderThickness="0" Background="Transparent" 
+                             FontSize="14"  Grid.Column="1"/>
+                    <Button Content="Search" Command="{Binding PerformSearchCommand}" Grid.Column="2" 
+                            Margin="5" Background="#3498DB" Foreground="White" BorderThickness="0" FontWeight="Bold" Padding="15,0">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="6"/>
+                            </Style>
+                        </Button.Resources>
+                    </Button>
+                </Grid>
+            </Border>
+
+            <Button Grid.Column="1" Command="{Binding AddNewStaffCommand}" 
+                    Content="+ Add New Staff" Height="45" Background="#27AE60" Foreground="White" 
+                    FontSize="14" FontWeight="Bold" BorderThickness="0" Padding="20,0">
+                <Button.Resources>
+                    <Style TargetType="Border">
+                        <Setter Property="CornerRadius" Value="8"/>
+                    </Style>
+                </Button.Resources>
+            </Button>
+        </Grid>
+
+        <TabControl Grid.Row="2" Background="Transparent" BorderThickness="0">
+            <TabControl.Resources>
+                <Style TargetType="TabItem">
+                    <Setter Property="FontSize" Value="16"/>
+                    <Setter Property="FontWeight" Value="SemiBold"/>
+                    <Setter Property="Padding" Value="20,10"/>
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Setter Property="Foreground" Value="#7F8C8D"/>
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="TabItem">
+                                <Border Name="Border" BorderThickness="0,0,0,3" BorderBrush="Transparent" Margin="0,0,20,0">
+                                    <ContentPresenter x:Name="ContentSite" VerticalAlignment="Center" HorizontalAlignment="Center" ContentSource="Header" Margin="10,2"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter TargetName="Border" Property="BorderBrush" Value="#3498DB"/>
+                                        <Setter Property="Foreground" Value="#2C3E50"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </TabControl.Resources>
+
+            <TabItem Header="Teaching Staff">
+                <DataGrid ItemsSource="{Binding TeachingStaff}" AutoGenerateColumns="False" 
+                          CanUserAddRows="False" IsReadOnly="True" HeadersVisibility="Column"
+                          Margin="0,20,0,0" BorderThickness="0" Background="White" RowBackground="White" 
+                          AlternatingRowBackground="#F8F9FA" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#EEEEEE">
+
+                    <DataGrid.Resources>
+                        <Style TargetType="DataGridColumnHeader">
+                            <Setter Property="Background" Value="#F1F2F6"/>
+                            <Setter Property="Padding" Value="15,12"/>
+                            <Setter Property="FontWeight" Value="Bold"/>
+                            <Setter Property="Foreground" Value="#2C3E50"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                        </Style>
+                        <Style TargetType="DataGridCell">
+                            <Setter Property="Padding" Value="15,15"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="DataGridCell">
+                                        <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}">
+                                            <ContentPresenter VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </DataGrid.Resources>
+
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="Employee Details" Width="2*">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="40" Height="40" CornerRadius="20" Background="#3498DB" Margin="0,0,15,0">
+                                            <TextBlock Text="{Binding FirstName[0]}" Foreground="White" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding FullName}" FontWeight="Bold" FontSize="14" Foreground="#2C3E50"/>
+                                            <TextBlock Text="{Binding Email}" FontSize="12" Foreground="#7F8C8D"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTextColumn Header="Designation" Binding="{Binding Designation}" Width="*" Foreground="#34495E"/>
+                        <DataGridTextColumn Header="Department" Binding="{Binding Department}" Width="*" Foreground="#34495E"/>
+                        <DataGridTextColumn Header="Phone" Binding="{Binding PhoneNumber}" Width="*" Foreground="#34495E"/>
+
+                        <DataGridTemplateColumn Header="Action" Width="Auto">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Content="View Details" Command="{Binding DataContext.ViewDetailsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
+                                            CommandParameter="{Binding}"
+                                            Background="Transparent" BorderBrush="#3498DB" BorderThickness="1" Foreground="#3498DB" FontWeight="SemiBold" Padding="10,5">
+                                        <Button.Resources>
+                                            <Style TargetType="Border">
+                                                <Setter Property="CornerRadius" Value="4"/>
+                                            </Style>
+                                        </Button.Resources>
+                                    </Button>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+
+            <TabItem Header="Non-Teaching Staff">
+                <DataGrid ItemsSource="{Binding NonTeachingStaff}" AutoGenerateColumns="False" 
+                          CanUserAddRows="False" IsReadOnly="True" HeadersVisibility="Column"
+                          Margin="0,20,0,0" BorderThickness="0" Background="White" RowBackground="White"
+                          AlternatingRowBackground="#F8F9FA" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#EEEEEE">
+
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="Employee Details" Width="2*">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Border Width="40" Height="40" CornerRadius="20" Background="#E67E22" Margin="0,0,15,0">
+                                            <TextBlock Text="{Binding FirstName[0]}" Foreground="White" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding FullName}" FontWeight="Bold" FontSize="14" Foreground="#2C3E50"/>
+                                            <TextBlock Text="{Binding Email}" FontSize="12" Foreground="#7F8C8D"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTextColumn Header="Designation" Binding="{Binding Designation}" Width="*" Foreground="#34495E"/>
+                        <DataGridTextColumn Header="Department" Binding="{Binding Department}" Width="*" Foreground="#34495E"/>
+                        <DataGridTextColumn Header="Phone" Binding="{Binding PhoneNumber}" Width="*" Foreground="#34495E"/>
+
+                        <DataGridTemplateColumn Header="Action" Width="Auto">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Content="View Details" Command="{Binding DataContext.ViewDetailsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
+                                            CommandParameter="{Binding}"
+                                            Background="Transparent" BorderBrush="#3498DB" BorderThickness="1" Foreground="#3498DB" FontWeight="SemiBold" Padding="10,5">
+                                        <Button.Resources>
+                                            <Style TargetType="Border">
+                                                <Setter Property="CornerRadius" Value="4"/>
+                                            </Style>
+                                        </Button.Resources>
+                                    </Button>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</UserControl>

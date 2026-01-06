@@ -8,14 +8,23 @@ namespace SchoolFeeSystem.Core.Entities
         [Key]
         public int Id { get; set; }
 
-        public string FullName { get; set; } = string.Empty;
-        public string Designation { get; set; } = string.Empty; // e.g. Teacher, Driver
-        public string ContactNumber { get; set; } = string.Empty;
-        public string Email { get; set; } = string.Empty;
-        public string Address { get; set; } = string.Empty;
+        public string FirstName { get; set; } = string.Empty;
+        public string LastName { get; set; } = string.Empty;
 
-        public decimal BaseSalary { get; set; } // Fixed monthly salary
-        public DateTime JoiningDate { get; set; } = DateTime.Today;
+        // Helper to get full name easily
+        public string FullName => $"{FirstName} {LastName}";
+
+        public string Designation { get; set; } = string.Empty; // e.g. "Senior Teacher"
+        public string Department { get; set; } = string.Empty;  // e.g. "Math, Science"
+        public string StaffType { get; set; } = "Teaching";     // "Teaching" or "Non-Teaching"
+
+        public decimal BaseSalary { get; set; }
+        public DateTime JoiningDate { get; set; } = DateTime.Now;
+
+        // Contact Info
+        public string Email { get; set; } = string.Empty;
+        public string PhoneNumber { get; set; } = string.Empty;
+        public string Address { get; set; } = string.Empty;
 
         public bool IsActive { get; set; } = true;
     }

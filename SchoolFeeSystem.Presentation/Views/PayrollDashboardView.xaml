@@ -62,7 +62,7 @@
                     <Button Content="Dashboard" FontWeight="Bold" Height="45" Foreground="White" BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Left" FontSize="14" Padding="15,0"/>
                 </Border>
 
-                <Button Content="Manage Staff" Height="45" Margin="0,5" Background="Transparent" Foreground="#BDC3C7" BorderThickness="0" HorizontalContentAlignment="Left" FontSize="14" Padding="15,0"/>
+                <Button Content="Manage Staff" Command="{Binding GoToManageStaffCommand}" Height="45" Margin="0,5" Background="Transparent" Foreground="#BDC3C7" BorderThickness="0" HorizontalContentAlignment="Left" FontSize="14" Padding="15,0"/>
                 <Button Content="Salary Setup" Height="45" Margin="0,5" Background="Transparent" Foreground="#BDC3C7" BorderThickness="0" HorizontalContentAlignment="Left" FontSize="14" Padding="15,0"/>
                 <Button Content="Process Payroll" Height="45" Margin="0,5" Background="Transparent" Foreground="#BDC3C7" BorderThickness="0" HorizontalContentAlignment="Left" FontSize="14" Padding="15,0"/>
                 <Button Content="Salary Reports" Height="45" Margin="0,5" Background="Transparent" Foreground="#BDC3C7" BorderThickness="0" HorizontalContentAlignment="Left" FontSize="14" Padding="15,0"/>

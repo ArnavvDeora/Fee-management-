@@ -76,6 +76,14 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<ReportsView>();
             services.AddTransient<ClassView>();
             services.AddTransient<HelpView>();
+            services.AddTransient<StaffDirectoryViewModel>();
+            services.AddTransient<StaffDirectoryView>();
+            services.AddTransient<AddStaffViewModel>();
+            services.AddTransient<AddStaffView>();
+
+            // Use Singleton for details so we can pass data to it easily
+            services.AddSingleton<StaffDetailsViewModel>();
+            services.AddSingleton<StaffDetailsView>();
         }
 
         protected override void OnStartup(StartupEventArgs e)

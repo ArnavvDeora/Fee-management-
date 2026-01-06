@@ -63,7 +63,11 @@ namespace SchoolFeeSystem.Infrastructure.Services
             // Re-fetch to include Employee details
             return _context.SalaryRecords.Include(s => s.Employee).Where(s => s.MonthYear == monthYear).ToList();
         }
-
+        public void UpdateEmployee(Employee employee)
+        {
+            _context.Employees.Update(employee);
+            _context.SaveChanges();
+        }
         public void PaySalary(int salaryRecordId)
         {
             var record = _context.SalaryRecords.Find(salaryRecordId);
@@ -126,7 +130,23 @@ namespace SchoolFeeSystem.Infrastructure.Services
                 .Take(count)
                 .ToList();
         }
+        public List<Employee> SearchStaff(string query, string staffType)
+        {
+            var dbQuery = _context.Employees.Where(e => e.StaffType == staffType && e.IsActive);
 
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                // Search by Name, Designation, or Department
+                query = query.ToLower();
+                dbQuery = dbQuery.Where(e =>
+                    e.FirstName.ToLower().Contains(query) ||
+                    e.LastName.ToLower().Contains(query) ||
+                    e.Department.ToLower().Contains(query) ||
+                    e.Designation.ToLower().Contains(query));
+            }
+
+            return dbQuery.ToList();
+        }
         public Dictionary<string, decimal> GetPayoutHistory(int monthsToLookBack)
         {
             // This is a bit complex for EF Core SQLite, so we'll do it in memory for now (safe for small apps)
