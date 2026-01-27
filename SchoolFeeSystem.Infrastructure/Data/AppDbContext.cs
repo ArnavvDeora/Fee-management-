@@ -13,10 +13,17 @@ namespace SchoolFeeSystem.Infrastructure.Data
         public DbSet<FeeStructure> FeeStructures { get; set; }
         public DbSet<StudentFee> StudentFees { get; set; }
         public DbSet<Transaction> Transactions { get; set; }
+        public DbSet<Allowance> Allowances { get; set; }
+        public DbSet<Deduction> Deductions { get; set; }
+        public DbSet<SalaryRevision> SalaryRevisions { get; set; }
+        public DbSet<Holiday> Holidays { get; set; }
+        public DbSet<AttendanceSettings> AttendanceSettings { get; set; }
 
         // HR Tables
         public DbSet<Employee> Employees { get; set; }
+        public DbSet<AttendanceRecord> AttendanceRecords { get; set; }
         public DbSet<SalaryRecord> SalaryRecords { get; set; }
+        public DbSet<SalaryComponent> SalaryComponents { get; set; }
 
         public AppDbContext()
         {
@@ -50,6 +57,10 @@ namespace SchoolFeeSystem.Infrastructure.Data
             modelBuilder.Entity<Class>()
                 .HasIndex(c => new { c.Name, c.Section })
                 .IsUnique();
+            modelBuilder.Entity<Employee>().HasIndex(e => e.BiometricId).IsUnique();
+            modelBuilder.Entity<Employee>()
+        .Property(e => e.BaseSalary)
+        .HasConversion<double>();
 
             base.OnModelCreating(modelBuilder);
         }

@@ -1,0 +1,68 @@
+﻿<UserControl x:Class="SchoolFeeSystem.Presentation.Views.ImportHolidaysView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             mc:Ignorable="d" xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             d:DesignHeight="600" d:DesignWidth="800" Background="#F8F9FA">
+
+    <Grid>
+        <Border Background="White" CornerRadius="12" MaxWidth="600" VerticalAlignment="Center" Padding="40">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="20" Opacity="0.1"/>
+            </Border.Effect>
+
+            <StackPanel>
+                <Button Content="⬅ Cancel" Command="{Binding GoBackCommand}" HorizontalAlignment="Left" Background="Transparent" BorderThickness="0" Foreground="Gray" Margin="-10,-10,0,10"/>
+
+                <TextBlock Text="Import Holidays" FontSize="24" FontWeight="Bold" Foreground="#2C3E50" HorizontalAlignment="Center"/>
+                <TextBlock Text="Follow the instructions below to upload your holiday calendar." Foreground="#7F8C8D" HorizontalAlignment="Center" Margin="0,5,0,30"/>
+
+                <Border Background="#EBF5FB" BorderBrush="#3498DB" BorderThickness="1" CornerRadius="8" Padding="20" Margin="0,0,0,30">
+                    <StackPanel>
+                        <TextBlock Text="📄 File Format Guide" FontWeight="Bold" Foreground="#2980B9" Margin="0,0,0,10"/>
+                        <TextBlock Text="1. Supported Formats: .CSV, .XLS, .XLSX" Margin="0,0,0,5"/>
+                        <TextBlock Text="2. Required Columns:" Margin="0,0,0,5"/>
+
+                        <Border Background="White" BorderBrush="#D6EAF8" BorderThickness="1" Margin="0,10">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <Border Grid.Row="0" Grid.Column="0" Background="#F2F3F4" Padding="10">
+                                    <TextBlock Text="Date (DD-MM-YYYY)" FontWeight="Bold"/>
+                                </Border>
+                                <Border Grid.Row="0" Grid.Column="1" Background="#F2F3F4" Padding="10">
+                                    <TextBlock Text="Holiday Name" FontWeight="Bold"/>
+                                </Border>
+
+                                <Border Grid.Row="1" Grid.Column="0" Padding="10">
+                                    <TextBlock Text="26-01-2026"/>
+                                </Border>
+                                <Border Grid.Row="1" Grid.Column="1" Padding="10">
+                                    <TextBlock Text="Republic Day"/>
+                                </Border>
+                            </Grid>
+                        </Border>
+
+                        <TextBlock Text="* The first row (Header) will be skipped automatically." FontSize="11" Foreground="Gray" FontStyle="Italic"/>
+                    </StackPanel>
+                </Border>
+
+                <Button Content="📂 Select File &amp; Upload" Command="{Binding UploadFileCommand}" 
+                        Height="50" Background="#27AE60" Foreground="White" FontSize="16" FontWeight="Bold" BorderThickness="0">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="8"/>
+                        </Style>
+                    </Button.Resources>
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

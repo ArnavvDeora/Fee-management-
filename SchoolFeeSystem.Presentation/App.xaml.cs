@@ -47,66 +47,86 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<IFeeService, FeeService>();
             services.AddTransient<IFeeCollectionService, FeeCollectionService>();
             services.AddTransient<IReportService, ReportService>();
-            services.AddTransient<IPayrollService, PayrollService>(); // <--- THIS WAS MISSING!
+            services.AddTransient<IPayrollService, PayrollService>();
+            services.AddTransient<IAttendanceService, AttendanceService>();
 
-            // --- ViewModels (The Connectors) ---
+            // --- ViewModels & Views ---
+
+            // Main Shell
+            services.AddSingleton<MainWindow>();
+
+            // Login
             services.AddTransient<LoginViewModel>();
-            services.AddTransient<DashboardViewModel>();
-            services.AddTransient<MainSelectionViewModel>();
-            services.AddTransient<PayrollDashboardViewModel>();
-
-            services.AddTransient<StudentViewModel>();
-            services.AddTransient<FeeViewModel>();
-            services.AddTransient<FeeCollectionViewModel>();
-            services.AddTransient<ReportsViewModel>();
-            services.AddTransient<ClassViewModel>();
-            services.AddTransient<HelpViewModel>();
-
-            // --- Views (The Screens) ---
-            services.AddSingleton<MainWindow>(); // <--- This registers the Main Shell
-
             services.AddTransient<LoginView>();
+
+            // Dashboard & Main Selection
+            services.AddTransient<MainSelectionViewModel>();
             services.AddTransient<MainSelectionView>();
+            services.AddTransient<DashboardViewModel>();
             services.AddTransient<DashboardView>();
+            services.AddTransient<PayrollDashboardViewModel>();
             services.AddTransient<PayrollDashboardView>();
 
+            // Core Features (Student, Fees, Reports)
+            services.AddTransient<StudentViewModel>();
             services.AddTransient<StudentView>();
+            services.AddTransient<FeeViewModel>();
             services.AddTransient<FeeView>();
+            services.AddTransient<FeeCollectionViewModel>();
             services.AddTransient<FeeCollectionView>();
+            services.AddTransient<ReportsViewModel>();
             services.AddTransient<ReportsView>();
+            services.AddTransient<ClassViewModel>();
             services.AddTransient<ClassView>();
+            services.AddTransient<HelpViewModel>();
             services.AddTransient<HelpView>();
+
+            // Staff & Payroll Features
             services.AddTransient<StaffDirectoryViewModel>();
             services.AddTransient<StaffDirectoryView>();
             services.AddTransient<AddStaffViewModel>();
             services.AddTransient<AddStaffView>();
 
-            // Use Singleton for details so we can pass data to it easily
+            // Staff Details (Singleton for data passing)
             services.AddSingleton<StaffDetailsViewModel>();
             services.AddSingleton<StaffDetailsView>();
+
+            services.AddTransient<SalarySetupViewModel>();
+            services.AddTransient<SalarySetupView>();
+
+            services.AddTransient<AttendanceManagementViewModel>();
+            services.AddTransient<AttendanceManagementView>();
+            services.AddTransient<EditAttendanceViewModel>(); // Popup VM
+
+            services.AddTransient<HolidayManagementViewModel>();
+            services.AddTransient<HolidayManagementView>();
+
+            services.AddTransient<ProcessPayrollViewModel>();
+            services.AddTransient<ProcessPayrollView>();
+            services.AddTransient<SalarySettingsViewModel>(); 
+            services.AddTransient<SalarySettingsView>();
+            services.AddTransient<PayrollReportsViewModel>();
+            services.AddTransient<PayrollReportsView>();
+            // Register the new Popups
+            services.AddTransient<PayslipViewerViewModel>();
+            services.AddTransient<PayslipViewerView>();
+            services.AddTransient<ImportHolidaysViewModel>();
+            services.AddTransient<ImportHolidaysView>();
         }
 
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
 
-            // 1. Get the MainWindow (The Shell)
-            // If this fails, it means 'services.AddSingleton<MainWindow>()' above didn't run.
             var mainWindow = Services.GetRequiredService<MainWindow>();
-
-            // 2. Get the Login View (The Content)
             var loginView = Services.GetRequiredService<LoginView>();
 
-            // 3. Put Login View INSIDE Main Window
             mainWindow.Content = loginView;
-
-            // 4. Set Initial Size for Login
             mainWindow.Width = 450;
             mainWindow.Height = 550;
             mainWindow.WindowStartupLocation = WindowStartupLocation.CenterScreen;
             mainWindow.Title = "Login";
 
-            // 5. Show the Main Window
             mainWindow.Show();
         }
     }

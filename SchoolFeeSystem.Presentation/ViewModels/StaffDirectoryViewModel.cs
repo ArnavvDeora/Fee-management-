@@ -14,17 +14,9 @@ namespace SchoolFeeSystem.Presentation.ViewModels
     {
         private readonly IPayrollService _payrollService;
 
-        // Search Bar Text
-        [ObservableProperty]
-        private string _searchText;
-
-        // The list displayed in the "Teaching" tab
-        [ObservableProperty]
-        private ObservableCollection<Employee> _teachingStaff;
-
-        // The list displayed in the "Non-Teaching" tab
-        [ObservableProperty]
-        private ObservableCollection<Employee> _nonTeachingStaff;
+        [ObservableProperty] private string _searchText;
+        [ObservableProperty] private ObservableCollection<Employee> _teachingStaff;
+        [ObservableProperty] private ObservableCollection<Employee> _nonTeachingStaff;
 
         public StaffDirectoryViewModel(IPayrollService payrollService)
         {
@@ -32,7 +24,13 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             LoadData();
         }
 
-        // Triggered when SearchText changes or "Search" button is clicked
+        // --- THIS WAS MISSING ---
+        // Public method allows other pages to force a refresh
+        public void RefreshData()
+        {
+            LoadData();
+        }
+
         [RelayCommand]
         public void PerformSearch()
         {
@@ -41,7 +39,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
         private void LoadData()
         {
-            // Fetch both lists based on the search text
+            // Fetch fresh data from database
+            // Note: Ensure your IPayrollService has SearchStaff. If not, replace with GetAllEmployees logic.
             var teachers = _payrollService.SearchStaff(SearchText, "Teaching");
             var nonTeachers = _payrollService.SearchStaff(SearchText, "Non-Teaching");
 
@@ -49,39 +48,32 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             NonTeachingStaff = new ObservableCollection<Employee>(nonTeachers);
         }
 
-        // --- FIXED: Single Definition for AddNewStaff ---
         [RelayCommand]
         public void AddNewStaff()
         {
-            // Navigate to the "Add Staff" View
-            var addView = App.Current.Services.GetRequiredService<AddStaffView>();
+            var addView = ((App)Application.Current).Services.GetRequiredService<AddStaffView>();
             Application.Current.MainWindow.Content = addView;
         }
 
-        // --- FIXED: Single Definition for ViewDetails ---
         [RelayCommand]
         public void ViewDetails(Employee employee)
         {
             if (employee == null) return;
+            var services = ((App)Application.Current).Services;
 
-            // 1. Get the details ViewModel
-            var detailsVM = App.Current.Services.GetRequiredService<StaffDetailsViewModel>();
-
-            // 2. Load the specific employee data
+            var detailsVM = services.GetRequiredService<StaffDetailsViewModel>();
             detailsVM.SetEmployee(employee);
 
-            // 3. Get the View and inject the populated ViewModel
-            var detailsView = App.Current.Services.GetRequiredService<StaffDetailsView>();
+            var detailsView = services.GetRequiredService<StaffDetailsView>();
             detailsView.DataContext = detailsVM;
-
-            // 4. Navigate
             Application.Current.MainWindow.Content = detailsView;
         }
 
         [RelayCommand]
         public void GoBack()
         {
-            var dashboard = App.Current.Services.GetRequiredService<PayrollDashboardView>();
+            var services = ((App)Application.Current).Services;
+            var dashboard = services.GetRequiredService<PayrollDashboardView>();
             Application.Current.MainWindow.Content = dashboard;
         }
     }

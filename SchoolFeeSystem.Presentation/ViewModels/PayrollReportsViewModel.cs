@@ -10,85 +10,49 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Text;
 using System.Windows;
-using System.Collections.Generic;
-using SchoolFeeSystem.Presentation; // For App casting
+using SchoolFeeSystem.Presentation;
 
 namespace SchoolFeeSystem.Presentation.ViewModels
 {
-    public partial class ReportsViewModel : ObservableObject
+    public partial class PayrollReportsViewModel : ObservableObject
     {
-        private readonly IReportService _feeReportService;
         private readonly IPayrollService _payrollService;
 
-        // ==========================
-        // 1. FEE MANAGEMENT PROPERTIES
-        // ==========================
-        [ObservableProperty] private decimal _todayCollection;
-        [ObservableProperty] private decimal _totalPending;
-        [ObservableProperty] private int _studentCount;
-        [ObservableProperty] private ObservableCollection<Transaction> _recentTransactions;
-
-        // ==========================
-        // 2. HR & PAYROLL PROPERTIES
-        // ==========================
+        // Filters
         [ObservableProperty] private ObservableCollection<Employee> _employees;
         [ObservableProperty] private Employee _selectedEmployee;
         [ObservableProperty] private DateTime _selectedMonth = DateTime.Now;
 
+        // Report Data
         [ObservableProperty] private ObservableCollection<AttendanceReportItem> _attendanceList;
         [ObservableProperty] private ObservableCollection<SalaryReportItem> _salaryList;
 
-        // Constructor Injection: We ask for BOTH services
-        public ReportsViewModel(IReportService feeReportService, IPayrollService payrollService)
+        public PayrollReportsViewModel(IPayrollService payrollService)
         {
-            _feeReportService = feeReportService;
             _payrollService = payrollService;
-
-            // Load Fee Data immediately
-            LoadFeeData();
-
-            // Load Employee Dropdown for Payroll Filters
-            LoadPayrollFilters();
+            LoadFilters();
         }
 
-        [RelayCommand]
-        public void Refresh()
-        {
-            LoadFeeData();
-        }
-
-        private void LoadFeeData()
-        {
-            TodayCollection = _feeReportService.GetTotalCollectionToday();
-            TotalPending = _feeReportService.GetTotalPendingAmount();
-            StudentCount = _feeReportService.GetTotalStudents();
-            RecentTransactions = new ObservableCollection<Transaction>(_feeReportService.GetRecentTransactions());
-        }
-
-        private void LoadPayrollFilters()
+        private void LoadFilters()
         {
             var list = _payrollService.GetAllEmployees();
-            // Add "All Employees" option
             list.Insert(0, new Employee { Id = 0, FirstName = "All", LastName = "Employees" });
             Employees = new ObservableCollection<Employee>(list);
             SelectedEmployee = Employees[0];
         }
 
-        // ==========================
-        // PAYROLL COMMANDS
-        // ==========================
         [RelayCommand]
-        public void GeneratePayrollReports()
+        public void GenerateReports()
         {
             int? empId = (SelectedEmployee?.Id > 0) ? SelectedEmployee.Id : (int?)null;
             int m = SelectedMonth.Month;
             int y = SelectedMonth.Year;
 
-            // 1. Fetch Attendance
+            // 1. Fetch Attendance Report
             var attData = _payrollService.GetAttendanceReport(m, y, empId);
             AttendanceList = new ObservableCollection<AttendanceReportItem>(attData);
 
-            // 2. Fetch Salary
+            // 2. Fetch Salary Report
             var salData = _payrollService.GetSalaryReport(m, y, empId);
             SalaryList = new ObservableCollection<SalaryReportItem>(salData);
         }
@@ -131,12 +95,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [RelayCommand]
         public void GoBack()
         {
-            // IMPORTANT: If you came here from Payroll Dashboard, go back there.
-            // If from Main Dashboard, handle accordingly.
-            // For now, let's assume this is accessed from Payroll Dashboard based on recent context.
-
+            // Since this is the Payroll Report, go back to Payroll Dashboard
             var services = ((App)Application.Current).Services;
-            // You can decide where "Back" goes. For now, let's go to Payroll Dashboard
             var dashboard = services.GetRequiredService<PayrollDashboardView>();
             Application.Current.MainWindow.Content = dashboard;
         }

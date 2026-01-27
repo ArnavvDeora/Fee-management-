@@ -1,0 +1,136 @@
+﻿<UserControl x:Class="SchoolFeeSystem.Presentation.Views.HolidayManagementView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignHeight="700" d:DesignWidth="1100" 
+             Background="#F8F9FA">
+
+    <Grid Margin="30">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <Button Content="⬅ Back to Dashboard" Command="{Binding GoBackCommand}" 
+                    HorizontalAlignment="Left" Background="Transparent" BorderThickness="0" 
+                    Foreground="#7F8C8D" FontWeight="Bold" Cursor="Hand" Margin="0,0,0,10"/>
+
+            <DockPanel>
+                <StackPanel>
+                    <TextBlock Text="Holiday Calendar" FontSize="28" FontWeight="Bold" Foreground="#2C3E50"/>
+                    <TextBlock Text="Manage academic holidays and recurring events." Foreground="#7F8C8D"/>
+                </StackPanel>
+
+                <Border Background="White" CornerRadius="6" BorderBrush="#E0E0E0" BorderThickness="1" 
+                        Padding="10,5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Year: " VerticalAlignment="Center" FontWeight="Bold" Foreground="#555"/>
+
+                        <TextBox Text="{Binding SelectedYear}" FontWeight="Bold" Width="60" BorderThickness="0" 
+                                 VerticalAlignment="Center" HorizontalContentAlignment="Center" FontSize="16"
+                                 MaxLength="4" PreviewTextInput="NumberValidationTextBox"/>
+
+                        <Button Content="🔄" Command="{Binding LoadHolidaysCommand}" Background="Transparent" BorderThickness="0"/>
+                    </StackPanel>
+                </Border>
+            </DockPanel>
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*"/>
+                <ColumnDefinition Width="30"/>
+                <ColumnDefinition Width="1*"/>
+            </Grid.ColumnDefinitions>
+
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Holidays}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="White" CornerRadius="8" Margin="0,0,5,10" Padding="15">
+                                <Border.Effect>
+                                    <DropShadowEffect BlurRadius="10" ShadowDepth="2" Color="#E0E0E0" Opacity="0.4"/>
+                                </Border.Effect>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="60"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <Border Grid.Column="0" Background="#EBF5FB" CornerRadius="6" Height="50" Width="50" VerticalAlignment="Center">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Date, StringFormat=dd}" 
+                                                       HorizontalAlignment="Center" FontWeight="Bold" FontSize="18" Foreground="#3498DB"/>
+                                            <TextBlock Text="{Binding Date, StringFormat=MMM}" 
+                                                       HorizontalAlignment="Center" FontSize="10" FontWeight="Bold" Foreground="#3498DB"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="15,0,0,0">
+                                        <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="16" Foreground="#2C3E50"/>
+                                        <TextBlock Text="{Binding Date, StringFormat=dddd}" FontSize="12" Foreground="#95A5A6"/>
+                                    </StackPanel>
+
+                                    <Button Grid.Column="2" Content="🗑" 
+                                            Command="{Binding DataContext.DeleteHolidayCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
+                                            CommandParameter="{Binding}"
+                                            Background="Transparent" BorderThickness="0" Foreground="#E74C3C" 
+                                            FontSize="16" Padding="10" Cursor="Hand"/>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <StackPanel Grid.Column="2">
+
+                <Border Background="White" CornerRadius="10" Padding="20">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="15" ShadowDepth="5" Color="#EAECEE" Opacity="0.5"/>
+                    </Border.Effect>
+
+                    <StackPanel>
+                        <TextBlock Text="➕ Add New Holiday" FontWeight="Bold" FontSize="16" Foreground="#2C3E50" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Holiday Name" FontWeight="SemiBold" Foreground="#7F8C8D" Margin="0,0,0,5"/>
+                        <TextBox Text="{Binding NewHolidayName}" Padding="10" Margin="0,0,0,15" BorderBrush="#E0E0E0"/>
+
+                        <TextBlock Text="Date" FontWeight="SemiBold" Foreground="#7F8C8D" Margin="0,0,0,5"/>
+                        <DatePicker SelectedDate="{Binding NewHolidayDate}" Padding="10" Margin="0,0,0,20" VerticalContentAlignment="Center"/>
+
+                        <Button Content="Add to Calendar" Command="{Binding AddHolidayCommand}" 
+                                Background="#27AE60" Foreground="White" FontWeight="Bold" Padding="12" BorderThickness="0">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="6"/>
+                                </Style>
+                            </Button.Resources>
+                        </Button>
+                    </StackPanel>
+                </Border>
+
+                <Border Background="#34495E" CornerRadius="10" Padding="20" Margin="0,20,0,0">
+                    <StackPanel>
+                        <TextBlock Text="📂 Bulk Import" FontWeight="Bold" FontSize="16" Foreground="White" Margin="0,0,0,10"/>
+                        <TextBlock Text="Import CSV file containing list of holidays." Foreground="#BDC3C7" TextWrapping="Wrap" Margin="0,0,0,15"/>
+
+                        <Button Content="Import Holidays" Command="{Binding GoToImportCommand}" 
+                                Background="White" Foreground="#34495E" FontWeight="Bold" Padding="12" BorderThickness="0">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="6"/>
+                                </Style>
+                            </Button.Resources>
+                        </Button>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>

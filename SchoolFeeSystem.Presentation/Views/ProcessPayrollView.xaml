@@ -1,0 +1,87 @@
+﻿<UserControl x:Class="SchoolFeeSystem.Presentation.Views.ProcessPayrollView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignHeight="700" d:DesignWidth="1100" Background="#F8F9FA">
+
+    <Grid Margin="30">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <Button Content="⬅ Back to Dashboard" Command="{Binding GoBackCommand}" HorizontalAlignment="Left" Background="Transparent" BorderThickness="0" Foreground="#7F8C8D" FontWeight="Bold" Cursor="Hand" Margin="0,0,0,10"/>
+            <TextBlock Text="Process Monthly Payroll" FontSize="28" FontWeight="Bold" Foreground="#2C3E50"/>
+            <TextBlock Text="Calculate salaries based on attendance and generate slips." Foreground="#7F8C8D"/>
+        </StackPanel>
+
+        <Border Grid.Row="1" Background="White" CornerRadius="8" Padding="20" Margin="0,0,0,20" BorderBrush="#E0E0E0" BorderThickness="1">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="Select Month:" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,0"/>
+                <DatePicker SelectedDate="{Binding SelectedMonth}" Width="150" Margin="0,0,20,0"/>
+
+                <Button Content="⚙ Calculate Payroll" Command="{Binding CalculateAllSalariesCommand}" 
+                        Background="#2980B9" Foreground="White" FontWeight="Bold" Padding="20,10" BorderThickness="0">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="5"/>
+                        </Style>
+                    </Button.Resources>
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <DataGrid Grid.Row="2" ItemsSource="{Binding SalaryList}" AutoGenerateColumns="False" 
+                  CanUserAddRows="False" IsReadOnly="True" Background="White" BorderThickness="0"
+                  HeadersVisibility="Column" RowHeight="40">
+
+            <DataGrid.Resources>
+                <Style TargetType="DataGridColumnHeader">
+                    <Setter Property="Background" Value="#F1F2F6"/>
+                    <Setter Property="Padding" Value="10"/>
+                    <Setter Property="FontWeight" Value="Bold"/>
+                    <Setter Property="Foreground" Value="#2C3E50"/>
+                </Style>
+            </DataGrid.Resources>
+
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Name" Binding="{Binding Employee.FullName}" Width="1.5*"/>
+                <DataGridTextColumn Header="Basic" Binding="{Binding BasicSalary, StringFormat=N0}" Width="*"/>
+
+                <DataGridTextColumn Header="Payable Days" Binding="{Binding PayableDays}" Width="0.8*"/>
+
+                <DataGridTextColumn Header="Earned" Binding="{Binding SalaryEarned, StringFormat=N0}" Width="*"/>
+                <DataGridTextColumn Header="OT" Binding="{Binding OT_Salary, StringFormat=N0}" Width="0.6*"/>
+                <DataGridTextColumn Header="Gross" Binding="{Binding GrossSalary, StringFormat=N0}" Width="*" FontWeight="SemiBold"/>
+
+                <DataGridTextColumn Header="Deductions" Binding="{Binding TotalDeductions, StringFormat=N0}" Width="*" Foreground="Red"/>
+
+                <DataGridTextColumn Header="NET PAID" Binding="{Binding NetPaid, StringFormat=N0}" Width="1.2*" FontWeight="Bold" Foreground="Green"/>
+
+                <DataGridTextColumn Header="Inst. Cost (+GST)" Binding="{Binding TotalInstituteCost, StringFormat=N0}" Width="1.2*" Foreground="Gray"/>
+
+                <DataGridTemplateColumn Header="Action" Width="Auto">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Content="📄 Slip" 
+                                    Command="{Binding DataContext.GenerateSlipCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
+                                    CommandParameter="{Binding}"
+                                    Background="#27AE60" Foreground="White" BorderThickness="0" Padding="10,5" Margin="2"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <Border Grid.Row="3" Background="#2C3E50" Padding="20" Margin="0,20,0,0" CornerRadius="8">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <TextBlock Text="Total Monthly Payout:" Foreground="White" FontSize="18" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <TextBlock Text="{Binding TotalPayout, StringFormat=C}" Foreground="#2ECC71" FontSize="24" FontWeight="Bold" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

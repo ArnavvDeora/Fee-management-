@@ -5,89 +5,177 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" d:DesignHeight="700" d:DesignWidth="1100" Background="#F8F9FA">
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <Grid Margin="50">
-            <StackPanel MaxWidth="800" HorizontalAlignment="Center">
+    <Grid Margin="50">
+        <StackPanel MaxWidth="850" HorizontalAlignment="Center" VerticalAlignment="Top">
 
-                <TextBlock Text="Add New Staff Member" FontSize="24" FontWeight="Bold" Foreground="#2C3E50" Margin="0,0,0,30"/>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
+                <Button Content="⬅" Command="{Binding GoBackCommand}" Background="Transparent" Foreground="#7F8C8D" FontWeight="Bold" BorderThickness="0" FontSize="20" Margin="0,0,15,0" VerticalAlignment="Center"/>
+                <TextBlock Text="Add New Staff" FontSize="28" FontWeight="Bold" Foreground="#2C3E50" VerticalAlignment="Center"/>
+            </StackPanel>
 
-                <Border Background="White" CornerRadius="10" Padding="30">
-                    <Border.Effect>
-                        <DropShadowEffect BlurRadius="20" ShadowDepth="0" Color="#D6DBDF"/>
-                    </Border.Effect>
+            <TabControl BorderThickness="0" Background="Transparent">
+                <TabControl.Resources>
+                    <Style TargetType="TabItem">
+                        <Setter Property="FontSize" Value="16"/>
+                        <Setter Property="FontWeight" Value="SemiBold"/>
+                        <Setter Property="Padding" Value="20,12"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="TabItem">
+                                    <Border Name="Border" BorderThickness="0,0,0,3" BorderBrush="Transparent" Margin="0,0,20,0" Background="Transparent">
+                                        <ContentPresenter x:Name="ContentSite" VerticalAlignment="Center" HorizontalAlignment="Center" ContentSource="Header" Margin="10,2"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="Border" Property="BorderBrush" Value="#3498DB"/>
+                                            <Setter Property="Foreground" Value="#2C3E50"/>
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="False">
+                                            <Setter Property="Foreground" Value="#95A5A6"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </TabControl.Resources>
 
-                    <StackPanel>
-                        <TextBlock Text="Staff Type" FontWeight="SemiBold" Foreground="#7F8C8D" Margin="0,0,0,5"/>
-                        <ComboBox SelectedValue="{Binding StaffType}" SelectedValuePath="Content" Padding="10" Margin="0,0,0,20">
-                            <ComboBoxItem Content="Teaching" IsSelected="True"/>
-                            <ComboBoxItem Content="Non-Teaching"/>
-                        </ComboBox>
+                <TabItem Header="✍ Manual Entry">
+                    <Border Background="White" CornerRadius="10" Margin="0,20,0,0" Height="500">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="15" ShadowDepth="2" Color="#EAECEE" Opacity="0.5"/>
+                        </Border.Effect>
 
-                        <Grid Margin="0,0,0,20">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="15"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="First Name" FontWeight="SemiBold" Foreground="#7F8C8D"/>
-                                <TextBox Text="{Binding FirstName}" Padding="10" Margin="0,5,0,0"/>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="30">
+                            <StackPanel>
+                                <TextBlock Text="Staff Type" FontWeight="SemiBold" Foreground="#7F8C8D" Margin="0,0,0,5"/>
+                                <ComboBox SelectedValue="{Binding StaffType}" SelectedValuePath="Content" Padding="10" Margin="0,0,0,20">
+                                    <ComboBoxItem Content="Teaching" IsSelected="True"/>
+                                    <ComboBoxItem Content="Non-Teaching"/>
+                                </ComboBox>
+
+                                <Grid Margin="0,0,0,20">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="20"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="First Name" FontWeight="SemiBold" Foreground="#7F8C8D"/>
+                                        <TextBox Text="{Binding FirstName}" Padding="10" Margin="0,5,0,0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Last Name" FontWeight="SemiBold" Foreground="#7F8C8D"/>
+                                        <TextBox Text="{Binding LastName}" Padding="10" Margin="0,5,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Margin="0,0,0,20">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="20"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="20"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Designation" FontWeight="SemiBold" Foreground="#7F8C8D"/>
+                                        <TextBox Text="{Binding Designation}" Padding="10" Margin="0,5,0,0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Department" FontWeight="SemiBold" Foreground="#7F8C8D"/>
+                                        <TextBox Text="{Binding Department}" Padding="10" Margin="0,5,0,0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="4">
+                                        <TextBlock Text="Date of Joining" FontWeight="SemiBold" Foreground="#7F8C8D"/>
+                                        <DatePicker SelectedDate="{Binding JoiningDate}" Padding="10" Margin="0,5,0,0" VerticalContentAlignment="Center"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Margin="0,0,0,20">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="20"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Email" FontWeight="SemiBold" Foreground="#7F8C8D"/>
+                                        <TextBox Text="{Binding Email}" Padding="10" Margin="0,5,0,0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Phone" FontWeight="SemiBold" Foreground="#7F8C8D"/>
+                                        <TextBox Text="{Binding Phone}" MaxLength="10" PreviewTextInput="NumberValidationTextBox" Padding="10" Margin="0,5,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <StackPanel Margin="0,0,0,20">
+                                    <TextBlock Text="Residential Address" FontWeight="SemiBold" Foreground="#7F8C8D"/>
+                                    <TextBox Text="{Binding Address}" Padding="10" Margin="0,5,0,0" Height="60" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top"/>
+                                </StackPanel>
+
+                                <StackPanel Margin="0,0,0,20">
+                                    <TextBlock Text="Emergency Contact (Name &amp; Phone)" FontWeight="SemiBold" Foreground="#7F8C8D"/>
+                                    <TextBox Text="{Binding EmergencyContact}" Padding="10" Margin="0,5,0,0" ToolTip="Example: John Doe (Brother) - 9876543210"/>
+                                </StackPanel>
+
+                                <TextBlock Text="Base Monthly Salary (₹)" FontWeight="SemiBold" Foreground="#7F8C8D" Margin="0,0,0,5"/>
+                                <TextBox Text="{Binding BaseSalary}" Padding="10" Margin="0,0,0,30"/>
+
+                                <Button Content="Save Employee" Command="{Binding SaveEmployeeCommand}" Padding="0,12" Background="#27AE60" Foreground="White" BorderThickness="0" FontWeight="Bold" FontSize="16">
+                                    <Button.Resources>
+                                        <Style TargetType="Border">
+                                            <Setter Property="CornerRadius" Value="6"/>
+                                        </Style>
+                                    </Button.Resources>
+                                </Button>
                             </StackPanel>
-                            <StackPanel Grid.Column="2">
-                                <TextBlock Text="Last Name" FontWeight="SemiBold" Foreground="#7F8C8D"/>
-                                <TextBox Text="{Binding LastName}" Padding="10" Margin="0,5,0,0"/>
-                            </StackPanel>
-                        </Grid>
+                        </ScrollViewer>
+                    </Border>
+                </TabItem>
 
-                        <Grid Margin="0,0,0,20">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="15"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="Designation (e.g. Senior Teacher)" FontWeight="SemiBold" Foreground="#7F8C8D"/>
-                                <TextBox Text="{Binding Designation}" Padding="10" Margin="0,5,0,0"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="2">
-                                <TextBlock Text="Department (e.g. Math, Science)" FontWeight="SemiBold" Foreground="#7F8C8D"/>
-                                <TextBox Text="{Binding Department}" Padding="10" Margin="0,5,0,0"/>
-                            </StackPanel>
-                        </Grid>
+                <TabItem Header="📂 Bulk Upload (Excel)">
+                    <Border Background="White" CornerRadius="10" Padding="40" Margin="0,20,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Import Staff from Excel" FontSize="20" FontWeight="Bold" Foreground="#2C3E50" Margin="0,0,0,15"/>
+                            <TextBlock Text="Upload an .xlsx file to add multiple employees at once." Foreground="#7F8C8D" Margin="0,0,0,30"/>
 
-                        <Grid Margin="0,0,0,20">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="15"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="Email Address" FontWeight="SemiBold" Foreground="#7F8C8D"/>
-                                <TextBox Text="{Binding Email}" Padding="10" Margin="0,5,0,0"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="2">
-                                <TextBlock Text="Phone Number" FontWeight="SemiBold" Foreground="#7F8C8D"/>
-                                <TextBox Text="{Binding Phone}" Padding="10" Margin="0,5,0,0"/>
-                            </StackPanel>
-                        </Grid>
+                            <Border Background="#E8F6F3" BorderBrush="#27AE60" BorderThickness="1" CornerRadius="5" Padding="15" Margin="0,0,0,30">
+                                <StackPanel>
+                                    <TextBlock Text="💡 Excel Format Guide" FontWeight="Bold" Foreground="#27AE60" Margin="0,0,0,5"/>
+                                    <TextBlock Text="Ensure your columns are in this order:" Foreground="#2C3E50"/>
+                                    <TextBlock Text="1. First Name  |  2. Last Name  |  3. Designation  |  4. Dept  |  5. Type  |  6. Email  |  7. Phone  |  8. Salary" 
+                                               FontSize="12" Foreground="#555" Margin="0,5,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
 
-                        <TextBlock Text="Base Monthly Salary (₹)" FontWeight="SemiBold" Foreground="#7F8C8D" Margin="0,0,0,5"/>
-                        <TextBox Text="{Binding BaseSalary}" Padding="10" Margin="0,0,0,30"/>
+                            <Grid Margin="0,0,0,30">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Text="{Binding FileName}" IsReadOnly="True" Padding="10" Background="#F9F9F9" BorderBrush="#E0E0E0"/>
+                                <Button Grid.Column="1" Content="Browse..." Command="{Binding BrowseFileCommand}" Padding="15,0" Margin="10,0,0,0" Background="#3498DB" Foreground="White" BorderThickness="0">
+                                    <Button.Resources>
+                                        <Style TargetType="Border">
+                                            <Setter Property="CornerRadius" Value="4"/>
+                                        </Style>
+                                    </Button.Resources>
+                                </Button>
+                            </Grid>
 
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                            <Button Content="Cancel" Command="{Binding GoBackCommand}" Background="Transparent" Foreground="#7F8C8D" BorderThickness="0" Margin="0,0,15,0"/>
-                            <Button Content="Save Employee" Command="{Binding SaveEmployeeCommand}" Padding="20,10" Background="#27AE60" Foreground="White" BorderThickness="0" FontWeight="Bold">
+                            <Button Content="Import Data" Command="{Binding ImportExcelCommand}" Padding="0,15" Background="#2C3E50" Foreground="White" BorderThickness="0" FontWeight="Bold" FontSize="16">
                                 <Button.Resources>
                                     <Style TargetType="Border">
-                                        <Setter Property="CornerRadius" Value="5"/>
+                                        <Setter Property="CornerRadius" Value="6"/>
                                     </Style>
                                 </Button.Resources>
                             </Button>
                         </StackPanel>
+                    </Border>
+                </TabItem>
 
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-        </Grid>
-    </ScrollViewer>
+            </TabControl>
+        </StackPanel>
+    </Grid>
 </UserControl>
