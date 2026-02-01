@@ -21,9 +21,9 @@ namespace SchoolFeeSystem.Infrastructure.Services
             _context = context;
         }
 
-        // ==================================================
-        // 1. SMART BIOMETRIC IMPORT (Fixed for 3-Row Format)
-        // ==================================================
+        // =========================================================
+        // 1. SMART BIOMETRIC IMPORT (Updated for Designation & ID)
+        // =========================================================
         public void ImportBiometricReport(string filePath)
         {
             System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
@@ -47,7 +47,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
                     if (result.Tables.Count == 0) return;
                     var table = result.Tables[0];
 
-                    // 1. EXTRACT DATE
+                    // 1. EXTRACT MONTH & YEAR
                     int month = DateTime.Now.Month;
                     int year = DateTime.Now.Year;
 
@@ -76,7 +76,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
                     }
                     if (headerRow == -1) throw new Exception("Header 'Attendance ID' not found.");
 
-                    // 3. PROCESS ROWS (Logic Updated for 3-Row Blocks)
+                    // 3. PROCESS ROWS
                     var employeesCache = _context.Employees.ToList();
 
                     for (int i = headerRow + 1; i < table.Rows.Count; i++)
@@ -85,36 +85,39 @@ namespace SchoolFeeSystem.Infrastructure.Services
                         if (row.ItemArray.Length < 4) continue;
 
                         string type = row[3]?.ToString() ?? "";
-
-                        // We trigger processing ONLY on the "In-Time" row
                         if (!type.Contains("In-Time", StringComparison.OrdinalIgnoreCase)) continue;
 
-                        // --- READ THE NEXT 2 ROWS (Out-Time & Total-Time) ---
-                        DataRow outRow = (i + 1 < table.Rows.Count) ? table.Rows[i + 1] : null;
-                        DataRow totalRow = (i + 2 < table.Rows.Count) ? table.Rows[i + 2] : null;
-
+                        // --- READ ATTRIBUTES CORRECTLY ---
                         string bioId = row[0]?.ToString()?.Trim();
-                        string name = row[1]?.ToString()?.Trim();
+                        string rawName = row[1]?.ToString()?.Trim();
+                        string designation = row[2]?.ToString()?.Trim(); // Reads Column 2
 
                         if (string.IsNullOrEmpty(bioId)) continue;
 
-                        // --- AUTO-CREATE STAFF ---
+                        // Clean Name: "Aman Verma (111)" -> "Aman Verma"
+                        string cleanName = Regex.Replace(rawName, @"\s*\(\d+\)", "").Trim();
+
+                        // --- FIND OR CREATE STAFF ---
                         var emp = employeesCache.FirstOrDefault(e => e.BiometricId == bioId);
-                        if (emp == null && !string.IsNullOrEmpty(name))
+
+                        if (emp == null && !string.IsNullOrEmpty(cleanName))
                         {
-                            emp = employeesCache.FirstOrDefault(e => name.Contains(e.FirstName) && name.Contains(e.LastName));
+                            // Try finding by name match if ID is missing
+                            emp = employeesCache.FirstOrDefault(e =>
+                                (e.FirstName + " " + e.LastName).Equals(cleanName, StringComparison.OrdinalIgnoreCase));
                         }
 
                         if (emp == null)
                         {
+                            // CREATE NEW EMPLOYEE with Designation
                             emp = new Employee
                             {
-                                FirstName = name.Split(' ')[0],
-                                LastName = name.Contains(" ") ? name.Substring(name.IndexOf(" ") + 1) : "Staff",
+                                FirstName = cleanName.Split(' ')[0],
+                                LastName = cleanName.Contains(" ") ? cleanName.Substring(cleanName.IndexOf(" ") + 1) : "",
                                 BiometricId = bioId,
-                                Designation = "New Import",
+                                Designation = string.IsNullOrWhiteSpace(designation) ? "Staff" : designation,
                                 Department = "General",
-                                StaffType = "Teaching",
+                                StaffType = "Teaching", // Default, Admin can change later
                                 IsActive = true,
                                 JoiningDate = DateTime.Now,
                                 Email = bioId + "@school.com",
@@ -124,25 +127,44 @@ namespace SchoolFeeSystem.Infrastructure.Services
                             _context.SaveChanges();
                             employeesCache.Add(emp);
                         }
+                        else
+                        {
+                            // UPDATE EXISTING EMPLOYEE DETAILS
+                            // If they already exist, update the designation from the CSV to keep it fresh
+                            if (!string.IsNullOrWhiteSpace(designation) && emp.Designation != designation)
+                            {
+                                emp.Designation = designation;
+                                _context.Employees.Update(emp);
+                            }
+                            // Ensure Biometric ID is linked
+                            if (emp.BiometricId != bioId)
+                            {
+                                emp.BiometricId = bioId;
+                                _context.Employees.Update(emp);
+                            }
+                        }
 
-                        // --- SAVE ATTENDANCE (In, Out, Duration) ---
+                        // --- READ OUT-TIME & TOTAL-TIME ROWS ---
+                        DataRow outRow = (i + 1 < table.Rows.Count) ? table.Rows[i + 1] : null;
+                        DataRow totalRow = (i + 2 < table.Rows.Count) ? table.Rows[i + 2] : null;
+
+                        // --- SAVE ATTENDANCE ---
                         for (int day = 1; day <= 31; day++)
                         {
                             int colIndex = 3 + day;
                             if (colIndex >= table.Columns.Count) break;
                             if (day > DateTime.DaysInMonth(year, month)) break;
 
-                            // Grab values from the 3 rows
                             string inTime = row[colIndex]?.ToString()?.Trim();
                             string outTime = (outRow != null) ? outRow[colIndex]?.ToString()?.Trim() : "00:00";
                             string duration = (totalRow != null) ? totalRow[colIndex]?.ToString()?.Trim() : "00:00";
 
-                            // Normalize empty/zero values
+                            // Normalize data
                             if (inTime == "0" || string.IsNullOrWhiteSpace(inTime)) inTime = "00:00";
                             if (outTime == "0" || string.IsNullOrWhiteSpace(outTime)) outTime = "00:00";
                             if (duration == "0" || string.IsNullOrWhiteSpace(duration)) duration = "00:00";
 
-                            // Logic: If InTime exists, they are present
+                            // Mark Present if InTime exists
                             if (inTime != "00:00")
                             {
                                 DateTime date = new DateTime(year, month, day);
@@ -157,16 +179,16 @@ namespace SchoolFeeSystem.Infrastructure.Services
                                         Date = date,
                                         Status = "Present",
                                         InTime = inTime,
-                                        OutTime = outTime,    // Saved!
-                                        Duration = duration   // Saved!
+                                        OutTime = outTime,
+                                        Duration = duration
                                     });
                                 }
                                 else
                                 {
                                     record.Status = "Present";
                                     record.InTime = inTime;
-                                    record.OutTime = outTime;  // Updated!
-                                    record.Duration = duration;// Updated!
+                                    record.OutTime = outTime;
+                                    record.Duration = duration;
                                     _context.AttendanceRecords.Update(record);
                                 }
                             }
@@ -177,9 +199,9 @@ namespace SchoolFeeSystem.Infrastructure.Services
             }
         }
 
-        // =====================
-        // 2. STANDARD METHODS
-        // =====================
+        // =========================================================
+        // 2. STANDARD METHODS (Unchanged)
+        // =========================================================
 
         public List<AttendanceRecord> GetAttendance(int month, int year, int? employeeId = null)
         {
@@ -190,7 +212,6 @@ namespace SchoolFeeSystem.Infrastructure.Services
             if (employeeId.HasValue && employeeId.Value > 0)
                 query = query.Where(a => a.EmployeeId == employeeId);
 
-            // If month is 0, return all (useful for finding latest date)
             if (month > 0 && year > 0)
                 query = query.Where(a => a.Date.Month == month && a.Date.Year == year);
 
@@ -219,13 +240,8 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
         public void BulkMarkAttendance(List<AttendanceRecord> records)
         {
-            // Simple bulk implementation
             foreach (var r in records) MarkAttendance(r);
         }
-
-        // =========================================================
-        // 3. HOLIDAY MANAGEMENT
-        // =========================================================
 
         public List<Holiday> GetHolidays(int year)
         {
@@ -267,7 +283,6 @@ namespace SchoolFeeSystem.Infrastructure.Services
             }
         }
 
-        // Legacy Support
         public void ImportAttendance(string filePath) => ImportBiometricReport(filePath);
         public List<AttendanceRecord> GetRecords(int employeeId, int month, int year) => GetAttendance(month, year, employeeId);
         public void UpdateRecord(AttendanceRecord record) => MarkAttendance(record);
