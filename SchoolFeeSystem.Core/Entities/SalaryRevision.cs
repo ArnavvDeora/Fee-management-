@@ -8,12 +8,21 @@ namespace SchoolFeeSystem.Core.Entities
     {
         [Key]
         public int Id { get; set; }
-        public DateTime RevisionDate { get; set; } = DateTime.Now;
-        public string Description { get; set; } = string.Empty; // e.g. "Base salary increased by 10%"
-        public string ChangedBy { get; set; } = "Admin";
 
         public int EmployeeId { get; set; }
+
         [ForeignKey("EmployeeId")]
-        public virtual Employee Employee { get; set; } = null!;
+        public virtual Employee Employee { get; set; }
+
+        public DateTime RevisionDate { get; set; } = DateTime.Now;
+
+        // [FIX] Added this so we know what the salary changed TO
+        public decimal NewSalary { get; set; }
+
+        // [FIX] Renamed 'Description' to 'Reason' to match your Service code
+        public string Reason { get; set; }
+
+        // [FIX] Renamed 'ChangedBy' to 'UpdatedBy' to match your Service code
+        public string UpdatedBy { get; set; } = "Admin";
     }
 }

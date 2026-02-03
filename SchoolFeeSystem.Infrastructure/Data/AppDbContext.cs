@@ -28,7 +28,7 @@ namespace SchoolFeeSystem.Infrastructure.Data
         public AppDbContext()
         {
             // --- TEMPORARY FIX: RUN THIS ONCE ---
-            Database.EnsureDeleted();
+            //Database.EnsureDeleted();
             // ------------------------------------
 
             Database.EnsureCreated();

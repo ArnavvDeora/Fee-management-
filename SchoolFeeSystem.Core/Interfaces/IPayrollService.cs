@@ -21,14 +21,15 @@ namespace SchoolFeeSystem.Core.Interfaces
         void SaveSalaryComponent(SalaryComponent component);
         void DeleteSalaryComponent(int id);
         void SaveSalaryConfiguration(Employee employee, string reason);
+        List<SalaryRevision> GetSalaryRevisions(int employeeId);
 
         // --- Payroll Processing ---
         decimal CalculateNetSalary(int employeeId, int month, int year);
         List<SalaryRecord> GenerateMonthlyPayroll(string monthYear);
         void PaySalary(int salaryRecordId);
 
-        // *** NEW: Detailed Calculation for "SAMPLE 2025" Format ***
-        SalarySlipItem GenerateDetailedSalary(int employeeId, int month, int year);
+        // [FIX] Use the FULL NAME here to avoid Ambiguity Error
+        SchoolFeeSystem.Core.Entities.SalarySlipItem GenerateDetailedSalary(int employeeId, int month, int year);
 
         // --- Reports ---
         List<AttendanceReportItem> GetAttendanceReport(int month, int year, int? employeeId = null);

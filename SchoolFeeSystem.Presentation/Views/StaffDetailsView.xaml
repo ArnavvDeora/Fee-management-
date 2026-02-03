@@ -3,16 +3,17 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             mc:Ignorable="d" d:DesignHeight="700" d:DesignWidth="1100" Background="#F8F9FA">
+             mc:Ignorable="d" d:DesignHeight="900" d:DesignWidth="1100" Background="#F8F9FA">
 
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
         <Style TargetType="TextBox">
             <Setter Property="Padding" Value="10"/>
-            <Setter Property="Margin" Value="0,5,0,20"/>
+            <Setter Property="Margin" Value="0,5,5,15"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="BorderBrush" Value="#E0E0E0"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsEditMode}" Value="False">
                     <Setter Property="Background" Value="#F9F9F9"/>
@@ -25,6 +26,11 @@
                     <Setter Property="BorderBrush" Value="#3498DB"/>
                 </DataTrigger>
             </Style.Triggers>
+        </Style>
+
+        <Style TargetType="DatePicker">
+            <Setter Property="Margin" Value="0,5,5,15"/>
+            <Setter Property="IsEnabled" Value="{Binding IsEditMode}"/>
         </Style>
     </UserControl.Resources>
 
@@ -42,24 +48,50 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <Border Grid.Column="0" Width="70" Height="70" CornerRadius="35" Background="#2C3E50" Margin="0,0,20,0">
-                    <TextBlock Text="{Binding SelectedEmployee.FirstName[0]}" FontSize="32" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <Border Grid.Column="0" Width="120" Height="120" CornerRadius="60" Background="#2C3E50" Margin="0,0,25,0">
+                    <Grid>
+                        <TextBlock Text="{Binding SelectedEmployee.FirstName[0]}" FontSize="50" FontWeight="Bold" Foreground="White" 
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+                        <Ellipse>
+                            <Ellipse.Fill>
+                                <ImageBrush ImageSource="{Binding SelectedEmployee.Photo}" Stretch="UniformToFill"/>
+                            </Ellipse.Fill>
+                        </Ellipse>
+
+                        <Button Command="{Binding BrowsePhotoCommand}" 
+                                Visibility="{Binding IsEditMode, Converter={StaticResource BoolToVis}}"
+                                ToolTip="Click to Change Photo"
+                                Cursor="Hand" BorderThickness="0">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="#88000000" CornerRadius="60">
+                                        <TextBlock Text="📷" FontSize="32" Foreground="White" 
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </Grid>
                 </Border>
 
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding SelectedEmployee.FullName}" FontSize="24" FontWeight="Bold" Foreground="#2C3E50"/>
-                    <StackPanel Orientation="Horizontal">
-                        <Border Background="#E8F6F3" CornerRadius="4" Padding="8,4" Margin="0,5,10,0">
-                            <TextBlock Text="Active" Foreground="#27AE60" FontWeight="SemiBold" FontSize="12"/>
+                    <TextBlock Text="{Binding SelectedEmployee.FullName}" FontSize="28" FontWeight="Bold" Foreground="#2C3E50"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
+                        <Border Background="#E8F6F3" CornerRadius="4" Padding="8,4" Margin="0,0,10,0">
+                            <TextBlock Text="Active Staff" Foreground="#27AE60" FontWeight="SemiBold" FontSize="14"/>
                         </Border>
-                        <TextBlock Text="{Binding SelectedEmployee.Designation}" Foreground="#7F8C8D" FontSize="14" VerticalAlignment="Center" Margin="0,5,0,0"/>
+                        <TextBlock Text="{Binding SelectedEmployee.Designation}" Foreground="#7F8C8D" FontSize="18" VerticalAlignment="Center"/>
+                        <TextBlock Text=" • " Foreground="#BDC3C7" Margin="5,0"/>
+                        <TextBlock Text="{Binding SelectedEmployee.Department}" Foreground="#7F8C8D" FontSize="18" VerticalAlignment="Center"/>
                     </StackPanel>
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Content="⬅ Back" Command="{Binding GoBackCommand}" Background="Transparent" Foreground="#7F8C8D" FontWeight="Bold" BorderThickness="0" Margin="0,0,15,0"/>
+                    <Button Content="⬅ Back" Command="{Binding GoBackCommand}" Background="Transparent" 
+                            Foreground="#7F8C8D" FontWeight="Bold" BorderThickness="0" Margin="0,0,15,0" Cursor="Hand"/>
 
-                    <Button Command="{Binding ToggleEditModeCommand}" Height="40" Padding="20,0" BorderThickness="0" FontWeight="Bold">
+                    <Button Command="{Binding ToggleEditModeCommand}" Height="45" Padding="25,0" BorderThickness="0" FontWeight="Bold" Cursor="Hand">
                         <Button.Style>
                             <Style TargetType="Button">
                                 <Setter Property="Background" Value="#3498DB"/>
@@ -68,7 +100,7 @@
                                 <Setter Property="Template">
                                     <Setter.Value>
                                         <ControlTemplate TargetType="Button">
-                                            <Border Background="{TemplateBinding Background}" CornerRadius="5">
+                                            <Border Background="{TemplateBinding Background}" CornerRadius="6">
                                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                             </Border>
                                         </ControlTemplate>
@@ -88,97 +120,198 @@
 
             <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="2*"/>
+                    <ColumnDefinition Width="2.5*"/>
                     <ColumnDefinition Width="1*"/>
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0" Margin="0,0,30,0">
 
-                    <Border Background="White" CornerRadius="10" Padding="20" Margin="0,0,0,20">
+                    <Border Background="White" CornerRadius="10" Padding="25" Margin="0,0,0,20">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="10" Color="#DDD" Opacity="0.2" ShadowDepth="2"/>
+                        </Border.Effect>
                         <StackPanel>
-                            <TextBlock Text="👤 Personal Information" FontSize="16" FontWeight="Bold" Foreground="#2C3E50" Margin="0,0,0,20"/>
+                            <TextBlock Text="👤 Personal Information" FontSize="18" FontWeight="Bold" Foreground="#2C3E50" Margin="0,0,0,20"/>
 
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="20"/>
+                                    <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
 
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="First Name" Foreground="#7F8C8D" FontWeight="SemiBold"/>
+                                <StackPanel Grid.Row="0" Grid.Column="0">
+                                    <TextBlock Text="First Name" Foreground="#95A5A6" FontWeight="SemiBold"/>
                                     <TextBox Text="{Binding SelectedEmployee.FirstName}"/>
                                 </StackPanel>
-
-                                <StackPanel Grid.Column="2">
-                                    <TextBlock Text="Last Name" Foreground="#7F8C8D" FontWeight="SemiBold"/>
+                                <StackPanel Grid.Row="0" Grid.Column="1">
+                                    <TextBlock Text="Last Name" Foreground="#95A5A6" FontWeight="SemiBold"/>
                                     <TextBox Text="{Binding SelectedEmployee.LastName}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Row="0" Grid.Column="2">
+                                    <TextBlock Text="Father / Husband Name" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                    <TextBox Text="{Binding SelectedEmployee.FatherName}"/>
+                                </StackPanel>
+
+                                <StackPanel Grid.Row="1" Grid.Column="0">
+                                    <TextBlock Text="Date of Birth" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                    <DatePicker SelectedDate="{Binding SelectedEmployee.DateOfBirth}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="1">
+                                    <TextBlock Text="Gender" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                    <TextBox Text="{Binding SelectedEmployee.Gender}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="2">
+                                    <TextBlock Text="Category" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                    <TextBox Text="{Binding SelectedEmployee.Category}"/>
                                 </StackPanel>
                             </Grid>
                         </StackPanel>
                     </Border>
 
-                    <Border Background="White" CornerRadius="10" Padding="20" Margin="0,0,0,20">
+                    <Border Background="White" CornerRadius="10" Padding="25" Margin="0,0,0,20">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="10" Color="#DDD" Opacity="0.2" ShadowDepth="2"/>
+                        </Border.Effect>
                         <StackPanel>
-                            <TextBlock Text="📞 Contact Details" FontSize="16" FontWeight="Bold" Foreground="#2C3E50" Margin="0,0,0,20"/>
+                            <TextBlock Text="📞 Contact Details" FontSize="18" FontWeight="Bold" Foreground="#2C3E50" Margin="0,0,0,20"/>
 
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="20"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
 
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="Email Address" Foreground="#7F8C8D" FontWeight="SemiBold"/>
+                                <StackPanel Grid.Row="0" Grid.Column="0">
+                                    <TextBlock Text="Mobile Number" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                    <TextBox Text="{Binding SelectedEmployee.PhoneNumber}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Row="0" Grid.Column="1">
+                                    <TextBlock Text="Email Address" Foreground="#95A5A6" FontWeight="SemiBold"/>
                                     <TextBox Text="{Binding SelectedEmployee.Email}"/>
                                 </StackPanel>
 
-                                <StackPanel Grid.Column="2">
-                                    <TextBlock Text="Phone Number" Foreground="#7F8C8D" FontWeight="SemiBold"/>
-                                    <TextBox Text="{Binding SelectedEmployee.PhoneNumber}"/>
+                                <StackPanel Grid.Row="1" Grid.ColumnSpan="2">
+                                    <TextBlock Text="Permanent Address" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                    <TextBox Text="{Binding SelectedEmployee.Address}" Height="60" TextWrapping="Wrap" VerticalContentAlignment="Top"/>
                                 </StackPanel>
                             </Grid>
                         </StackPanel>
                     </Border>
 
-                    <Border Background="White" CornerRadius="10" Padding="20">
+                    <Border Background="White" CornerRadius="10" Padding="25" Margin="0,0,0,20">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="10" Color="#DDD" Opacity="0.2" ShadowDepth="2"/>
+                        </Border.Effect>
                         <StackPanel>
-                            <TextBlock Text="💼 Employment Information" FontSize="16" FontWeight="Bold" Foreground="#2C3E50" Margin="0,0,0,20"/>
+                            <TextBlock Text="🆔 Official &amp; Government IDs" FontSize="18" FontWeight="Bold" Foreground="#2C3E50" Margin="0,0,0,20"/>
 
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="20"/>
+                                    <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
 
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="Designation" Foreground="#7F8C8D" FontWeight="SemiBold"/>
+                                <StackPanel Grid.Row="0" Grid.Column="0">
+                                    <TextBlock Text="Designation" Foreground="#95A5A6" FontWeight="SemiBold"/>
                                     <TextBox Text="{Binding SelectedEmployee.Designation}"/>
                                 </StackPanel>
-
-                                <StackPanel Grid.Column="2">
-                                    <TextBlock Text="Department" Foreground="#7F8C8D" FontWeight="SemiBold"/>
+                                <StackPanel Grid.Row="0" Grid.Column="1">
+                                    <TextBlock Text="Department" Foreground="#95A5A6" FontWeight="SemiBold"/>
                                     <TextBox Text="{Binding SelectedEmployee.Department}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Row="0" Grid.Column="2">
+                                    <TextBlock Text="Staff Type" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                    <TextBox Text="{Binding SelectedEmployee.StaffType}"/>
+                                </StackPanel>
+
+                                <StackPanel Grid.Row="1" Grid.Column="0">
+                                    <TextBlock Text="Qualification" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                    <TextBox Text="{Binding SelectedEmployee.Qualification}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="1">
+                                    <TextBlock Text="Date of Joining" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                    <DatePicker SelectedDate="{Binding SelectedEmployee.JoiningDate}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="2">
+                                    <TextBlock Text="Biometric ID" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                    <TextBox Text="{Binding SelectedEmployee.BiometricId}" FontWeight="Bold"/>
+                                </StackPanel>
+
+                                <StackPanel Grid.Row="2" Grid.Column="0">
+                                    <TextBlock Text="Aadhar Number" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                    <TextBox Text="{Binding SelectedEmployee.AadharNumber}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Row="2" Grid.Column="1">
+                                    <TextBlock Text="PAN Number" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                    <TextBox Text="{Binding SelectedEmployee.PanNumber}"/>
                                 </StackPanel>
                             </Grid>
                         </StackPanel>
                     </Border>
+
+                    <Border Background="White" CornerRadius="10" Padding="25">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="10" Color="#DDD" Opacity="0.2" ShadowDepth="2"/>
+                        </Border.Effect>
+                        <StackPanel>
+                            <TextBlock Text="🏦 Banking &amp; Financial" FontSize="18" FontWeight="Bold" Foreground="#2C3E50" Margin="0,0,0,20"/>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Bank A/C No" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                    <TextBox Text="{Binding SelectedEmployee.BankAccountNo}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="IFSC Code" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                    <TextBox Text="{Binding SelectedEmployee.IfscCode}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="UAN / PF No" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                    <TextBox Text="{Binding SelectedEmployee.UanNumber}"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
                 </StackPanel>
 
                 <StackPanel Grid.Column="1">
 
                     <Border Background="#2C3E50" CornerRadius="10" Padding="25" Margin="0,0,0,20">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="15" Color="#2C3E50" Opacity="0.4" ShadowDepth="4"/>
+                        </Border.Effect>
                         <StackPanel>
                             <TextBlock Text="Current Base Salary" Foreground="White" Opacity="0.7" FontSize="14"/>
-                            <TextBlock Text="{Binding SelectedEmployee.BaseSalary, StringFormat={}{0:C0}}" Foreground="White" FontWeight="Bold" FontSize="32" Margin="0,5,0,20"/>
+                            <TextBlock Text="{Binding SelectedEmployee.BaseSalary, StringFormat={}{0:C0}}" Foreground="White" FontWeight="Bold" FontSize="36" Margin="0,5,0,5"/>
+                            <TextBlock Text="{Binding SelectedEmployee.PayGrade, StringFormat='Grade: {0}'}" Foreground="#BDC3C7" FontSize="12" Margin="0,0,0,20"/>
 
                             <Button Command="{Binding ShowIncrementCommand}" Content="⚡ Increment Salary" 
-                                    Background="#F39C12" Foreground="White" FontWeight="Bold" BorderThickness="0" Height="40">
+                                    Background="#F39C12" Foreground="White" FontWeight="Bold" BorderThickness="0" Height="45" Cursor="Hand">
                                 <Button.Resources>
                                     <Style TargetType="Border">
-                                        <Setter Property="CornerRadius" Value="5"/>
+                                        <Setter Property="CornerRadius" Value="6"/>
                                     </Style>
                                 </Button.Resources>
                             </Button>
@@ -188,16 +321,16 @@
                     <Border Background="White" CornerRadius="10" Padding="20" BorderBrush="#F39C12" BorderThickness="2"
                             Visibility="{Binding IsIncrementVisible, Converter={StaticResource BoolToVis}}">
                         <StackPanel>
-                            <TextBlock Text="Apply Salary Increment" FontWeight="Bold" Foreground="#F39C12" Margin="0,0,0,10"/>
+                            <TextBlock Text="Apply Salary Increment" FontWeight="Bold" Foreground="#F39C12" FontSize="16" Margin="0,0,0,10"/>
                             <TextBlock Text="Enter amount to add (₹):" Foreground="#7F8C8D" Margin="0,0,0,5"/>
 
                             <TextBox Text="{Binding IncrementAmount}" Background="White" BorderBrush="#E0E0E0" BorderThickness="1" IsReadOnly="False" Padding="10"/>
 
                             <Button Command="{Binding ApplyIncrementCommand}" Content="Confirm Increment" 
-                                    Background="#27AE60" Foreground="White" FontWeight="Bold" BorderThickness="0" Height="35" Margin="0,10,0,0">
+                                    Background="#27AE60" Foreground="White" FontWeight="Bold" BorderThickness="0" Height="40" Margin="0,10,0,0" Cursor="Hand">
                                 <Button.Resources>
                                     <Style TargetType="Border">
-                                        <Setter Property="CornerRadius" Value="5"/>
+                                        <Setter Property="CornerRadius" Value="6"/>
                                     </Style>
                                 </Button.Resources>
                             </Button>

@@ -10,7 +10,12 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
+using System.Linq;
 using System.Windows;
+using System.Windows.Media.Imaging;
+
+// [FIX] Ensure this uses the root namespace to find "App" class
+using SchoolFeeSystem;
 
 namespace SchoolFeeSystem.Presentation.ViewModels
 {
@@ -18,95 +23,137 @@ namespace SchoolFeeSystem.Presentation.ViewModels
     {
         private readonly IPayrollService _payrollService;
 
-        // --- Manual Entry Fields ---
+        // --- 1. Personal Details ---
         [ObservableProperty] private string _firstName;
         [ObservableProperty] private string _lastName;
+        [ObservableProperty] private string _fatherName;
+        [ObservableProperty] private DateTime _dateOfBirth = new DateTime(1990, 1, 1);
+        [ObservableProperty] private string _gender = "Male";
+        [ObservableProperty] private string _maritalStatus = "Single";
+        [ObservableProperty] private string _category = "General";
+        [ObservableProperty] private string _qualification;
+        [ObservableProperty] private string _address;
+        [ObservableProperty] private string _phone;
+        [ObservableProperty] private string _email;
+
+        // --- 2. Government IDs ---
+        [ObservableProperty] private string _aadharNumber;
+        [ObservableProperty] private string _panNumber;
+
+        // --- 3. Official Details ---
         [ObservableProperty] private string _designation;
         [ObservableProperty] private string _department;
-        [ObservableProperty] private string _email;
-        [ObservableProperty] private string _phone;
-        [ObservableProperty] private decimal _baseSalary;
-        [ObservableProperty] private string _staffType = "Teaching";
-
-        // --- MISSING PROPERTIES ADDED HERE ---
         [ObservableProperty] private DateTime _joiningDate = DateTime.Now;
-        [ObservableProperty] private string _address;
-        [ObservableProperty] private string _emergencyContact;
+        [ObservableProperty] private string _staffType = "Teaching";
+        [ObservableProperty] private decimal _baseSalary;
+
+        // --- 4. Banking & Statutory ---
+        [ObservableProperty] private string _bankAccountNo;
+        [ObservableProperty] private string _ifscCode;
+        [ObservableProperty] private string _uanNumber; // ESIC/PF
+
+        // --- 5. Photo Logic ---
+        [ObservableProperty] private byte[] _photoBytes;
+        [ObservableProperty] private BitmapImage _photoPreview;
 
         // --- Bulk Upload State ---
         [ObservableProperty] private string _fileName = "No file selected";
-        [ObservableProperty] private bool _isImporting = false;
+        [ObservableProperty] private bool _isImporting;
+
+        // Dropdowns
+        public List<string> Categories { get; } = new() { "General", "OBC", "SC", "ST", "BC", "Other" };
+        public List<string> MaritalStatuses { get; } = new() { "Single", "Married", "Divorced", "Widowed" };
+        public List<string> StaffTypes { get; } = new() { "Teaching", "Non-Teaching", "Admin", "Support" };
 
         public AddStaffViewModel(IPayrollService payrollService)
         {
             _payrollService = payrollService;
-            System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+        }
+
+        // ---------------------------------------------------------
+        // MANUAL ENTRY LOGIC
+        // ---------------------------------------------------------
+
+        [RelayCommand]
+        public void BrowsePhoto()
+        {
+            OpenFileDialog dlg = new OpenFileDialog
+            {
+                Filter = "Image Files|*.jpg;*.jpeg;*.png;*.bmp",
+                Title = "Select Staff Photo"
+            };
+
+            if (dlg.ShowDialog() == true)
+            {
+                try
+                {
+                    PhotoBytes = File.ReadAllBytes(dlg.FileName);
+                    var bitmap = new BitmapImage();
+                    bitmap.BeginInit();
+                    bitmap.UriSource = new Uri(dlg.FileName);
+                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                    bitmap.EndInit();
+                    PhotoPreview = bitmap;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Error loading image: " + ex.Message);
+                }
+            }
         }
 
         [RelayCommand]
-        public void SaveEmployee()
+        public void SaveStaff()
         {
-            // 1. Basic Validation
-            if (string.IsNullOrWhiteSpace(FirstName) || string.IsNullOrWhiteSpace(Designation))
+            if (string.IsNullOrWhiteSpace(FirstName) || string.IsNullOrWhiteSpace(Phone))
             {
-                MessageBox.Show("Please enter at least a First Name and Designation.");
+                MessageBox.Show("First Name and Mobile Number are required.");
                 return;
             }
 
-            // 2. PHONE NUMBER VALIDATION (New Fix)
-            // Check if Phone is not empty
-            if (!string.IsNullOrWhiteSpace(Phone))
-            {
-                // Check if it contains only digits
-                if (!System.Text.RegularExpressions.Regex.IsMatch(Phone, @"^\d+$"))
-                {
-                    MessageBox.Show("Phone number must contain only alphabets (0-9). No letters allowed.");
-                    return;
-                }
-
-                // Check length (Must be exactly 10 digits for standard mobile numbers)
-                if (Phone.Length != 10)
-                {
-                    MessageBox.Show($"Phone number must be exactly 10 digits.\nYou entered {Phone.Length} digits.");
-                    return;
-                }
-            }
-
-            // 3. Create Employee Object
             var newEmp = new Employee
             {
                 FirstName = FirstName,
-                LastName = LastName,
+                LastName = LastName ?? "",
+                FatherName = FatherName,
+                DateOfBirth = DateOfBirth,
+                Gender = Gender,
+                MaritalStatus = MaritalStatus,
+                Category = Category,
+                Qualification = Qualification,
+                Address = Address,
+                PhoneNumber = Phone,
+                Email = Email,
+                AadharNumber = AadharNumber,
+                PanNumber = PanNumber,
                 Designation = Designation,
                 Department = Department,
-                Email = Email,
-                PhoneNumber = Phone,
-                BaseSalary = BaseSalary,
                 StaffType = StaffType,
-                IsActive = true,
                 JoiningDate = JoiningDate,
-                Address = Address,
-                //EmergencyContact = EmergencyContact
+                BaseSalary = BaseSalary,
+                BankAccountNo = BankAccountNo,
+                IfscCode = IfscCode,
+                UanNumber = UanNumber,
+                Photo = PhotoBytes ?? GetDefaultAvatar(),
+                IsActive = true
             };
 
-            // 4. Save to Database
-            try
-            {
-                _payrollService.AddEmployee(newEmp);
-                MessageBox.Show("Staff member added successfully!");
-                GoBack();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error saving employee: {ex.Message}");
-            }
+            _payrollService.AddEmployee(newEmp);
+            MessageBox.Show($"Staff '{FirstName}' added successfully!");
+            GoBack();
         }
+
+        // ---------------------------------------------------------
+        // BULK IMPORT LOGIC (UPDATED FOR NEW FIELDS)
+        // ---------------------------------------------------------
+
         [RelayCommand]
         public void BrowseFile()
         {
             OpenFileDialog openFileDialog = new OpenFileDialog
             {
-                Filter = "Excel Files|*.xls;*.xlsx;*.csv"
+                Filter = "Excel/CSV Files|*.xlsx;*.xls;*.csv",
+                Title = "Select Staff List"
             };
 
             if (openFileDialog.ShowDialog() == true)
@@ -118,6 +165,9 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [RelayCommand]
         public void ImportExcel()
         {
+            OfficeOpenXml.ExcelPackage.LicenseContext =
+        OfficeOpenXml.LicenseContext.NonCommercial;
+
             if (string.IsNullOrEmpty(FileName) || FileName == "No file selected")
             {
                 MessageBox.Show("Please select a file first.");
@@ -125,123 +175,170 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
 
             IsImporting = true;
+
+            var failedRows = new List<(int RowNumber, string Reason)>();
+            int successCount = 0;
+
             try
             {
-                // 1. Get List of EXISTING Emails to prevent duplicates
-                var existingStaff = _payrollService.GetAllEmployees();
-                // Create a quick lookup list of emails (lowercase for safety)
-                var existingEmails = new HashSet<string>(existingStaff.Select(e => e.Email.ToLower()));
 
-                var newEmployees = new List<Employee>();
-                int duplicatesSkipped = 0;
+                System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 
-                using (var stream = File.Open(FileName, FileMode.Open, FileAccess.Read))
+                using var stream = File.Open(FileName, FileMode.Open, FileAccess.Read);
+                using var reader = Path.GetExtension(FileName).Equals(".csv", StringComparison.OrdinalIgnoreCase)
+                    ? ExcelReaderFactory.CreateCsvReader(stream)
+                    : ExcelReaderFactory.CreateReader(stream);
+
+                var table = reader.AsDataSet().Tables[0];
+
+                // Row 0 = headers → start from Row 1
+                for (int i = 1; i < table.Rows.Count; i++)
                 {
-                    IExcelDataReader reader;
-
-                    // Choose Reader
-                    if (Path.GetExtension(FileName).Equals(".csv", StringComparison.OrdinalIgnoreCase))
+                    try
                     {
-                        reader = ExcelReaderFactory.CreateCsvReader(stream, new ExcelReaderConfiguration()
+                        var row = table.Rows[i];
+                        string GetVal(int idx) => row[idx]?.ToString()?.Trim() ?? "";
+
+                        string fullName = GetVal(0);
+                        string mobile = GetVal(6);
+
+                        if (string.IsNullOrWhiteSpace(fullName) || string.IsNullOrWhiteSpace(mobile))
+                            throw new Exception("Name or Mobile missing");
+
+                        var names = fullName.Split(' ', 2);
+                        string fName = names[0];
+                        string lName = names.Length > 1 ? names[1] : "";
+
+                        DateTime.TryParse(GetVal(2), out DateTime dob);
+                        DateTime.TryParse(GetVal(15), out DateTime doj);
+                        if (dob == DateTime.MinValue) dob = new DateTime(1990, 1, 1);
+                        if (doj == DateTime.MinValue) doj = DateTime.Now;
+
+                        if (!decimal.TryParse(GetVal(11), out decimal salary))
+                            throw new Exception("Invalid Basic Salary");
+
+                        string payGrade = GetPayGradeFromSalary(salary);
+
+                        var emp = new Employee
                         {
-                            FallbackEncoding = System.Text.Encoding.GetEncoding(1252)
-                        });
+                            FirstName = fName,
+                            LastName = lName,
+                            FatherName = GetVal(1),
+                            DateOfBirth = dob,
+                            AadharNumber = GetVal(3),
+                            PanNumber = GetVal(4),
+                            Address = GetVal(5),
+                            PhoneNumber = mobile,
+                            Category = GetVal(7),
+                            Qualification = GetVal(8),
+                            Designation = GetVal(9),
+                            Department = GetVal(10),
+                            BaseSalary = salary,
+                            BankAccountNo = GetVal(12),
+                            IfscCode = GetVal(13),
+                            UanNumber = GetVal(14),
+                            JoiningDate = doj,
+                            MaritalStatus = GetVal(16),
+
+                            // REQUIRED DEFAULTS
+                            PayGrade = GetPayGradeFromSalary(salary),
+                            StaffType = "Teaching",
+                            Gender = "Male",
+                            Email = $"{mobile}@temp.local",
+                            Photo = GetDefaultAvatar(),                            // avoids NOT NULL / UNIQUE issues
+                            IsActive = true
+                        };
+
+                        _payrollService.AddEmployee(emp);
+                        successCount++;
                     }
-                    else
+                    catch (Exception rowEx)
                     {
-                        reader = ExcelReaderFactory.CreateReader(stream);
+                        var realError = rowEx.InnerException?.Message ?? rowEx.Message;
+                        failedRows.Add((i + 1, realError));
                     }
 
-                    using (reader)
-                    {
-                        var result = reader.AsDataSet();
-                        if (result.Tables.Count == 0 || result.Tables[0].Rows.Count == 0) return;
-
-                        var table = result.Tables[0];
-                        if (table.Columns.Count < 8)
-                        {
-                            MessageBox.Show("Error: File needs 8 columns.");
-                            return;
-                        }
-
-                        // Iterate Rows
-                        for (int i = 1; i < table.Rows.Count; i++)
-                        {
-                            var row = table.Rows[i];
-                            if (row[0] == null || string.IsNullOrWhiteSpace(row[0].ToString())) continue;
-
-                            string email = row[5]?.ToString() ?? "";
-
-                            // --- DUPLICATE CHECK ---
-                            if (existingEmails.Contains(email.ToLower()))
-                            {
-                                duplicatesSkipped++;
-                                continue; 
-                            }
-
-                            try
-                            {
-                                var emp = new Employee
-                                {
-                                    FirstName = row[0]?.ToString() ?? "",
-                                    LastName = row[1]?.ToString() ?? "",
-                                    Designation = row[2]?.ToString() ?? "",
-                                    Department = row[3]?.ToString() ?? "",
-                                    StaffType = row[4]?.ToString() ?? "Teaching",
-                                    Email = email,
-                                    PhoneNumber = row[6]?.ToString() ?? "",
-                                    BaseSalary = decimal.TryParse(row[7]?.ToString(), out decimal sal) ? sal : 0,
-                                    IsActive = true,
-                                    JoiningDate = DateTime.Now
-                                };
-                                newEmployees.Add(emp);
-
-                                // Add to our checking list so we don't add duplicates from within the same file too
-                                existingEmails.Add(email.ToLower());
-                            }
-                            catch { continue; }
-                        }
-                    }
                 }
 
-                // 2. Save Only NEW People
-                if (newEmployees.Count > 0)
+                if (failedRows.Any())
                 {
-                    _payrollService.AddEmployeesBulk(newEmployees);
-                    MessageBox.Show($"Success!\n\nImported: {newEmployees.Count} new staff.\nSkipped: {duplicatesSkipped} duplicates.");
-                    GoBack();
+                    string errorFile = CreateErrorReport(failedRows);
+                    MessageBox.Show(
+                        $"Imported {successCount} staff.\n" +
+                        $"Failed rows: {failedRows.Count}\n\n" +
+                        $"Error file saved at:\n{errorFile}"
+                    );
                 }
                 else
                 {
-                    if (duplicatesSkipped > 0)
-                        MessageBox.Show($"No new data found.\nAll {duplicatesSkipped} rows were duplicates and already exist.");
-                    else
-                        MessageBox.Show("No valid data found in file.");
+                    MessageBox.Show($"Successfully imported {successCount} staff members!");
+                    GoBack();
                 }
-            }
-            catch (IOException)
-            {
-                MessageBox.Show("The file is open in Excel. Close it and try again.");
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error: {ex.Message}");
+                MessageBox.Show($"Import failed:\n{ex.InnerException?.Message ?? ex.Message}");
             }
             finally
             {
                 IsImporting = false;
             }
         }
+        private string GetPayGradeFromSalary(decimal salary)
+        {
+            if (salary < 20000) return "PG-A";
+            if (salary < 40000) return "PG-B";
+            if (salary < 60000) return "PG-C";
+            return "PG-D";
+        }
+
+        private string CreateErrorReport(List<(int RowNumber, string Reason)> errors)
+        {
+            var wb = new OfficeOpenXml.ExcelPackage();
+            var ws = wb.Workbook.Worksheets.Add("Import Errors");
+
+            ws.Cells[1, 1].Value = "Row Number";
+            ws.Cells[1, 2].Value = "Error Reason";
+
+            int row = 2;
+            foreach (var e in errors)
+            {
+                ws.Cells[row, 1].Value = e.RowNumber;
+                ws.Cells[row, 2].Value = e.Reason;
+                row++;
+            }
+
+            string path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                $"ImportErrors_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx"
+            );
+
+            File.WriteAllBytes(path, wb.GetAsByteArray());
+            return path;
+        }
+        private byte[] GetDefaultAvatar()
+        {
+            var uri = new Uri(
+                "pack://application:,,,/SchoolFeeSystem.Presentation;component/Assets/default-avatar.png",
+                UriKind.Absolute);
+
+            var bitmap = new BitmapImage(uri);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+
+            using var stream = new MemoryStream();
+            encoder.Save(stream);
+            return stream.ToArray();
+        }
 
         [RelayCommand]
         public void GoBack()
         {
-            // Fix: Use correct namespace casting if needed, or simply resolve via DI
             var services = ((App)Application.Current).Services;
             var directory = services.GetRequiredService<StaffDirectoryView>();
             var directoryVM = services.GetRequiredService<StaffDirectoryViewModel>();
 
-            directoryVM.PerformSearch();
+            directoryVM.RefreshData(); // Sync Integrity
             directory.DataContext = directoryVM;
 
             Application.Current.MainWindow.Content = directory;
