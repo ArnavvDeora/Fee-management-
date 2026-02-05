@@ -49,16 +49,6 @@
             </Border>
 
             <StackPanel Grid.Column="2" Orientation="Horizontal">
-                <Button Content="📅 Manage Attendance" Command="{Binding GoToAttendanceCommand}" 
-                        Height="45" Background="#8E44AD" Foreground="White" 
-                        FontSize="14" FontWeight="Bold" BorderThickness="0" Padding="20,0" Margin="0,0,15,0">
-                    <Button.Resources>
-                        <Style TargetType="Border">
-                            <Setter Property="CornerRadius" Value="8"/>
-                        </Style>
-                    </Button.Resources>
-                </Button>
-
                 <Button Command="{Binding AddNewStaffCommand}" 
                         Content="+ Add New Staff" Height="45" Background="#27AE60" Foreground="White" 
                         FontSize="14" FontWeight="Bold" BorderThickness="0" Padding="20,0">
@@ -127,15 +117,15 @@
                     </DataGrid.Resources>
 
                     <DataGrid.Columns>
+                        <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="60" Foreground="#7F8C8D" FontWeight="Bold"/>
+
                         <DataGridTemplateColumn Header="Employee Details" Width="2*">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal">
-
                                         <Border Width="40" Height="40" CornerRadius="20" Background="#3498DB" Margin="0,0,15,0">
                                             <Grid>
                                                 <TextBlock Text="{Binding FirstName[0]}" Foreground="White" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-
                                                 <Ellipse>
                                                     <Ellipse.Fill>
                                                         <ImageBrush ImageSource="{Binding Photo}" Stretch="UniformToFill"/>
@@ -143,7 +133,6 @@
                                                 </Ellipse>
                                             </Grid>
                                         </Border>
-
                                         <StackPanel VerticalAlignment="Center">
                                             <TextBlock Text="{Binding FullName}" FontWeight="Bold" FontSize="14" Foreground="#2C3E50"/>
                                             <TextBlock Text="{Binding Email}" FontSize="12" Foreground="#7F8C8D"/>
@@ -183,15 +172,15 @@
                           AlternatingRowBackground="#F8F9FA" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#EEEEEE">
 
                     <DataGrid.Columns>
+                        <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="60" Foreground="#7F8C8D" FontWeight="Bold"/>
+
                         <DataGridTemplateColumn Header="Employee Details" Width="2*">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal">
-
                                         <Border Width="40" Height="40" CornerRadius="20" Background="#E67E22" Margin="0,0,15,0">
                                             <Grid>
                                                 <TextBlock Text="{Binding FirstName[0]}" Foreground="White" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-
                                                 <Ellipse>
                                                     <Ellipse.Fill>
                                                         <ImageBrush ImageSource="{Binding Photo}" Stretch="UniformToFill"/>
@@ -199,7 +188,6 @@
                                                 </Ellipse>
                                             </Grid>
                                         </Border>
-
                                         <StackPanel VerticalAlignment="Center">
                                             <TextBlock Text="{Binding FullName}" FontWeight="Bold" FontSize="14" Foreground="#2C3E50"/>
                                             <TextBlock Text="{Binding Email}" FontSize="12" Foreground="#7F8C8D"/>

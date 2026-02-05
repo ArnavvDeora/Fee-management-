@@ -5,19 +5,29 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" d:DesignHeight="800" d:DesignWidth="1200" Background="#F8F9FA">
 
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+    </UserControl.Resources>
+
     <Grid Margin="30">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
+        <!-- Header Section -->
         <StackPanel Grid.Row="0" Margin="0,0,0,20">
-            <Button Command="{Binding GoBackCommand}" Content="⬅ Back to Directory" HorizontalAlignment="Left" Background="Transparent" Foreground="#7F8C8D" BorderThickness="0" FontWeight="Bold" Margin="0,0,0,10"/>
+            <Button Command="{Binding GoBackCommand}" Content="⬅ Back to Directory" 
+                    HorizontalAlignment="Left" Background="Transparent" Foreground="#7F8C8D" 
+                    BorderThickness="0" FontWeight="Bold" Margin="0,0,0,10"/>
             <TextBlock Text="Attendance Management" FontSize="28" FontWeight="Bold" Foreground="#2C3E50"/>
-            <TextBlock Text="Import biometric logs, view records, and manage leaves." Foreground="#7F8C8D" FontSize="14"/>
+            <TextBlock Text="Import biometric logs, view records, and manage leaves." 
+                       Foreground="#7F8C8D" FontSize="14"/>
         </StackPanel>
 
+        <!-- Controls Section -->
         <Border Grid.Row="1" Background="White" CornerRadius="10" Padding="20" Margin="0,0,0,20">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="10" Color="#E0E0E0" Opacity="0.5"/>
@@ -29,32 +39,121 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+
+                    <!-- Search Staff -->
+                    <StackPanel Margin="0,0,15,0">
+                        <TextBlock Text="Search Staff" FontWeight="SemiBold" Foreground="#7F8C8D" FontSize="12"/>
+                        <Grid Margin="0,5,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" 
+                                     Width="140" Height="35" Padding="5" VerticalContentAlignment="Center"
+                                     BorderBrush="#D0D3D4" BorderThickness="1">
+                                <TextBox.Style>
+                                    <Style TargetType="TextBox">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsImporting}" Value="True">
+                                                <Setter Property="IsEnabled" Value="False"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBox.Style>
+                            </TextBox>
+                            <Button Grid.Column="1" Command="{Binding SearchEmployeeCommand}" 
+                                    Content="🔍" Width="35" Height="35" Margin="5,0,0,0"
+                                    Background="#3498DB" Foreground="White" BorderThickness="0" FontWeight="Bold"
+                                    ToolTip="Search by Name or ID">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsImporting}" Value="True">
+                                                <Setter Property="IsEnabled" Value="False"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Select Employee -->
                     <StackPanel Margin="0,0,20,0">
                         <TextBlock Text="Select Employee" FontWeight="SemiBold" Foreground="#7F8C8D" FontSize="12"/>
-                        <ComboBox ItemsSource="{Binding Employees}" SelectedItem="{Binding SelectedEmployee}" DisplayMemberPath="FullName" Width="200" Padding="10" Margin="0,5,0,0"/>
+                        <ComboBox ItemsSource="{Binding Employees}" SelectedItem="{Binding SelectedEmployee}" 
+                                  DisplayMemberPath="FullName" Width="220" Height="35" Padding="10" Margin="0,5,0,0"
+                                  VerticalContentAlignment="Center">
+                            <ComboBox.Style>
+                                <Style TargetType="ComboBox">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsImporting}" Value="True">
+                                            <Setter Property="IsEnabled" Value="False"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ComboBox.Style>
+                        </ComboBox>
                     </StackPanel>
 
+                    <!-- Select Month -->
                     <StackPanel Margin="0,0,20,0">
                         <TextBlock Text="Select Month" FontWeight="SemiBold" Foreground="#7F8C8D" FontSize="12"/>
-                        <DatePicker SelectedDate="{Binding SelectedMonth}" Width="150" Padding="10" Margin="0,5,0,0" VerticalContentAlignment="Center"/>
+                        <DatePicker SelectedDate="{Binding SelectedMonth}" Width="150" Height="35" 
+                                    Padding="10" Margin="0,5,0,0" VerticalContentAlignment="Center">
+                            <DatePicker.Style>
+                                <Style TargetType="DatePicker">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsImporting}" Value="True">
+                                            <Setter Property="IsEnabled" Value="False"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </DatePicker.Style>
+                        </DatePicker>
                     </StackPanel>
 
-                    <Button Content="Filter Data" Command="{Binding LoadAttendanceCommand}" Background="#3498DB" Foreground="White" BorderThickness="0" FontWeight="Bold" Padding="20,0" Height="38" VerticalAlignment="Bottom" Margin="0,0,0,1">
+                    <!-- Filter Button -->
+                    <Button Content="Filter Data" Command="{Binding LoadAttendanceCommand}" 
+                            Background="#3498DB" Foreground="White" BorderThickness="0" FontWeight="Bold" 
+                            Padding="20,0" Height="35" VerticalAlignment="Bottom" Margin="0,0,0,1">
                         <Button.Resources>
                             <Style TargetType="Border">
                                 <Setter Property="CornerRadius" Value="5"/>
                             </Style>
                         </Button.Resources>
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsImporting}" Value="True">
+                                        <Setter Property="IsEnabled" Value="False"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
                     </Button>
                 </StackPanel>
 
+                <!-- Import Button -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <Button Command="{Binding ImportExcelCommand}" Background="#27AE60" Foreground="White" BorderThickness="0" Height="45" Padding="20,0">
+                    <Button Command="{Binding ImportExcelAsyncCommand}" 
+                            Background="#27AE60" Foreground="White" BorderThickness="0" 
+                            Height="45" Padding="20,0">
                         <Button.Resources>
                             <Style TargetType="Border">
                                 <Setter Property="CornerRadius" Value="6"/>
                             </Style>
                         </Button.Resources>
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsImporting}" Value="True">
+                                        <Setter Property="IsEnabled" Value="False"/>
+                                        <Setter Property="Opacity" Value="0.5"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="📥" Margin="0,0,10,0"/>
                             <TextBlock Text="Import Biometric Excel" FontWeight="Bold"/>
@@ -64,9 +163,55 @@
             </Grid>
         </Border>
 
-        <DataGrid Grid.Row="2" ItemsSource="{Binding AttendanceRecords}" AutoGenerateColumns="False" 
+        <!-- Progress Indicator -->
+        <Border Grid.Row="2" Background="#FFF9C4" CornerRadius="6" Padding="15" Margin="0,0,0,15"
+                Visibility="{Binding IsImporting, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="⌛" FontSize="20" Margin="0,0,10,0" VerticalAlignment="Center">
+                    <TextBlock.RenderTransform>
+                        <RotateTransform Angle="0" CenterX="10" CenterY="10"/>
+                    </TextBlock.RenderTransform>
+                    <TextBlock.Triggers>
+                        <EventTrigger RoutedEvent="Loaded">
+                            <BeginStoryboard>
+                                <Storyboard RepeatBehavior="Forever">
+                                    <DoubleAnimation Storyboard.TargetProperty="(TextBlock.RenderTransform).(RotateTransform.Angle)"
+                                                   From="0" To="360" Duration="0:0:2"/>
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </EventTrigger>
+                    </TextBlock.Triggers>
+                </TextBlock>
+
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="Import in Progress..." FontWeight="Bold" Foreground="#F57C00" FontSize="14"/>
+                    <TextBlock Text="{Binding ImportProgress}" Foreground="#E65100" FontSize="12" 
+                               Margin="0,5,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Data Grid -->
+        <DataGrid Grid.Row="3" ItemsSource="{Binding AttendanceRecords}" AutoGenerateColumns="False" 
                   CanUserAddRows="False" IsReadOnly="True" HeadersVisibility="Column"
-                  BorderThickness="0" Background="White" RowBackground="White" AlternatingRowBackground="#F8F9FA" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#EEEEEE">
+                  BorderThickness="0" Background="White" RowBackground="White" 
+                  AlternatingRowBackground="#F8F9FA" GridLinesVisibility="Horizontal" 
+                  HorizontalGridLinesBrush="#EEEEEE">
+            <DataGrid.Style>
+                <Style TargetType="DataGrid">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsImporting}" Value="True">
+                            <Setter Property="IsEnabled" Value="False"/>
+                            <Setter Property="Opacity" Value="0.6"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.Style>
 
             <DataGrid.Resources>
                 <Style TargetType="DataGridColumnHeader">
@@ -92,7 +237,11 @@
             </DataGrid.Resources>
 
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Date" Binding="{Binding Date, StringFormat=dd-MMM-yyyy}" Width="*" Foreground="#34495E"/>
+                <DataGridTextColumn Header="Bio ID" Binding="{Binding Employee.BiometricId}" 
+                                    Width="80" Foreground="#7F8C8D" FontWeight="Bold"/>
+
+                <DataGridTextColumn Header="Date" Binding="{Binding Date, StringFormat=dd-MMM-yyyy}" 
+                                    Width="*" Foreground="#34495E"/>
 
                 <DataGridTemplateColumn Header="Employee" Width="2*">
                     <DataGridTemplateColumn.CellTemplate>
@@ -102,9 +251,12 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <DataGridTextColumn Header="In Time" Binding="{Binding InTime}" Width="*" FontWeight="Bold" Foreground="#27AE60"/>
-                <DataGridTextColumn Header="Out Time" Binding="{Binding OutTime}" Width="*" FontWeight="Bold" Foreground="#C0392B"/>
-                <DataGridTextColumn Header="Duration" Binding="{Binding Duration}" Width="*" Foreground="#7F8C8D"/>
+                <DataGridTextColumn Header="In Time" Binding="{Binding InTime}" 
+                                    Width="*" FontWeight="Bold" Foreground="#27AE60"/>
+                <DataGridTextColumn Header="Out Time" Binding="{Binding OutTime}" 
+                                    Width="*" FontWeight="Bold" Foreground="#C0392B"/>
+                <DataGridTextColumn Header="Duration" Binding="{Binding Duration}" 
+                                    Width="*" Foreground="#7F8C8D"/>
 
                 <DataGridTemplateColumn Header="Status" Width="*">
                     <DataGridTemplateColumn.CellTemplate>
@@ -120,6 +272,9 @@
                                             <DataTrigger Binding="{Binding Status}" Value="Sunday">
                                                 <Setter Property="Background" Value="#FEF9E7"/>
                                             </DataTrigger>
+                                            <DataTrigger Binding="{Binding Status}" Value="Holiday">
+                                                <Setter Property="Background" Value="#FEF9E7"/>
+                                            </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
                                 </Border.Style>
@@ -132,6 +287,9 @@
                                                     <Setter Property="Foreground" Value="#C0392B"/>
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding Status}" Value="Sunday">
+                                                    <Setter Property="Foreground" Value="#F1C40F"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Status}" Value="Holiday">
                                                     <Setter Property="Foreground" Value="#F1C40F"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
@@ -149,7 +307,8 @@
                             <Button Content="✎ Edit" 
                                     Command="{Binding DataContext.EditRecordCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" 
                                     CommandParameter="{Binding}"
-                                    Background="Transparent" Foreground="#3498DB" BorderThickness="0" FontWeight="Bold" Cursor="Hand"/>
+                                    Background="Transparent" Foreground="#3498DB" BorderThickness="0" 
+                                    FontWeight="Bold" Cursor="Hand"/>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>

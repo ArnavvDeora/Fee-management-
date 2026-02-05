@@ -8,7 +8,9 @@ namespace SchoolFeeSystem.Presentation.Views
         public AttendanceManagementView(AttendanceManagementViewModel viewModel)
         {
             InitializeComponent();
-            DataContext = viewModel; 
+            DataContext = viewModel;
+            System.Diagnostics.Debug.WriteLine($"DataContext set: {DataContext != null}");
+            System.Diagnostics.Debug.WriteLine($"DataContext type: {DataContext?.GetType().Name}");
         }
     }
 }

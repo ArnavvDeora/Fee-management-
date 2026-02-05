@@ -13,9 +13,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Media.Imaging;
-
-// [FIX] Ensure this uses the root namespace to find "App" class
-using SchoolFeeSystem;
+using SchoolFeeSystem; // Access to App class
 
 namespace SchoolFeeSystem.Presentation.ViewModels
 {
@@ -36,9 +34,12 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty] private string _phone;
         [ObservableProperty] private string _email;
 
-        // --- 2. Government IDs ---
+        // --- 2. Government IDs & Attendance ---
         [ObservableProperty] private string _aadharNumber;
         [ObservableProperty] private string _panNumber;
+
+        // [NEW] Attendance ID (Biometric)
+        [ObservableProperty] private string _biometricId;
 
         // --- 3. Official Details ---
         [ObservableProperty] private string _designation;
@@ -50,7 +51,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         // --- 4. Banking & Statutory ---
         [ObservableProperty] private string _bankAccountNo;
         [ObservableProperty] private string _ifscCode;
-        [ObservableProperty] private string _uanNumber; // ESIC/PF
+        [ObservableProperty] private string _uanNumber;
 
         // --- 5. Photo Logic ---
         [ObservableProperty] private byte[] _photoBytes;
@@ -60,7 +61,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty] private string _fileName = "No file selected";
         [ObservableProperty] private bool _isImporting;
 
-        // Dropdowns
         public List<string> Categories { get; } = new() { "General", "OBC", "SC", "ST", "BC", "Other" };
         public List<string> MaritalStatuses { get; } = new() { "Single", "Married", "Divorced", "Widowed" };
         public List<string> StaffTypes { get; } = new() { "Teaching", "Non-Teaching", "Admin", "Support" };
@@ -111,6 +111,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 return;
             }
 
+            // [FEATURE] Assign Attendance ID if missing
+            // If user left Biometric ID blank, we can generate a placeholder or leave null (Optional)
+            // The "System ID" (Primary Key) is assigned automatically by the Database upon saving.
+
             var newEmp = new Employee
             {
                 FirstName = FirstName,
@@ -126,6 +130,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 Email = Email,
                 AadharNumber = AadharNumber,
                 PanNumber = PanNumber,
+
+                // [NEW] Save the Biometric ID input by user
+                BiometricId = BiometricId,
+
                 Designation = Designation,
                 Department = Department,
                 StaffType = StaffType,
@@ -139,12 +147,15 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             };
 
             _payrollService.AddEmployee(newEmp);
-            MessageBox.Show($"Staff '{FirstName}' added successfully!");
+
+            // At this point, newEmp.Id (System ID) is populated by the database.
+            MessageBox.Show($"Staff '{FirstName}' added successfully!\nSystem ID: {newEmp.Id}");
+
             GoBack();
         }
 
         // ---------------------------------------------------------
-        // BULK IMPORT LOGIC (UPDATED FOR NEW FIELDS)
+        // BULK IMPORT LOGIC
         // ---------------------------------------------------------
 
         [RelayCommand]
@@ -165,8 +176,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [RelayCommand]
         public void ImportExcel()
         {
-            OfficeOpenXml.ExcelPackage.LicenseContext =
-        OfficeOpenXml.LicenseContext.NonCommercial;
+            OfficeOpenXml.ExcelPackage.LicenseContext = OfficeOpenXml.LicenseContext.NonCommercial;
 
             if (string.IsNullOrEmpty(FileName) || FileName == "No file selected")
             {
@@ -175,13 +185,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
 
             IsImporting = true;
-
             var failedRows = new List<(int RowNumber, string Reason)>();
             int successCount = 0;
 
             try
             {
-
                 System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 
                 using var stream = File.Open(FileName, FileMode.Open, FileAccess.Read);
@@ -191,7 +199,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
                 var table = reader.AsDataSet().Tables[0];
 
-                // Row 0 = headers → start from Row 1
                 for (int i = 1; i < table.Rows.Count; i++)
                 {
                     try
@@ -239,13 +246,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                             UanNumber = GetVal(14),
                             JoiningDate = doj,
                             MaritalStatus = GetVal(16),
-
-                            // REQUIRED DEFAULTS
-                            PayGrade = GetPayGradeFromSalary(salary),
+                            PayGrade = payGrade,
                             StaffType = "Teaching",
                             Gender = "Male",
                             Email = $"{mobile}@temp.local",
-                            Photo = GetDefaultAvatar(),                            // avoids NOT NULL / UNIQUE issues
+                            Photo = GetDefaultAvatar(),
                             IsActive = true
                         };
 
@@ -257,17 +262,12 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                         var realError = rowEx.InnerException?.Message ?? rowEx.Message;
                         failedRows.Add((i + 1, realError));
                     }
-
                 }
 
                 if (failedRows.Any())
                 {
                     string errorFile = CreateErrorReport(failedRows);
-                    MessageBox.Show(
-                        $"Imported {successCount} staff.\n" +
-                        $"Failed rows: {failedRows.Count}\n\n" +
-                        $"Error file saved at:\n{errorFile}"
-                    );
+                    MessageBox.Show($"Imported {successCount} staff.\nFailed rows: {failedRows.Count}\n\nError file saved at:\n{errorFile}");
                 }
                 else
                 {
@@ -284,6 +284,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 IsImporting = false;
             }
         }
+
         private string GetPayGradeFromSalary(decimal salary)
         {
             if (salary < 20000) return "PG-A";
@@ -296,10 +297,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             var wb = new OfficeOpenXml.ExcelPackage();
             var ws = wb.Workbook.Worksheets.Add("Import Errors");
-
             ws.Cells[1, 1].Value = "Row Number";
             ws.Cells[1, 2].Value = "Error Reason";
-
             int row = 2;
             foreach (var e in errors)
             {
@@ -307,28 +306,27 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 ws.Cells[row, 2].Value = e.Reason;
                 row++;
             }
-
-            string path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-                $"ImportErrors_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx"
-            );
-
+            string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), $"ImportErrors_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
             File.WriteAllBytes(path, wb.GetAsByteArray());
             return path;
         }
+
         private byte[] GetDefaultAvatar()
         {
-            var uri = new Uri(
-                "pack://application:,,,/SchoolFeeSystem.Presentation;component/Assets/default-avatar.png",
-                UriKind.Absolute);
-
-            var bitmap = new BitmapImage(uri);
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(bitmap));
-
-            using var stream = new MemoryStream();
-            encoder.Save(stream);
-            return stream.ToArray();
+            try
+            {
+                var uri = new Uri("pack://application:,,,/SchoolFeeSystem.Presentation;component/Assets/default-avatar.png", UriKind.Absolute);
+                var bitmap = new BitmapImage(uri);
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                using var stream = new MemoryStream();
+                encoder.Save(stream);
+                return stream.ToArray();
+            }
+            catch
+            {
+                return new byte[0]; // Fallback if asset missing
+            }
         }
 
         [RelayCommand]
@@ -337,10 +335,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             var services = ((App)Application.Current).Services;
             var directory = services.GetRequiredService<StaffDirectoryView>();
             var directoryVM = services.GetRequiredService<StaffDirectoryViewModel>();
-
-            directoryVM.RefreshData(); // Sync Integrity
+            directoryVM.RefreshData();
             directory.DataContext = directoryVM;
-
             Application.Current.MainWindow.Content = directory;
         }
     }

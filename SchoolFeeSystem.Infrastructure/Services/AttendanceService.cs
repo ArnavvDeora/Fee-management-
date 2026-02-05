@@ -6,9 +6,13 @@ using SchoolFeeSystem.Infrastructure.Data;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows; // For MessageBox
 
 namespace SchoolFeeSystem.Infrastructure.Services
 {
@@ -22,282 +26,567 @@ namespace SchoolFeeSystem.Infrastructure.Services
         }
 
         // =========================================================
-        // 1. SMART BIOMETRIC IMPORT (Updated for Designation & ID)
+        // ASYNC VERSION - PREVENTS UI FREEZE
         // =========================================================
-        public void ImportBiometricReport(string filePath)
+        public async Task ImportAttendanceAsync(string filePath, IProgress<string> progress = null)
         {
-            System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+            await Task.Run(() => ImportAttendance(filePath, progress));
+        }
 
-            using (var stream = File.Open(filePath, FileMode.Open, FileAccess.Read))
+        // =========================================================
+        // SYNCHRONOUS VERSION WITH PROGRESS REPORTING
+        // =========================================================
+        public void ImportAttendance(string filePath, IProgress<string> progress = null)
+        {
+            try
             {
-                IExcelDataReader reader;
-                if (Path.GetExtension(filePath).Equals(".csv", StringComparison.OrdinalIgnoreCase))
+                progress?.Report("Reading file...");
+                System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+
+                using (var stream = File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 {
-                    reader = ExcelReaderFactory.CreateCsvReader(stream, new ExcelReaderConfiguration()
+                    using (var reader = GetReaderForFile(filePath, stream))
                     {
-                        FallbackEncoding = System.Text.Encoding.GetEncoding(1252),
-                        AutodetectSeparators = new char[] { ',', ';', '\t' }
-                    });
-                }
-                else { reader = ExcelReaderFactory.CreateReader(stream); }
+                        var result = reader.AsDataSet();
+                        if (result.Tables.Count == 0) throw new Exception("The file is empty.");
 
-                using (reader)
-                {
-                    var result = reader.AsDataSet();
-                    if (result.Tables.Count == 0) return;
-                    var table = result.Tables[0];
+                        var table = result.Tables[0];
+                        progress?.Report($"File loaded. Total rows: {table.Rows.Count}");
 
-                    // 1. EXTRACT MONTH & YEAR
-                    int month = DateTime.Now.Month;
-                    int year = DateTime.Now.Year;
+                        // 1. Check Format
+                        string format = DetectFormatOrDie(table);
+                        progress?.Report($"Format detected: {format}");
 
-                    for (int r = 0; r < 5 && r < table.Rows.Count; r++)
-                    {
-                        string txt = table.Rows[r][0]?.ToString() ?? "";
-                        var m = Regex.Match(txt, @"(\d{1,2})\s*-\s*(\d{4})");
-                        if (m.Success)
+                        if (format == "FACE_ATTENDANCE")
                         {
-                            month = int.Parse(m.Groups[1].Value);
-                            year = int.Parse(m.Groups[2].Value);
-                            break;
-                        }
-                    }
-
-                    // 2. FIND HEADER ROW
-                    int headerRow = -1;
-                    for (int r = 0; r < 20 && r < table.Rows.Count; r++)
-                    {
-                        var cell = table.Rows[r][0]?.ToString() ?? "";
-                        if (cell.Contains("Attendance ID", StringComparison.OrdinalIgnoreCase))
-                        {
-                            headerRow = r;
-                            break;
-                        }
-                    }
-                    if (headerRow == -1) throw new Exception("Header 'Attendance ID' not found.");
-
-                    // 3. PROCESS ROWS
-                    var employeesCache = _context.Employees.ToList();
-
-                    for (int i = headerRow + 1; i < table.Rows.Count; i++)
-                    {
-                        var row = table.Rows[i];
-                        if (row.ItemArray.Length < 4) continue;
-
-                        string type = row[3]?.ToString() ?? "";
-                        if (!type.Contains("In-Time", StringComparison.OrdinalIgnoreCase)) continue;
-
-                        // --- READ ATTRIBUTES CORRECTLY ---
-                        string bioId = row[0]?.ToString()?.Trim();
-                        string rawName = row[1]?.ToString()?.Trim();
-                        string designation = row[2]?.ToString()?.Trim(); // Reads Column 2
-
-                        if (string.IsNullOrEmpty(bioId)) continue;
-
-                        // Clean Name: "Aman Verma (111)" -> "Aman Verma"
-                        string cleanName = Regex.Replace(rawName, @"\s*\(\d+\)", "").Trim();
-
-                        // --- FIND OR CREATE STAFF ---
-                        var emp = employeesCache.FirstOrDefault(e => e.BiometricId == bioId);
-
-                        if (emp == null && !string.IsNullOrEmpty(cleanName))
-                        {
-                            // Try finding by name match if ID is missing
-                            emp = employeesCache.FirstOrDefault(e =>
-                                (e.FirstName + " " + e.LastName).Equals(cleanName, StringComparison.OrdinalIgnoreCase));
-                        }
-
-                        if (emp == null)
-                        {
-                            // CREATE NEW EMPLOYEE with Designation
-                            emp = new Employee
-                            {
-                                FirstName = cleanName.Split(' ')[0],
-                                LastName = cleanName.Contains(" ") ? cleanName.Substring(cleanName.IndexOf(" ") + 1) : "",
-                                BiometricId = bioId,
-                                Designation = string.IsNullOrWhiteSpace(designation) ? "Staff" : designation,
-                                Department = "General",
-                                StaffType = "Teaching", // Default, Admin can change later
-                                IsActive = true,
-                                JoiningDate = DateTime.Now,
-                                Email = bioId + "@school.com",
-                                PhoneNumber = "0000000000"
-                            };
-                            _context.Employees.Add(emp);
-                            _context.SaveChanges();
-                            employeesCache.Add(emp);
+                            ProcessFaceAttendance(table, progress);
                         }
                         else
                         {
-                            // UPDATE EXISTING EMPLOYEE DETAILS
-                            // If they already exist, update the designation from the CSV to keep it fresh
-                            if (!string.IsNullOrWhiteSpace(designation) && emp.Designation != designation)
-                            {
-                                emp.Designation = designation;
-                                _context.Employees.Update(emp);
-                            }
-                            // Ensure Biometric ID is linked
-                            if (emp.BiometricId != bioId)
-                            {
-                                emp.BiometricId = bioId;
-                                _context.Employees.Update(emp);
-                            }
-                        }
-
-                        // --- READ OUT-TIME & TOTAL-TIME ROWS ---
-                        DataRow outRow = (i + 1 < table.Rows.Count) ? table.Rows[i + 1] : null;
-                        DataRow totalRow = (i + 2 < table.Rows.Count) ? table.Rows[i + 2] : null;
-
-                        // --- SAVE ATTENDANCE ---
-                        for (int day = 1; day <= 31; day++)
-                        {
-                            int colIndex = 3 + day;
-                            if (colIndex >= table.Columns.Count) break;
-                            if (day > DateTime.DaysInMonth(year, month)) break;
-
-                            string inTime = row[colIndex]?.ToString()?.Trim();
-                            string outTime = (outRow != null) ? outRow[colIndex]?.ToString()?.Trim() : "00:00";
-                            string duration = (totalRow != null) ? totalRow[colIndex]?.ToString()?.Trim() : "00:00";
-
-                            // Normalize data
-                            if (inTime == "0" || string.IsNullOrWhiteSpace(inTime)) inTime = "00:00";
-                            if (outTime == "0" || string.IsNullOrWhiteSpace(outTime)) outTime = "00:00";
-                            if (duration == "0" || string.IsNullOrWhiteSpace(duration)) duration = "00:00";
-
-                            // Mark Present if InTime exists
-                            if (inTime != "00:00")
-                            {
-                                DateTime date = new DateTime(year, month, day);
-                                var record = _context.AttendanceRecords
-                                    .FirstOrDefault(a => a.EmployeeId == emp.Id && a.Date == date);
-
-                                if (record == null)
-                                {
-                                    _context.AttendanceRecords.Add(new AttendanceRecord
-                                    {
-                                        EmployeeId = emp.Id,
-                                        Date = date,
-                                        Status = "Present",
-                                        InTime = inTime,
-                                        OutTime = outTime,
-                                        Duration = duration
-                                    });
-                                }
-                                else
-                                {
-                                    record.Status = "Present";
-                                    record.InTime = inTime;
-                                    record.OutTime = outTime;
-                                    record.Duration = duration;
-                                    _context.AttendanceRecords.Update(record);
-                                }
-                            }
+                            ProcessDetailedReport(table, progress);
                         }
                     }
-                    _context.SaveChanges();
                 }
             }
+            catch (Exception ex)
+            {
+                progress?.Report($"ERROR: {ex.Message}");
+                throw;
+            }
+        }
+
+        // BACKWARD COMPATIBILITY
+        public void ImportAttendance(string filePath)
+        {
+            ImportAttendance(filePath, null);
+        }
+
+        private string DetectFormatOrDie(DataTable table)
+        {
+            for (int i = 0; i < Math.Min(20, table.Rows.Count); i++)
+            {
+                string rowStr = string.Join(" ", table.Rows[i].ItemArray.Select(x => x?.ToString() ?? ""));
+
+                if (rowStr.Contains("Code & Name", StringComparison.OrdinalIgnoreCase) ||
+                    rowStr.Contains("Total In Time", StringComparison.OrdinalIgnoreCase) ||
+                    rowStr.Contains("In/Out Punches", StringComparison.OrdinalIgnoreCase))
+                    return "FACE_ATTENDANCE";
+
+                if (rowStr.Contains("Attendance ID", StringComparison.OrdinalIgnoreCase))
+                    return "DETAILED_REPORT";
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("❌ File Format Unknown.");
+            sb.AppendLine("\n--- First 5 Rows ---");
+            for (int i = 0; i < Math.Min(5, table.Rows.Count); i++)
+                sb.AppendLine($"Row {i}: {string.Join("|", table.Rows[i].ItemArray)}");
+
+            throw new Exception(sb.ToString());
+        }
+
+        private IExcelDataReader GetReaderForFile(string filePath, FileStream stream)
+        {
+            if (Path.GetExtension(filePath).Equals(".csv", StringComparison.OrdinalIgnoreCase))
+            {
+                return ExcelReaderFactory.CreateCsvReader(stream, new ExcelReaderConfiguration()
+                {
+                    FallbackEncoding = System.Text.Encoding.GetEncoding(1252),
+                    AutodetectSeparators = new char[] { ',', ';', '\t' }
+                });
+            }
+            return ExcelReaderFactory.CreateReader(stream);
         }
 
         // =========================================================
-        // 2. STANDARD METHODS (Unchanged)
+        // PROCESSOR: DETAILED REPORT (CSV FORMAT)
         // =========================================================
-
-        public List<AttendanceRecord> GetAttendance(int month, int year, int? employeeId = null)
+        private void ProcessDetailedReport(DataTable table, IProgress<string> progress = null)
         {
-            var query = _context.AttendanceRecords
-                .Include(a => a.Employee)
-                .AsQueryable();
+            var batch = new List<AttendanceRecord>();
+            int month = DateTime.Now.Month;
+            int year = DateTime.Now.Year;
 
-            if (employeeId.HasValue && employeeId.Value > 0)
-                query = query.Where(a => a.EmployeeId == employeeId);
+            // Extract Month and Year from header
+            for (int r = 0; r < 5 && r < table.Rows.Count; r++)
+            {
+                string rowStr = string.Join(" ", table.Rows[r].ItemArray.Select(x => x?.ToString()));
+                var m = Regex.Match(rowStr, @"(\d{1,2})\s*-\s*(\d{4})");
+                if (m.Success)
+                {
+                    month = int.Parse(m.Groups[1].Value);
+                    year = int.Parse(m.Groups[2].Value);
+                    progress?.Report($"Detected month: {month}/{year}");
+                    break;
+                }
+            }
 
-            if (month > 0 && year > 0)
-                query = query.Where(a => a.Date.Month == month && a.Date.Year == year);
+            // Find Header Row (contains "Attendance ID")
+            int headerRow = -1;
+            for (int r = 0; r < Math.Min(20, table.Rows.Count); r++)
+            {
+                for (int c = 0; c < table.Columns.Count; c++)
+                {
+                    if (table.Rows[r][c]?.ToString().Contains("Attendance ID", StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        headerRow = r;
+                        break;
+                    }
+                }
+                if (headerRow != -1) break;
+            }
 
-            return query.OrderByDescending(a => a.Date).ToList();
+            if (headerRow == -1)
+                throw new Exception("'Attendance ID' header not found in CSV.");
+
+            var employeesCache = _context.Employees.ToList();
+            int employeesProcessed = 0;
+            int recordsProcessed = 0;
+
+            // Process Rows - Each employee has 3 rows (In-Time, Out-Time, Total-Time)
+            for (int i = headerRow + 1; i < table.Rows.Count; i += 3)
+            {
+                if (i + 2 >= table.Rows.Count) break;
+
+                var inRow = table.Rows[i];
+                var outRow = table.Rows[i + 1];
+                var totalRow = table.Rows[i + 2];
+
+                // Validate this is an employee block
+                string bioId = inRow[0]?.ToString()?.Trim();
+                string rawName = inRow[1]?.ToString()?.Trim();
+                string inTimeType = inRow[3]?.ToString()?.Trim();
+
+                if (string.IsNullOrEmpty(bioId) || !inTimeType.Contains("In-Time", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Clean employee name (remove parentheses with numbers)
+                string cleanName = Regex.Replace(rawName, @"\s*\(\d+\)", "").Trim();
+
+                // Find or create employee
+                var emp = employeesCache.FirstOrDefault(e => e.BiometricId == bioId);
+                if (emp == null)
+                {
+                    emp = employeesCache.FirstOrDefault(e => e.FullName.Equals(cleanName, StringComparison.OrdinalIgnoreCase));
+                    if (emp != null)
+                    {
+                        emp.BiometricId = bioId;
+                        _context.Employees.Update(emp);
+                    }
+                }
+
+                // Create new employee if not found
+                if (emp == null)
+                {
+                    string[] parts = cleanName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    emp = new Employee
+                    {
+                        FirstName = parts.Length > 0 ? parts[0] : cleanName,
+                        LastName = parts.Length > 1 ? string.Join(" ", parts.Skip(1)) : "",
+                        BiometricId = bioId,
+                        Designation = inRow[2]?.ToString()?.Trim() ?? "Staff"
+                    };
+
+                    _context.Employees.Add(emp);
+                    _context.SaveChanges(); // Save immediately to get the ID
+                    employeesCache.Add(emp); // Add to cache
+
+                    progress?.Report($"✨ Created new employee: {cleanName} (BioID: {bioId})");
+                }
+
+                employeesProcessed++;
+
+                // Process each day (columns 4 onwards represent days 1, 2, 3, ... 30/31)
+                int daysInMonth = DateTime.DaysInMonth(year, month);
+                for (int day = 1; day <= daysInMonth; day++)
+                {
+                    int colIndex = 3 + day; // Column 4 = Day 1, Column 5 = Day 2, etc.
+
+                    if (colIndex >= inRow.ItemArray.Length) break;
+
+                    string inTime = inRow[colIndex]?.ToString()?.Trim() ?? "0";
+                    string outTime = outRow[colIndex]?.ToString()?.Trim() ?? "0";
+                    string totalTime = totalRow[colIndex]?.ToString()?.Trim() ?? "0";
+
+                    // Skip if no data for this day
+                    if (inTime == "0" || inTime == "00:00" || string.IsNullOrEmpty(inTime))
+                        continue;
+
+                    DateTime date = new DateTime(year, month, day);
+
+                    // Determine status
+                    string status = "Present";
+
+                    // If out-time is 00:00 or 0, assume missing punch
+                    if (outTime == "0" || outTime == "00:00" || string.IsNullOrEmpty(outTime))
+                    {
+                        outTime = "00:00";
+                        status = "MIS"; // Missing out-punch
+                    }
+
+                    // Calculate duration if not already provided
+                    string duration = "0h 0m";
+                    if (!string.IsNullOrEmpty(totalTime) && totalTime != "0")
+                    {
+                        duration = ConvertTimeStringToDuration(totalTime);
+                    }
+                    else
+                    {
+                        duration = CalculateDuration(inTime, outTime);
+                    }
+
+                    batch.Add(new AttendanceRecord
+                    {
+                        EmployeeId = emp.Id,
+                        Date = date,
+                        Status = status,
+                        InTime = inTime,
+                        OutTime = outTime,
+                        Duration = duration,
+                        IsManualEntry = false,
+                        Remarks = ""
+                    });
+
+                    recordsProcessed++;
+                }
+
+                // Report progress
+                if (employeesProcessed % 10 == 0)
+                {
+                    progress?.Report($"Processed {employeesProcessed} employees, {recordsProcessed} records...");
+                }
+            }
+
+            // Save all records
+            if (batch.Any())
+            {
+                progress?.Report($"Saving {batch.Count} attendance records...");
+                AddOrUpdateAttendanceBatch(batch);
+            }
+
+            _context.SaveChanges();
+            progress?.Report($"✅ Import completed! {employeesProcessed} employees, {recordsProcessed} attendance records.");
         }
 
-        public void MarkAttendance(AttendanceRecord record)
+        // =========================================================
+        // PROCESSOR: FACE ATTENDANCE (EXCEL FORMAT)
+        // =========================================================
+        private void ProcessFaceAttendance(DataTable table, IProgress<string> progress = null)
         {
-            var existing = _context.AttendanceRecords
-                .FirstOrDefault(a => a.EmployeeId == record.EmployeeId && a.Date == record.Date);
+            var batch = new List<AttendanceRecord>();
+            var tempBatch = new List<AttendanceRecord>();
+            Employee currentEmployee = null;
 
-            if (existing != null)
+            int employeesProcessed = 0;
+            int recordsProcessed = 0;
+
+            for (int i = 0; i < table.Rows.Count; i++)
             {
-                existing.Status = record.Status;
-                existing.InTime = record.InTime;
-                existing.OutTime = record.OutTime;
-                existing.Duration = record.Duration;
-                _context.AttendanceRecords.Update(existing);
+                var row = table.Rows[i];
+                string col0 = row[0]?.ToString()?.Trim() ?? "";
+
+                // Skip empty rows
+                if (string.IsNullOrWhiteSpace(col0))
+                    continue;
+
+                // 1. EMPLOYEE NAME ROW
+                if (col0.Contains("Code & Name", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Save previous employee's records
+                    if (tempBatch.Any())
+                    {
+                        batch.AddRange(tempBatch);
+                        tempBatch.Clear();
+
+                        if (batch.Count >= 500)
+                        {
+                            progress?.Report($"Saving batch... ({batch.Count} records)");
+                            AddOrUpdateAttendanceBatch(batch);
+                            batch.Clear();
+                        }
+                    }
+
+                    // Extract employee name - could be in column 1 or column 3 depending on format
+                    string fullName = "";
+
+                    // Try column 3 first (newer format: "** Code & Name :- [space] [code] [name]")
+                    if (row.ItemArray.Length > 3 && !string.IsNullOrWhiteSpace(row[3]?.ToString()))
+                    {
+                        fullName = row[3].ToString().Trim();
+                    }
+                    // Fall back to column 1 (older format: "** Code & Name :- [name]")
+                    else if (row.ItemArray.Length > 1 && !string.IsNullOrWhiteSpace(row[1]?.ToString()))
+                    {
+                        fullName = row[1].ToString().Trim();
+                    }
+
+                    if (string.IsNullOrEmpty(fullName)) continue;
+
+                    // Extract BiometricId if available (column 2)
+                    string bioId = row.ItemArray.Length > 2 ? row[2]?.ToString()?.Trim() : "";
+
+                    var employees = _context.Employees.ToList();
+
+                    // Try to find employee by BiometricId first, then by name
+                    currentEmployee = null;
+                    if (!string.IsNullOrEmpty(bioId))
+                    {
+                        currentEmployee = employees.FirstOrDefault(e => e.BiometricId == bioId);
+                    }
+
+                    if (currentEmployee == null)
+                    {
+                        currentEmployee = employees.FirstOrDefault(e =>
+                            e.FullName.Equals(fullName, StringComparison.OrdinalIgnoreCase));
+                    }
+
+                    if (currentEmployee == null)
+                    {
+                        string[] parts = fullName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                        currentEmployee = new Employee
+                        {
+                            FirstName = parts.Length > 0 ? parts[0] : fullName,
+                            LastName = parts.Length > 1 ? string.Join(" ", parts.Skip(1)) : "",
+                            BiometricId = bioId
+                        };
+
+                        _context.Employees.Add(currentEmployee);
+                        _context.SaveChanges();
+                    }
+                    else if (string.IsNullOrEmpty(currentEmployee.BiometricId) && !string.IsNullOrEmpty(bioId))
+                    {
+                        // Update BiometricId if employee exists but doesn't have one
+                        currentEmployee.BiometricId = bioId;
+                        _context.Employees.Update(currentEmployee);
+                        _context.SaveChanges();
+                    }
+
+                    employeesProcessed++;
+                    progress?.Report($"Processing: {fullName}");
+
+                    continue;
+                }
+
+                // 2. ATTENDANCE ROW PROCESSING
+                if (currentEmployee != null && !string.IsNullOrEmpty(col0) && col0.Length > 0 && char.IsDigit(col0[0]))
+                {
+                    if (DateTime.TryParseExact(col0, "dd/MM/yyyy",
+                        CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime date))
+                    {
+                        if (currentEmployee.Id == 0)
+                        {
+                            throw new Exception($"Employee {currentEmployee.FirstName} has no ID!");
+                        }
+
+                        string totalInTime = (row.ItemArray.Length > 2 && row[2] != null)
+                            ? row[2].ToString()?.Trim() : "00:00";
+
+                        string totalOutTime = (row.ItemArray.Length > 3 && row[3] != null)
+                            ? row[3].ToString()?.Trim() : "00:00";
+
+                        string status = (row.ItemArray.Length > 4 && row[4] != null)
+                            ? row[4].ToString()?.Trim() : "";
+
+                        string punches = (row.ItemArray.Length > 5 && row[5] != null)
+                            ? row[5].ToString()?.Trim() : "";
+
+                        string finalStatus = "Present";
+
+                        if (status == "WO" || status == "OFF")
+                        {
+                            finalStatus = "Holiday";
+                        }
+                        else if (status == "A")
+                        {
+                            finalStatus = "Absent";
+                        }
+                        else if (status == "MIS")
+                        {
+                            finalStatus = "MIS";   // keep MIS
+                        }
+
+
+                        string inTime = "00:00";
+                        string outTime = "00:00";
+
+                        if (!string.IsNullOrEmpty(totalInTime) && totalInTime != "00:00")
+                            inTime = totalInTime;
+
+                        if (!string.IsNullOrEmpty(totalOutTime) && totalOutTime != "00:00")
+                            outTime = totalOutTime;
+                        // BUSINESS RULE:
+                        // MIS = forgot OUT punch → auto mark 5:00 PM
+                        if (status == "MIS" && inTime != "00:00")
+                        {
+                            outTime = "17:00";
+                        }
+
+
+                        if (!string.IsNullOrEmpty(punches))
+                        {
+                            var inMatch = Regex.Match(punches, @"(\d{2}:\d{2})\(I\)");
+                            if (inMatch.Success)
+                                inTime = inMatch.Groups[1].Value;
+
+                            var outMatch = Regex.Match(punches, @"(\d{2}:\d{2})\(O\)");
+                            if (outMatch.Success)
+                                outTime = outMatch.Groups[1].Value;
+                        }
+
+                        if (inTime != "00:00")
+                            finalStatus = "Present";
+
+                        tempBatch.Add(new AttendanceRecord
+                        {
+                            EmployeeId = currentEmployee.Id,
+                            Date = date,
+                            Status = finalStatus,
+                            InTime = inTime,
+                            OutTime = outTime,
+                            Duration = CalculateDuration(inTime, outTime)
+                        });
+
+                        recordsProcessed++;
+                    }
+                }
+
+                // Report progress every 100 rows
+                if (i % 100 == 0)
+                {
+                    progress?.Report($"Processed {i}/{table.Rows.Count} rows... ({employeesProcessed} employees, {recordsProcessed} records)");
+                }
             }
-            else
+
+            // Save remaining records
+            if (tempBatch.Any())
             {
-                _context.AttendanceRecords.Add(record);
+                batch.AddRange(tempBatch);
             }
+
+            if (batch.Any())
+            {
+                progress?.Report($"Saving final batch... ({batch.Count} records)");
+                AddOrUpdateAttendanceBatch(batch);
+            }
+
+            _context.SaveChanges();
+
+            progress?.Report($"Import completed! {employeesProcessed} employees, {recordsProcessed} attendance records.");
+        }
+
+        // =========================================================
+        // BATCH SAVE HELPER
+        // =========================================================
+        private void AddOrUpdateAttendanceBatch(List<AttendanceRecord> newRecords)
+        {
+            if (!newRecords.Any()) return;
+
+            foreach (var r in newRecords)
+            {
+                r.Date = r.Date.Date;
+
+                if (r.EmployeeId == 0)
+                {
+                    throw new Exception($"Invalid EmployeeId=0 for date {r.Date:yyyy-MM-dd}");
+                }
+            }
+
+            var empIds = newRecords.Select(r => r.EmployeeId).Distinct().ToList();
+            var dates = newRecords.Select(r => r.Date).Distinct().ToList();
+
+            var existingRecords = _context.AttendanceRecords
+                .Where(r => empIds.Contains(r.EmployeeId) && dates.Contains(r.Date))
+                .ToList();
+
+            foreach (var newRecord in newRecords)
+            {
+                var existing = existingRecords.FirstOrDefault(r =>
+                    r.EmployeeId == newRecord.EmployeeId && r.Date == newRecord.Date);
+
+                if (existing != null)
+                {
+                    existing.InTime = newRecord.InTime;
+                    existing.OutTime = newRecord.OutTime;
+                    existing.Duration = newRecord.Duration;
+                    existing.Status = newRecord.Status;
+                }
+                else
+                {
+                    _context.AttendanceRecords.Add(newRecord);
+                }
+            }
+
             _context.SaveChanges();
         }
 
-        public void BulkMarkAttendance(List<AttendanceRecord> records)
+        // =========================================================
+        // HELPER FUNCTIONS
+        // =========================================================
+        private string CalculateDuration(string inTime, string outTime)
         {
-            foreach (var r in records) MarkAttendance(r);
-        }
-
-        public List<Holiday> GetHolidays(int year)
-        {
-            return _context.Holidays
-                .Where(h => h.Date.Year == year)
-                .OrderBy(h => h.Date)
-                .ToList();
-        }
-
-        public void AddHoliday(Holiday holiday)
-        {
-            if (!_context.Holidays.Any(h => h.Date == holiday.Date))
+            if (TimeSpan.TryParse(inTime, out var t1) && TimeSpan.TryParse(outTime, out var t2))
             {
-                _context.Holidays.Add(holiday);
-                _context.SaveChanges();
+                if (t2 == TimeSpan.Zero) return "0h 0m";
+                var diff = t2 - t1;
+                if (diff.TotalMinutes < 0) diff = diff.Add(TimeSpan.FromHours(24));
+                return $"{(int)diff.TotalHours}h {diff.Minutes}m";
             }
+            return "0h 0m";
         }
 
-        public void DeleteHoliday(int id)
+        /// <summary>
+        /// Converts time strings like "07:50" to duration format "7h 50m"
+        /// </summary>
+        private string ConvertTimeStringToDuration(string timeStr)
         {
-            var item = _context.Holidays.Find(id);
-            if (item != null)
+            if (string.IsNullOrEmpty(timeStr) || timeStr == "0") return "0h 0m";
+
+            if (TimeSpan.TryParse(timeStr, out var time))
             {
-                _context.Holidays.Remove(item);
-                _context.SaveChanges();
+                return $"{(int)time.TotalHours}h {time.Minutes}m";
             }
+            return "0h 0m";
         }
 
-        public void ImportHolidays(string filePath)
+        // =========================================================
+        // INTERFACE METHODS
+        // =========================================================
+        public List<AttendanceRecord> GetAttendance(int month, int year, int? employeeId = null)
         {
-            var lines = File.ReadAllLines(filePath);
-            foreach (var line in lines.Skip(1))
-            {
-                var cols = line.Split(',');
-                if (cols.Length >= 2 && DateTime.TryParse(cols[0], out DateTime date))
-                {
-                    AddHoliday(new Holiday { Date = date, Name = cols[1].Trim(), IsRecurring = true });
-                }
-            }
+            var query = _context.AttendanceRecords.Include(a => a.Employee).AsQueryable();
+            if (employeeId.HasValue && employeeId > 0) query = query.Where(a => a.EmployeeId == employeeId);
+            if (month > 0) query = query.Where(a => a.Date.Month == month && a.Date.Year == year);
+            return query.OrderByDescending(a => a.Date).ToList();
         }
-
-        public void ImportAttendance(string filePath) => ImportBiometricReport(filePath);
-        public List<AttendanceRecord> GetRecords(int employeeId, int month, int year) => GetAttendance(month, year, employeeId);
+        public void MarkAttendance(AttendanceRecord record) => AddOrUpdateAttendanceBatch(new List<AttendanceRecord> { record });
+        public void BulkMarkAttendance(List<AttendanceRecord> records) => AddOrUpdateAttendanceBatch(records);
+        public void AddHoliday(Holiday holiday) { if (!_context.Holidays.Any(h => h.Date == holiday.Date)) { _context.Holidays.Add(holiday); _context.SaveChanges(); } }
+        public void DeleteHoliday(int id) { var item = _context.Holidays.Find(id); if (item != null) { _context.Holidays.Remove(item); _context.SaveChanges(); } }
+        public List<Holiday> GetHolidays(int year) => _context.Holidays.Where(h => h.Date.Year == year).OrderBy(h => h.Date).ToList();
         public void UpdateRecord(AttendanceRecord record) => MarkAttendance(record);
-
-        public AttendanceSettings GetSettings()
-        {
-            var s = _context.AttendanceSettings.FirstOrDefault();
-            if (s == null) { s = new AttendanceSettings(); _context.AttendanceSettings.Add(s); _context.SaveChanges(); }
-            return s;
-        }
-        public void SaveSettings(AttendanceSettings s) { _context.AttendanceSettings.Update(s); _context.SaveChanges(); }
-
-        IEnumerable<AttendanceRecord> IAttendanceService.GetRecords(int id, int month, int year)
-        {
-            return GetRecords(id, month, year);
-        }
+        public void ImportHolidays(string filePath) { }
+        public void ImportBiometricReport(string filePath) => ImportAttendance(filePath);
+        public void AddAttendanceRecord(AttendanceRecord record) => MarkAttendance(record);
+        IEnumerable<AttendanceRecord> IAttendanceService.GetRecords(int id, int month, int year) => GetAttendance(month, year, id);
     }
 }
