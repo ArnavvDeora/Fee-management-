@@ -1,13 +1,14 @@
-﻿using System;
-using System.Windows;
-using System.Globalization;
-using System.Windows.Markup;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using SchoolFeeSystem.Core.Interfaces;
 using SchoolFeeSystem.Infrastructure.Data;
 using SchoolFeeSystem.Infrastructure.Services;
+using SchoolFeeSystem.Presentation.Services;
 using SchoolFeeSystem.Presentation.ViewModels;
 using SchoolFeeSystem.Presentation.Views;
+using System;
+using System.Globalization;
+using System.Windows;
+using System.Windows.Markup;
 
 namespace SchoolFeeSystem.Presentation
 {
@@ -49,6 +50,15 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<IReportService, ReportService>();
             services.AddTransient<IPayrollService, PayrollService>();
             services.AddTransient<IAttendanceService, AttendanceService>();
+            services.AddScoped<ILeaveService, LeaveService>();  // ✅ FIXED: Only registered once
+            services.AddScoped<OvertimeCalculationService>();
+
+            // ✅ NEW: Payment Logging Service (for transaction audit trail)
+            services.AddSingleton<PaymentLogService>();
+
+            // ✅ EXISTING: Core Services
+            services.AddSingleton<CsvDataService>();
+            services.AddSingleton<PdfReportService>();
 
             // --- ViewModels & Views ---
 
@@ -72,14 +82,32 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<StudentView>();
             services.AddTransient<FeeViewModel>();
             services.AddTransient<FeeView>();
-            services.AddTransient<FeeCollectionViewModel>();
+
+            // ✅ UPDATED: FeeCollectionViewModel now requires PaymentLogService
+            services.AddTransient<FeeCollectionViewModel>(sp =>
+                new FeeCollectionViewModel(
+                    sp.GetRequiredService<CsvDataService>(),
+                    sp.GetRequiredService<PaymentLogService>()
+                ));
             services.AddTransient<FeeCollectionView>();
-            services.AddTransient<ReportsViewModel>();
+
+            // ✅ UPDATED: ReportsViewModel now requires PaymentLogService
+            services.AddTransient<ReportsViewModel>(sp =>
+                new ReportsViewModel(
+                    sp.GetRequiredService<CsvDataService>(),
+                    sp.GetRequiredService<PdfReportService>(),
+                    sp.GetRequiredService<PaymentLogService>()
+                ));
             services.AddTransient<ReportsView>();
+
             services.AddTransient<ClassViewModel>();
             services.AddTransient<ClassView>();
             services.AddTransient<HelpViewModel>();
             services.AddTransient<HelpView>();
+
+            // ✅ Scholarship ViewModel & View
+            services.AddTransient<ScholarshipViewModel>();
+            services.AddTransient<ScholarshipView>();
 
             // Staff & Payroll Features
             services.AddTransient<StaffDirectoryViewModel>();
@@ -103,15 +131,24 @@ namespace SchoolFeeSystem.Presentation
 
             services.AddTransient<ProcessPayrollViewModel>();
             services.AddTransient<ProcessPayrollView>();
-            services.AddTransient<SalarySettingsViewModel>(); 
+            services.AddTransient<SalarySettingsViewModel>();
             services.AddTransient<SalarySettingsView>();
             services.AddTransient<PayrollReportsViewModel>();
             services.AddTransient<PayrollReportsView>();
-            // Register the new Popups
+
+            // Register Popups
             services.AddTransient<PayslipViewerViewModel>();
             services.AddTransient<PayslipViewerView>();
             services.AddTransient<ImportHolidaysViewModel>();
             services.AddTransient<ImportHolidaysView>();
+
+            // Allowance Time
+            services.AddTransient<AllowanceTimeViewModel>();
+            services.AddTransient<AllowanceTimeView>();
+
+            // ✅ FIXED: Leave Management (clean registration, no duplicates)
+            services.AddTransient<LeaveManagementViewModel>();
+            services.AddTransient<LeaveManagementView>();
         }
 
         protected override void OnStartup(StartupEventArgs e)

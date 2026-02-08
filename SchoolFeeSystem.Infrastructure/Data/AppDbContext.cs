@@ -24,25 +24,34 @@ namespace SchoolFeeSystem.Infrastructure.Data
         public DbSet<AttendanceRecord> AttendanceRecords { get; set; }
         public DbSet<SalaryRecord> SalaryRecords { get; set; }
         public DbSet<SalaryComponent> SalaryComponents { get; set; }
+        public DbSet<OvertimeAllowance> OvertimeAllowances { get; set; }
+        public DbSet<LeaveRequest> LeaveRequests { get; set; }
+        public DbSet<Salary> Salaries { get; set; }
 
         public AppDbContext()
         {
-            // --- TEMPORARY FIX: RUN THIS ONCE ---
-            //Database.EnsureDeleted();
-            // ------------------------------------
-
+            // ✅ FIXED: Ensure database is created before accessing tables
             Database.EnsureCreated();
 
-            if (!Users.Any())
+            // ✅ FIXED: Wrapped in try-catch to prevent errors on first run
+            try
             {
-                var admin = new User
+                if (!Users.Any())
                 {
-                    Username = "admin",
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
-                    Role = UserRole.Admin
-                };
-                Users.Add(admin);
-                SaveChanges();
+                    var admin = new User
+                    {
+                        Username = "admin",
+                        PasswordHash = BCrypt.Net.BCrypt.HashPassword("admin123"),
+                        Role = UserRole.Admin
+                    };
+                    Users.Add(admin);
+                    SaveChanges();
+                }
+            }
+            catch (System.Exception)
+            {
+                // Table doesn't exist yet - migrations will create it
+                // This is normal on first run
             }
         }
 
@@ -59,8 +68,8 @@ namespace SchoolFeeSystem.Infrastructure.Data
                 .IsUnique();
             modelBuilder.Entity<Employee>().HasIndex(e => e.BiometricId).IsUnique();
             modelBuilder.Entity<Employee>()
-        .Property(e => e.BaseSalary)
-        .HasConversion<double>();
+                .Property(e => e.BaseSalary)
+                .HasConversion<double>();
 
             base.OnModelCreating(modelBuilder);
         }

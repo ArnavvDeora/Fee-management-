@@ -5,6 +5,13 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" d:DesignHeight="600" d:DesignWidth="900" Background="White">
     <Grid Margin="40">
+        <Button Content="← Back"
+        Width="100"
+        Height="40"
+        HorizontalAlignment="Left"
+        Margin="10"
+        Command="{Binding GoBack3Command}" />
+
         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
 
             <TextBlock Text="Customer Support" FontSize="32" FontWeight="Bold" Foreground="#2C3E50" 

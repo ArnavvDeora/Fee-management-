@@ -28,8 +28,12 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [RelayCommand]
         public void GoToSalarySetup()
         {
+            // ✅ FIXED: Properly create both view and viewmodel
             var services = ((App)Application.Current).Services;
             var view = services.GetRequiredService<SalarySetupView>();
+            var vm = services.GetRequiredService<SalarySetupViewModel>();
+
+            view.DataContext = vm;  // Set DataContext explicitly
             Application.Current.MainWindow.Content = view;
         }
 
@@ -54,6 +58,24 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             var services = ((App)Application.Current).Services;
             var view = services.GetRequiredService<PayrollReportsView>();
+            Application.Current.MainWindow.Content = view;
+        }
+        [RelayCommand]
+        public void GoToAllowanceTime()
+        {
+            var services = ((App)Application.Current).Services;
+            var view = services.GetRequiredService<AllowanceTimeView>();
+            Application.Current.MainWindow.Content = view;
+        }
+        [RelayCommand]
+        public void GoToLeaveManagement()
+        {
+            // ✅ FIXED: Create view and viewmodel separately, then connect them
+            var services = ((App)Application.Current).Services;
+            var view = services.GetRequiredService<LeaveManagementView>();
+            var vm = services.GetRequiredService<LeaveManagementViewModel>();
+
+            view.DataContext = vm;  // Set DataContext explicitly
             Application.Current.MainWindow.Content = view;
         }
 

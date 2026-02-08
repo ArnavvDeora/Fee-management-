@@ -1,5 +1,7 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.DependencyInjection;
+using SchoolFeeSystem.Presentation.Views;
 using System.Diagnostics;
 using System.Windows;
 
@@ -7,33 +9,67 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 {
     public partial class HelpViewModel : ObservableObject
     {
-        // Your Details
-        public string SupportEmail { get; } = "arnavdeora@gmail.com";
-        public string SupportPhone { get; } = "+91 7973966694";
+        [ObservableProperty]
+        private string supportEmail = "support@schoolfeesystem.com";
+
+        [ObservableProperty]
+        private string supportPhone = "+91-9876543210";
 
         [RelayCommand]
         public void SendEmail()
         {
             try
             {
-                var psi = new ProcessStartInfo
+                string mailtoUrl = $"mailto:{SupportEmail}?subject=Fee Management System Support Request";
+                Process.Start(new ProcessStartInfo
                 {
-                    FileName = $"mailto:{SupportEmail}?subject=Support Request - School Fee System",
+                    FileName = mailtoUrl,
                     UseShellExecute = true
-                };
-                Process.Start(psi);
+                });
+
+                MessageBox.Show(
+                    "Your default email client has been opened.\n\nPlease send your query and we will get back to you soon!",
+                    "Email Client Opened",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
             }
-            catch
+            catch (System.Exception ex)
             {
-                MessageBox.Show($"Could not open mail app. Please manually email: {SupportEmail}");
+                MessageBox.Show(
+                    $"Failed to open email client: {ex.Message}\n\nPlease email us manually at: {SupportEmail}",
+                    "Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
             }
         }
 
         [RelayCommand]
         public void CopyNumber()
         {
-            Clipboard.SetText(SupportPhone);
-            MessageBox.Show("Phone number copied to clipboard!");
+            try
+            {
+                Clipboard.SetText(SupportPhone);
+                MessageBox.Show(
+                    $"Phone number copied to clipboard!\n\n{SupportPhone}",
+                    "Copied",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (System.Exception ex)
+            {
+                MessageBox.Show(
+                    $"Failed to copy number: {ex.Message}\n\nPhone: {SupportPhone}",
+                    "Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        [RelayCommand]
+        public void GoBack3()
+        {
+            var dashboard = App.Current.Services.GetRequiredService<DashboardView>();
+            Application.Current.MainWindow.Content = dashboard;
         }
     }
 }

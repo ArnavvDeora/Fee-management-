@@ -8,9 +8,17 @@
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="300"/>
             <ColumnDefinition Width="*"/>
+
         </Grid.ColumnDefinitions>
 
         <StackPanel Grid.Column="0" Margin="0,0,20,0">
+            <Button Content="← Back"
+        Width="100"
+        Height="40"
+        HorizontalAlignment="Left"
+        Margin="10"
+        Command="{Binding GoBackCommand}" />
+
             <TextBlock Text="Create Fee Structure" FontSize="18" FontWeight="Bold" Margin="0,0,0,20"/>
 
             <TextBlock Text="Select Class" FontWeight="SemiBold" Margin="0,0,0,5"/>

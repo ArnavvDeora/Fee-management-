@@ -19,6 +19,7 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" BorderThickness="0">
             <WrapPanel Orientation="Horizontal" HorizontalAlignment="Left">
 
+                <!-- Staff Directory -->
                 <Button Command="{Binding GoToManageStaffCommand}" Width="220" Height="140" Margin="0,0,20,20" Background="White" BorderThickness="0">
                     <Button.Resources>
                         <Style TargetType="Border">
@@ -37,6 +38,7 @@
                     </StackPanel>
                 </Button>
 
+                <!-- Salary Setup -->
                 <Button Command="{Binding GoToSalarySetupCommand}" Width="220" Height="140" Margin="0,0,20,20" Background="White" BorderThickness="0">
                     <Button.Resources>
                         <Style TargetType="Border">
@@ -55,6 +57,7 @@
                     </StackPanel>
                 </Button>
 
+                <!-- Attendance -->
                 <Button Command="{Binding GoToAttendanceCommand}" Width="220" Height="140" Margin="0,0,20,20" Background="White" BorderThickness="0">
                     <Button.Resources>
                         <Style TargetType="Border">
@@ -73,6 +76,7 @@
                     </StackPanel>
                 </Button>
 
+                <!-- Holidays -->
                 <Button Command="{Binding GoToHolidaysCommand}" Width="220" Height="140" Margin="0,0,20,20" Background="White" BorderThickness="0">
                     <Button.Resources>
                         <Style TargetType="Border">
@@ -91,23 +95,63 @@
                     </StackPanel>
                 </Button>
 
-                <Button Command="{Binding GoToProcessPayrollCommand}" Width="220" Height="140" Margin="0,0,20,20" Background="#2C3E50" BorderThickness="0">
+                <!-- Allowance Time (NEW - Matching Style) -->
+                <Button Command="{Binding GoToAllowanceTimeCommand}" Width="220" Height="140" Margin="0,0,20,20" Background="White" BorderThickness="0">
                     <Button.Resources>
                         <Style TargetType="Border">
                             <Setter Property="CornerRadius" Value="12"/>
                             <Setter Property="Effect">
                                 <Setter.Value>
-                                    <DropShadowEffect BlurRadius="15" Color="#BDC3C7" Opacity="0.6" ShadowDepth="3"/>
+                                    <DropShadowEffect BlurRadius="15" Color="#E0E0E0" Opacity="0.6" ShadowDepth="3"/>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Button.Resources>
+                    <StackPanel>
+                        <TextBlock Text="⏱️" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                        <TextBlock Text="Allowance Time" FontWeight="Bold" FontSize="16" Foreground="#2C3E50" HorizontalAlignment="Center"/>
+                        <TextBlock Text="View OT Time Bank" FontSize="12" Foreground="#95A5A6" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                    </StackPanel>
+                </Button>
+                <!-- Leave Management Card -->
+                <Button Command="{Binding GoToLeaveManagementCommand}" Width="220" Height="140" Margin="0,0,20,20" Background="White" BorderThickness="0">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="12"/>
+                            <Setter Property="Effect">
+                                <Setter.Value>
+                                    <DropShadowEffect BlurRadius="15" Color="#E0E0E0" Opacity="0.6" ShadowDepth="3"/>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Button.Resources>
+                    <StackPanel>
+                        <TextBlock Text="📋" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                        <TextBlock Text="Leave Management" FontWeight="Bold" FontSize="16" Foreground="#2C3E50" HorizontalAlignment="Center"/>
+                        <TextBlock Text="Grant &amp; Track Leaves" FontSize="12" Foreground="#95A5A6" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                    </StackPanel>
+                </Button>
+
+                <!-- Process Payroll (FIXED - Changed to White Background) -->
+                <Button Command="{Binding GoToProcessPayrollCommand}" Width="220" Height="140" Margin="0,0,20,20" Background="White" BorderThickness="0">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="12"/>
+                            <Setter Property="Effect">
+                                <Setter.Value>
+                                    <DropShadowEffect BlurRadius="15" Color="#E0E0E0" Opacity="0.6" ShadowDepth="3"/>
                                 </Setter.Value>
                             </Setter>
                         </Style>
                     </Button.Resources>
                     <StackPanel>
                         <TextBlock Text="💸" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,10"/>
-                        <TextBlock Text="Process Payroll" FontWeight="Bold" FontSize="16" Foreground="White" HorizontalAlignment="Center"/>
-                        <TextBlock Text="Calculate &amp; Finalize" FontSize="12" Foreground="#BDC3C7" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                        <TextBlock Text="Process Payroll" FontWeight="Bold" FontSize="16" Foreground="#2C3E50" HorizontalAlignment="Center"/>
+                        <TextBlock Text="Calculate &amp; Finalize" FontSize="12" Foreground="#95A5A6" HorizontalAlignment="Center" Margin="0,5,0,0"/>
                     </StackPanel>
                 </Button>
+
+                <!-- Reports Center -->
                 <Button Command="{Binding GoToPayrollReportsCommand}" Width="220" Height="140" Margin="0,0,20,20" Background="White" BorderThickness="0">
                     <Button.Resources>
                         <Style TargetType="Border">

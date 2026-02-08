@@ -1,166 +1,302 @@
 ﻿<UserControl x:Class="SchoolFeeSystem.Presentation.Views.FeeCollectionView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             mc:Ignorable="d" d:DesignHeight="600" d:DesignWidth="1000" Background="White">
-    <Grid Margin="20">
+             xmlns:converters="clr-namespace:SchoolFeeSystem.Presentation.Converters">
+
+    <UserControl.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
+        <converters:NullToVisibilityConverter x:Key="NullToVisibility"/>
+        <converters:PendingFeesToBrushConverter x:Key="PendingFeesToBrush"/>
+        <Style x:Key="BackButtonStyle" TargetType="Button">
+            <!-- setters -->
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Background="#F5F5F5">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="#F8F9FA" Padding="15" CornerRadius="8" Margin="0,0,0,20">
-            <StackPanel Orientation="Horizontal">
-                <StackPanel Margin="0,0,20,0">
-                    <TextBlock Text="Standard" FontWeight="Bold" FontSize="12" Foreground="Gray"/>
-                    <ComboBox ItemsSource="{Binding Standards}" SelectedItem="{Binding SelectedStandard}" 
-                              Width="100" Padding="5"/>
-                </StackPanel>
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#2196F3" Padding="20,15">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-                <StackPanel Margin="0,0,20,0">
-                    <TextBlock Text="Section" FontWeight="Bold" FontSize="12" Foreground="Gray"/>
-                    <ComboBox ItemsSource="{Binding Sections}" SelectedItem="{Binding SelectedSection}" 
-                              Width="80" Padding="5"/>
-                </StackPanel>
+                <Button Grid.Column="0" Content="← Back" 
+                        Command="{Binding GoBackCommand}"
+                        Style="{StaticResource BackButtonStyle}"/>
 
-                <Button Content="Load Class List" Command="{Binding LoadClassDataCommand}" 
-                        Background="#2C3E50" Foreground="White" FontWeight="Bold" Padding="15,5" Margin="0,16,0,0" Height="32"/>
+                <TextBlock Grid.Column="1" Text="💰 Fee Collection" 
+                          FontSize="24" FontWeight="Bold" Foreground="White"
+                          VerticalAlignment="Center" HorizontalAlignment="Center"/>
 
-                <Border Width="1" Background="#DDD" Margin="30,5"/>
-
-                <StackPanel VerticalAlignment="Bottom">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Width="200" Padding="6"/>
-                        <Button Content="Search" Command="{Binding SearchCommand}" Background="#3498DB" Foreground="White" Margin="5,0,0,0" Padding="10,5"/>
-                    </StackPanel>
-                </StackPanel>
-            </StackPanel>
+                <Button Grid.Column="2" Content="💾 Save Changes"
+                        Command="{Binding SaveChangesCommand}"
+                        Background="#4CAF50" Foreground="White"
+                        Padding="15,8" FontWeight="Bold" BorderThickness="0"
+                        Cursor="Hand"/>
+            </Grid>
         </Border>
 
-        <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="320"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-
-            <DockPanel Grid.Column="0" Margin="0,0,20,0">
-                <TextBlock Text="Student List (Red = Pending)" DockPanel.Dock="Top" FontWeight="Bold" Margin="0,0,0,10" Foreground="#7F8C8D"/>
-
-                <ListBox ItemsSource="{Binding SearchResults}" SelectedItem="{Binding SelectedStudent}" 
-                         BorderThickness="1" BorderBrush="#DDD" Background="White">
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem">
-                            <Setter Property="Padding" Value="5"/>
-                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                        </Style>
-                    </ListBox.ItemContainerStyle>
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Margin="0,5">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="{Binding FullName}" FontWeight="Bold" FontSize="15" Foreground="#2C3E50"/>
-                                    <TextBlock Text="{Binding ContactNumber}" FontSize="12" Foreground="Gray"/>
-                                </StackPanel>
-
-                                <Border Grid.Column="1" Background="{Binding DueStatusColor}" CornerRadius="15" Padding="10,2">
-                                    <TextBlock Text="{Binding TotalDues, StringFormat={}{0:C}}" 
-                                               Foreground="White" FontWeight="Bold" FontSize="12" VerticalAlignment="Center"/>
-                                </Border>
-                            </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </DockPanel>
-
-            <Grid Grid.Column="1">
-                <Grid.Style>
-                    <Style TargetType="Grid">
-                        <Setter Property="Visibility" Value="Visible"/>
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding SelectedStudent}" Value="{x:Null}">
-                                <Setter Property="Visibility" Value="Collapsed"/>
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </Grid.Style>
-
+        <!-- Filters and Controls -->
+        <Border Grid.Row="1" Background="White" Padding="20" 
+                BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
+            <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="10"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <Grid Grid.Row="0" Margin="0,0,0,10">
+                <!-- Row 1: Sheet Selection and Filter -->
+                <Grid Grid.Row="0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="200"/>
+                        <ColumnDefinition Width="20"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="200"/>
+                        <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <StackPanel>
-                        <TextBlock Text="Fee Account:" FontSize="14" Foreground="Gray"/>
-                        <TextBlock Text="{Binding SelectedStudent.FullName}" FontSize="20" FontWeight="Bold" Foreground="#2C3E50"/>
-                    </StackPanel>
-                    <Button Grid.Column="1" Content="Send WhatsApp Reminder" Command="{Binding SendReminderCommand}" 
-                            Background="#25D366" Foreground="White" FontWeight="Bold" Padding="15,5" BorderThickness="0">
-                        <Button.Resources>
-                            <Style TargetType="Border">
-                                <Setter Property="CornerRadius" Value="5"/>
-                            </Style>
-                        </Button.Resources>
-                    </Button>
+
+                    <TextBlock Grid.Column="0" Text="📋 Select Class/Sheet:" 
+                              VerticalAlignment="Center" FontWeight="SemiBold"/>
+
+                    <Grid Grid.Column="1">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Search box for sheets -->
+                        <TextBox Grid.Row="0" 
+                                 Text="{Binding SheetSearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 Padding="8,5" FontSize="12"
+                                 BorderBrush="#BDBDBD" BorderThickness="1"
+                                 Margin="0,0,0,2">
+                            <TextBox.Style>
+                                <Style TargetType="TextBox">
+                                    <Style.Triggers>
+                                        <Trigger Property="Text" Value="">
+                                            <Setter Property="Background">
+                                                <Setter.Value>
+                                                    <VisualBrush Stretch="None" AlignmentX="Left">
+                                                        <VisualBrush.Visual>
+                                                            <TextBlock Text="🔍 Search sheets..." 
+                                                                      Foreground="#9E9E9E" 
+                                                                      Margin="5,0,0,0"/>
+                                                        </VisualBrush.Visual>
+                                                    </VisualBrush>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBox.Style>
+                        </TextBox>
+
+                        <ComboBox Grid.Row="1"
+                                  ItemsSource="{Binding FilteredSheetNames}"
+                                  SelectedItem="{Binding SelectedSheet}"
+                                  Padding="8,5" FontSize="14"
+                                  BorderBrush="#2196F3" BorderThickness="2"/>
+                    </Grid>
+
+                    <TextBlock Grid.Column="3" Text="🔍 Filter Students:" 
+                              VerticalAlignment="Center" FontWeight="SemiBold"/>
+
+                    <ComboBox Grid.Column="4"
+                              ItemsSource="{Binding FeeFilterOptions}"
+                              SelectedItem="{Binding SelectedFeeFilter}"
+                              Padding="8,5" FontSize="14"
+                              BorderBrush="#2196F3" BorderThickness="2"/>
                 </Grid>
 
-                <DataGrid Grid.Row="1" ItemsSource="{Binding StudentFees}" SelectedItem="{Binding SelectedFeeToPay}" 
-                          AutoGenerateColumns="False" IsReadOnly="True" Margin="0,0,0,20" BorderThickness="1" BorderBrush="#EEE">
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Header="Fee Name" Binding="{Binding FeeStructure.FeeName}" Width="*"/>
-                        <DataGridTextColumn Header="Total" Binding="{Binding FeeStructure.Amount, StringFormat={}{0:C}}" Width="100"/>
-                        <DataGridTextColumn Header="Paid" Binding="{Binding AmountPaid, StringFormat={}{0:C}}" Width="80"/>
-                        <DataGridTextColumn Header="Pending" Binding="{Binding PendingAmount, StringFormat={}{0:C}}" Width="80" FontWeight="Bold" Foreground="Red"/>
-                        <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="80"/>
-                    </DataGrid.Columns>
-                </DataGrid>
+                <!-- Row 2: Note Information -->
+                <Border Grid.Row="2" Background="#FFF3E0" Padding="15,10" CornerRadius="5"
+                        Visibility="{Binding HasActiveNote, Converter={StaticResource BoolToVisibility}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
 
-                <Border Grid.Row="2" Background="#ECF0F1" Padding="20" CornerRadius="8">
-                    <StackPanel>
-                        <TextBlock Text="ACCEPT PAYMENT" FontWeight="Bold" FontSize="14" Margin="0,0,0,10" Foreground="#7F8C8D"/>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Amount:" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                            <TextBox Grid.Column="1" Text="{Binding PaymentAmount}" Padding="8" Margin="0,0,20,0"/>
-                            <TextBlock Grid.Column="2" Text="Mode:" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                            <ComboBox Grid.Column="3" ItemsSource="{Binding PaymentModes}" SelectedItem="{Binding PaymentMode}" Padding="5" Margin="0,0,20,0"/>
-                            <Button Grid.Column="4" Content="CONFIRM" Command="{Binding SubmitPaymentCommand}" 
-                                    Background="#27AE60" Foreground="White" Padding="25,8" FontWeight="Bold"/>
-                        </Grid>
-                    </StackPanel>
+                        <TextBlock Grid.Column="0" Text="{Binding NoteInformation}" 
+                                  FontSize="13" Foreground="#E65100" VerticalAlignment="Center"/>
+
+                        <DatePicker Grid.Column="1" SelectedDate="{Binding ExtensionDate}" 
+                                   Margin="0,0,10,0" VerticalAlignment="Center"/>
+
+                        <StackPanel Grid.Column="2" Orientation="Horizontal">
+                            <Button Content="Update Date" Command="{Binding UpdateExtensionDateCommand}"
+                                   Padding="10,5" Margin="0,0,5,0" Background="#FF9800" Foreground="White"
+                                   BorderThickness="0" Cursor="Hand"/>
+                            <Button Content="Apply Now" Command="{Binding ManualApplyIncrementCommand}"
+                                   Padding="10,5" Background="#F44336" Foreground="White"
+                                   BorderThickness="0" Cursor="Hand"/>
+                        </StackPanel>
+                    </Grid>
                 </Border>
             </Grid>
+        </Border>
 
-            <TextBlock Grid.Column="1" Text="Select a class and student to begin" 
-                       VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#BDC3C7" FontSize="18">
-                <TextBlock.Style>
-                    <Style TargetType="TextBlock">
-                        <Setter Property="Visibility" Value="Collapsed"/>
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding SelectedStudent}" Value="{x:Null}">
-                                <Setter Property="Visibility" Value="Visible"/>
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </TextBlock.Style>
-            </TextBlock>
+        <!-- Main Content: Student List + Payment Panel -->
+        <Grid Grid.Row="2" Margin="20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*"/>
+                <ColumnDefinition Width="20"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Student List -->
+            <Border Grid.Column="0" Background="White" CornerRadius="8" 
+                   BorderBrush="#E0E0E0" BorderThickness="1">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Background="#2196F3" Padding="15,10">
+                        <TextBlock Text="📋 Student List" FontSize="16" 
+                                  FontWeight="Bold" Foreground="White"/>
+                    </Border>
+
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding PendingFeesView}"
+                             SelectedItem="{Binding SelectedRow}"
+                             AutoGenerateColumns="True"
+                             IsReadOnly="True"
+                             SelectionMode="Single"
+                             GridLinesVisibility="Horizontal"
+                             HeadersVisibility="Column"
+                             CanUserAddRows="False"
+                             CanUserDeleteRows="False"
+                             CanUserResizeRows="False"
+                             AlternationCount="2"
+                             Margin="10">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Setter Property="Background" 
+                                       Value="{Binding Converter={StaticResource PendingFeesToBrush}}"/>
+                                <Setter Property="Cursor" Value="Hand"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="#E3F2FD"/>
+                                    </Trigger>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter Property="Background" Value="#BBDEFB"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+                    </DataGrid>
+                </Grid>
+            </Border>
+
+            <!-- Payment Panel -->
+            <Border Grid.Column="2" Background="White" CornerRadius="8" 
+                   BorderBrush="#E0E0E0" BorderThickness="1">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Background="#4CAF50" Padding="15,10">
+                        <TextBlock Text="💳 Payment Details" FontSize="16" 
+                                  FontWeight="Bold" Foreground="White"/>
+                    </Border>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="20">
+                        <StackPanel Visibility="{Binding SelectedRow, Converter={StaticResource NullToVisibility}}">
+
+                            <!-- Student Info -->
+                            <TextBlock Text="Student Information" FontSize="14" 
+                                      FontWeight="Bold" Margin="0,0,0,10"/>
+
+                            <Border Background="#F5F5F5" Padding="15" CornerRadius="5" Margin="0,0,0,15">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding StudentName}" FontSize="16" 
+                                              FontWeight="Bold" Margin="0,0,0,5"/>
+                                    <TextBlock Text="{Binding StudentPhoneNumber}" 
+                                              FontSize="12" Foreground="#757575"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Pending Amount -->
+                            <TextBlock Text="Total Pending Fees" FontSize="14" 
+                                      FontWeight="Bold" Margin="0,0,0,10"/>
+
+                            <Border Background="#FFEBEE" Padding="15" CornerRadius="5" 
+                                   Margin="0,0,0,20" BorderBrush="#F44336" BorderThickness="2">
+                                <TextBlock FontSize="24" FontWeight="Bold" 
+                                          Foreground="#D32F2F" HorizontalAlignment="Center">
+                                    <Run Text="₹"/>
+                                    <Run Text="{Binding TotalPendingForSelectedStudent, StringFormat=N2}"/>
+                                </TextBlock>
+                            </Border>
+
+                            <!-- Payment Amount -->
+                            <TextBlock Text="Payment Amount" FontSize="14" 
+                                      FontWeight="Bold" Margin="0,0,0,10"/>
+
+                            <TextBox Text="{Binding PaymentAmount, UpdateSourceTrigger=PropertyChanged}"
+                                    Padding="12,8" FontSize="16" Margin="0,0,0,15"
+                                    BorderBrush="#4CAF50" BorderThickness="2"/>
+
+                            <!-- Payment Mode -->
+                            <TextBlock Text="Payment Mode" FontSize="14" 
+                                      FontWeight="Bold" Margin="0,0,0,10"/>
+
+                            <ComboBox ItemsSource="{Binding PaymentModes}"
+                                     SelectedItem="{Binding SelectedPaymentMode}"
+                                     Padding="12,8" FontSize="14" Margin="0,0,0,20"
+                                     BorderBrush="#4CAF50" BorderThickness="2"/>
+
+                            <!-- Action Buttons -->
+                            <!-- ✅ FIXED: Changed from SubmitPaymentCommand to ProcessPaymentCommand -->
+                            <Button Content="💰 Submit Payment" 
+                                   Command="{Binding ProcessPaymentCommand}"
+                                   Background="#4CAF50" Foreground="White"
+                                   Padding="15,12" FontSize="14" FontWeight="Bold"
+                                   BorderThickness="0" Cursor="Hand" Margin="0,0,0,10"/>
+
+                            <Button Content="📱 Send WhatsApp Reminder" 
+                                   Command="{Binding SendWhatsAppReminderCommand}"
+                                   Background="#25D366" Foreground="White"
+                                   Padding="15,12" FontSize="14" FontWeight="Bold"
+                                   BorderThickness="0" Cursor="Hand"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
         </Grid>
+
+        <!-- Legend -->
+        <Border Grid.Row="3" Background="White" Padding="15,10" 
+               BorderBrush="#E0E0E0" BorderThickness="0,1,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <Border Background="#FFC8C8" Width="20" Height="20" 
+                       CornerRadius="3" Margin="0,0,5,0"/>
+                <TextBlock Text="Students with pending fees" 
+                          FontSize="12" Foreground="#757575" Margin="0,0,20,0"
+                          VerticalAlignment="Center"/>
+
+                <Border Background="White" Width="20" Height="20" 
+                       BorderBrush="#E0E0E0" BorderThickness="1"
+                       CornerRadius="3" Margin="0,0,5,0"/>
+                <TextBlock Text="No pending fees" 
+                          FontSize="12" Foreground="#757575"
+                          VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
     </Grid>
 </UserControl>

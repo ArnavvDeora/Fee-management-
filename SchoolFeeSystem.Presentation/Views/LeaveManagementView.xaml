@@ -1,0 +1,324 @@
+﻿<UserControl x:Class="SchoolFeeSystem.Presentation.Views.LeaveManagementView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:converters="clr-namespace:SchoolFeeSystem.Presentation.Converters"
+             mc:Ignorable="d" 
+             d:DesignHeight="750" d:DesignWidth="1200"
+             Background="White">
+
+    <!-- ✅ FIXED: Add converters as resources -->
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        <converters:StringVisibilityConverter x:Key="StringVisibilityConverter"/>
+    </UserControl.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,20">
+            <Button Content="← Back" 
+                    Command="{Binding GoBackCommand}"
+                    Background="#2C3E50" 
+                    Foreground="White"
+                    Padding="15,8"
+                    Margin="0,0,20,0"
+                    BorderThickness="0"
+                    Cursor="Hand"/>
+
+            <TextBlock Text="Leave Management" 
+                       FontSize="28" 
+                       FontWeight="Bold" 
+                       Foreground="#2C3E50"
+                       VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Main Content -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1*"/>
+                <ColumnDefinition Width="1.5*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- LEFT PANEL: Grant Leave Form -->
+            <Border Grid.Column="0" 
+                    Background="White" 
+                    BorderBrush="#BDC3C7" 
+                    BorderThickness="1" 
+                    CornerRadius="8"
+                    Padding="20"
+                    Margin="0,0,10,0">
+
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="Grant Leave" 
+                                   FontSize="20" 
+                                   FontWeight="SemiBold" 
+                                   Foreground="#34495E"
+                                   Margin="0,0,0,20"/>
+
+                        <!-- Employee Selection -->
+                        <TextBlock Text="Select Employee" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <ComboBox ItemsSource="{Binding Employees}"
+                                  SelectedItem="{Binding SelectedEmployee}"
+                                  DisplayMemberPath="FullName"
+                                  Height="35"
+                                  Margin="0,0,0,15"/>
+
+                        <!-- Allowance Time Info -->
+                        <Border Background="#E8F5E9" 
+                                BorderBrush="#4CAF50" 
+                                BorderThickness="1" 
+                                CornerRadius="5" 
+                                Padding="10"
+                                Margin="0,0,0,15"
+                                Visibility="{Binding HasAllowanceTime, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <StackPanel>
+                                <TextBlock Text="💰 Allowance Time Available" 
+                                           FontWeight="SemiBold" 
+                                           Foreground="#2E7D32"/>
+                                <TextBlock>
+                                    <Run Text="Available: "/>
+                                    <Run Text="{Binding AvailableAllowanceHours, StringFormat='{}{0:F2} hours'}" 
+                                         FontWeight="Bold" 
+                                         Foreground="#2E7D32"/>
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Leave Date -->
+                        <TextBlock Text="Leave Date" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <DatePicker SelectedDate="{Binding LeaveDate}"
+                                    Height="35"
+                                    Margin="0,0,0,15"/>
+
+                        <!-- Leave Type -->
+                        <TextBlock Text="Leave Type" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <ComboBox ItemsSource="{Binding LeaveTypes}"
+                                  SelectedItem="{Binding SelectedLeaveType}"
+                                  Height="35"
+                                  Margin="0,0,0,15"/>
+
+                        <!-- Time Selection (for Custom Hours) -->
+                        <Border Visibility="{Binding SelectedLeaveType, Converter={StaticResource StringVisibilityConverter}, ConverterParameter='Custom Hours'}"
+                                BorderBrush="#BDC3C7"
+                                BorderThickness="1"
+                                CornerRadius="5"
+                                Padding="10"
+                                Margin="0,0,0,15">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Start Time" FontSize="11" Foreground="#7F8C8D"/>
+                                    <TextBox Text="{Binding StartTime, UpdateSourceTrigger=PropertyChanged}"
+                                             Height="30"
+                                             LostFocus="CalculateCustomHours_Click"/>
+                                </StackPanel>
+
+                                <TextBlock Grid.Column="1" 
+                                           Text="→" 
+                                           FontSize="18" 
+                                           VerticalAlignment="Center" 
+                                           Margin="10,15,10,0"/>
+
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="End Time" FontSize="11" Foreground="#7F8C8D"/>
+                                    <TextBox Text="{Binding EndTime, UpdateSourceTrigger=PropertyChanged}"
+                                             Height="30"
+                                             LostFocus="CalculateCustomHours_Click"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <!-- Leave Source Preview -->
+                        <Border Background="#FFF3E0" 
+                                BorderBrush="#FF9800" 
+                                BorderThickness="1" 
+                                CornerRadius="5" 
+                                Padding="10"
+                                Margin="0,0,0,15">
+                            <TextBlock Text="{Binding LeaveSourcePreview}" 
+                                       TextWrapping="Wrap"
+                                       FontSize="12"
+                                       Foreground="#E65100"/>
+                        </Border>
+
+                        <!-- Reason -->
+                        <TextBlock Text="Reason *" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBox Text="{Binding Reason, UpdateSourceTrigger=PropertyChanged}"
+                                 Height="60"
+                                 TextWrapping="Wrap"
+                                 AcceptsReturn="True"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Margin="0,0,0,15"/>
+
+                        <!-- Remarks (Optional) -->
+                        <TextBlock Text="Remarks (Optional)" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <TextBox Text="{Binding Remarks, UpdateSourceTrigger=PropertyChanged}"
+                                 Height="60"
+                                 TextWrapping="Wrap"
+                                 AcceptsReturn="True"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Margin="0,0,0,20"/>
+
+                        <!-- Grant Button -->
+                        <Button Content="✅ Grant Leave" 
+                                Command="{Binding GrantLeaveCommand}"
+                                Background="#27AE60" 
+                                Foreground="White"
+                                Height="45"
+                                FontSize="16"
+                                FontWeight="SemiBold"
+                                BorderThickness="0"
+                                Cursor="Hand"
+                                Margin="0,0,0,10"/>
+
+                        <!-- Status Message -->
+                        <TextBlock Text="{Binding StatusMessage}" 
+                                   FontSize="12"
+                                   Foreground="#7F8C8D"
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <!-- RIGHT PANEL: Leave History -->
+            <Border Grid.Column="1" 
+                    Background="White" 
+                    BorderBrush="#BDC3C7" 
+                    BorderThickness="1" 
+                    CornerRadius="8"
+                    Padding="20"
+                    Margin="10,0,0,0">
+
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Header -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,15">
+                        <TextBlock Text="Leave History" 
+                                   FontSize="20" 
+                                   FontWeight="SemiBold" 
+                                   Foreground="#34495E"
+                                   VerticalAlignment="Center"/>
+
+                        <TextBlock Text=" (Current Year)" 
+                                   FontSize="14" 
+                                   Foreground="#7F8C8D"
+                                   VerticalAlignment="Center"
+                                   Margin="5,0,0,0"/>
+                    </StackPanel>
+
+                    <!-- Action Buttons -->
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
+                        <Button Content="🔄 Refresh" 
+                                Command="{Binding LoadLeaveHistoryCommand}"
+                                Background="#3498DB" 
+                                Foreground="White"
+                                Padding="12,6"
+                                Margin="0,0,10,0"
+                                BorderThickness="0"
+                                Cursor="Hand"/>
+
+                        <Button Content="📊 Statistics" 
+                                Command="{Binding ViewLeaveStatisticsCommand}"
+                                Background="#9B59B6" 
+                                Foreground="White"
+                                Padding="12,6"
+                                Margin="0,0,10,0"
+                                BorderThickness="0"
+                                Cursor="Hand"/>
+
+                        <Button Content="📥 Export" 
+                                Command="{Binding ExportLeaveReportCommand}"
+                                Background="#16A085" 
+                                Foreground="White"
+                                Padding="12,6"
+                                BorderThickness="0"
+                                Cursor="Hand"/>
+                    </StackPanel>
+
+                    <!-- Leave History DataGrid -->
+                    <DataGrid Grid.Row="2"
+                              ItemsSource="{Binding LeaveHistory}"
+                              SelectedItem="{Binding SelectedLeaveRecord}"
+                              AutoGenerateColumns="False"
+                              IsReadOnly="True"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              GridLinesVisibility="Horizontal"
+                              HeadersVisibility="Column"
+                              RowHeight="35"
+                              AlternatingRowBackground="#F8F9FA"
+                              BorderThickness="1"
+                              BorderBrush="#BDC3C7">
+
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Date" 
+                                                Binding="{Binding LeaveDate, StringFormat='{}{0:dd MMM yyyy}'}" 
+                                                Width="100"/>
+
+                            <DataGridTextColumn Header="Type" 
+                                                Binding="{Binding LeaveType}" 
+                                                Width="90"/>
+
+                            <DataGridTextColumn Header="Hours" 
+                                                Binding="{Binding LeaveHours, StringFormat='{}{0:F1}'}" 
+                                                Width="60"/>
+
+                            <DataGridTextColumn Header="Time" 
+                                                Width="100">
+                                <DataGridTextColumn.Binding>
+                                    <MultiBinding StringFormat="{}{0} - {1}">
+                                        <Binding Path="StartTime"/>
+                                        <Binding Path="EndTime"/>
+                                    </MultiBinding>
+                                </DataGridTextColumn.Binding>
+                            </DataGridTextColumn>
+
+                            <DataGridTextColumn Header="Source" 
+                                                Binding="{Binding LeaveSource}" 
+                                                Width="*"/>
+
+                            <DataGridTextColumn Header="Reason" 
+                                                Binding="{Binding Reason}" 
+                                                Width="*"/>
+
+                            <DataGridTextColumn Header="Status" 
+                                                Binding="{Binding Status}" 
+                                                Width="80"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <!-- Cancel Leave Button -->
+                    <Button Grid.Row="3"
+                            Content="❌ Cancel Selected Leave" 
+                            Command="{Binding CancelSelectedLeaveCommand}"
+                            Background="#E74C3C" 
+                            Foreground="White"
+                            Height="40"
+                            FontWeight="SemiBold"
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            Margin="0,15,0,0"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

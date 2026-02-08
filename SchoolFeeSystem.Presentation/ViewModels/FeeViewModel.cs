@@ -1,10 +1,31 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Input;
+using DocumentFormat.OpenXml.Drawing.Charts;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.VisualBasic;
 using SchoolFeeSystem.Core.Entities;
 using SchoolFeeSystem.Core.Interfaces;
+using SchoolFeeSystem.Presentation.Views;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
+using System.Windows;
+
+namespace SchoolFeeSystem.Presentation.ViewModels
+{
+    public partial class ClassViewModel : ObservableObject
+    {
+        [RelayCommand]
+        public void GoBack7()
+        {
+            var dashboard = App.Current.Services.GetRequiredService<DashboardView>();
+            Application.Current.MainWindow.Content = dashboard;
+        }
+    }
+}
+
 
 namespace SchoolFeeSystem.Presentation.ViewModels
 {

@@ -6,6 +6,25 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
 using System.Collections.Generic;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.DependencyInjection;
+using SchoolFeeSystem.Presentation.Views;
+using System.Windows;
+
+namespace SchoolFeeSystem.Presentation.ViewModels
+{
+    public partial class ClassViewModel : ObservableObject
+    {
+        [RelayCommand]
+        public void GoBack4()
+        {
+            var dashboard = App.Current.Services.GetRequiredService<DashboardView>();
+            Application.Current.MainWindow.Content = dashboard;
+        }
+    }
+}
+
 
 namespace SchoolFeeSystem.Presentation.ViewModels
 {

@@ -7,10 +7,30 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Services\ExcelDepartmentSplitter.cs" />
+    <Compile Remove="Services\PdfReportService;.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Services\ExcelDepartmentSplitter.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="ExcelDataReader.DataSet" Version="3.8.0" />
+	  <PackageReference Include="ClosedXML" Version="0.105.0" />
+	  
+	  <PackageReference Include="QuestPDF" Version="2024.3.0" />
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
     <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.2" />
     <PackageReference Include="System.Text.Json" Version="8.0.5" />

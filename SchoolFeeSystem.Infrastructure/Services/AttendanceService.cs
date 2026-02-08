@@ -19,10 +19,12 @@ namespace SchoolFeeSystem.Infrastructure.Services
     public class AttendanceService : IAttendanceService
     {
         private readonly AppDbContext _context;
+        private readonly OvertimeCalculationService _overtimeService;
 
         public AttendanceService(AppDbContext context)
         {
             _context = context;
+            _overtimeService = new OvertimeCalculationService(context);
         }
 
         // =========================================================
@@ -497,6 +499,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
         // =========================================================
         // BATCH SAVE HELPER
         // =========================================================
+
         private void AddOrUpdateAttendanceBatch(List<AttendanceRecord> newRecords)
         {
             if (!newRecords.Any()) return;
@@ -529,10 +532,17 @@ namespace SchoolFeeSystem.Infrastructure.Services
                     existing.OutTime = newRecord.OutTime;
                     existing.Duration = newRecord.Duration;
                     existing.Status = newRecord.Status;
+
+                    // 🆕 CALCULATE OVERTIME & PENALTIES
+                    _overtimeService.CalculateOvertimeAndPenalties(existing);
                 }
                 else
                 {
                     _context.AttendanceRecords.Add(newRecord);
+                    _context.SaveChanges(); // Save to get ID
+
+                    // 🆕 CALCULATE OVERTIME & PENALTIES
+                    _overtimeService.CalculateOvertimeAndPenalties(newRecord);
                 }
             }
 

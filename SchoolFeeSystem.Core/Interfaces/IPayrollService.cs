@@ -42,5 +42,6 @@ namespace SchoolFeeSystem.Core.Interfaces
         int GetPaidCount(string monthYear);
         List<SalaryRecord> GetRecentPaidSalaries(int count);
         List<Employee> GetRecentEmployees(int count);
+        OvertimeAllowance GetOvertimeAllowance(int id);
     }
 }

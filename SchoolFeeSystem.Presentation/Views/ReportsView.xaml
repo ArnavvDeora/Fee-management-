@@ -1,58 +1,111 @@
 ﻿<UserControl x:Class="SchoolFeeSystem.Presentation.Views.ReportsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             mc:Ignorable="d" d:DesignHeight="600" d:DesignWidth="900" Background="#F5F7FA">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Margin="0,0,0,20">
+        <!-- Title -->
+        <TextBlock Grid.Row="0" Text="📊 Generate Reports" 
+                   FontSize="24" FontWeight="Bold" Margin="0,0,0,20"/>
+
+        <!-- Statistics Panel -->
+        <Border Grid.Row="1" Background="#E3F2FD" CornerRadius="8" Padding="15" Margin="0,0,0,15">
+            <StackPanel Orientation="Horizontal">
+                <Border Background="#1976D2" CornerRadius="5" Padding="10" Margin="0,0,15,0">
+                    <StackPanel>
+                        <TextBlock Text="Total Students" Foreground="White" FontSize="11"/>
+                        <TextBlock Text="{Binding TotalStudents}" Foreground="White" FontSize="20" FontWeight="Bold"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Background="#F57C00" CornerRadius="5" Padding="10" Margin="0,0,15,0">
+                    <StackPanel>
+                        <TextBlock Text="With Pending Fees" Foreground="White" FontSize="11"/>
+                        <TextBlock Text="{Binding StudentsWithPending}" Foreground="White" FontSize="20" FontWeight="Bold"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Background="#388E3C" CornerRadius="5" Padding="10">
+                    <StackPanel>
+                        <TextBlock Text="Total Pending Amount" Foreground="White" FontSize="11"/>
+                        <TextBlock Text="{Binding TotalPendingAmount}" Foreground="White" FontSize="20" FontWeight="Bold"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Border>
+
+        <!-- Controls -->
+        <Grid Grid.Row="2" Margin="0,0,0,15">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" Background="#27AE60" CornerRadius="8" Padding="20" Margin="0,0,10,0">
-                <StackPanel>
-                    <TextBlock Text="Today's Collection" Foreground="White" FontSize="16"/>
-                    <TextBlock Text="{Binding TodayCollection, StringFormat=C}" Foreground="White" FontSize="28" FontWeight="Bold" Margin="0,10,0,0"/>
-                </StackPanel>
-            </Border>
+            <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                <TextBlock Text="Select Sheet:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                <ComboBox ItemsSource="{Binding SheetNames}" 
+                          SelectedItem="{Binding SelectedSheet}"
+                          Height="35"/>
+            </StackPanel>
 
-            <Border Grid.Column="1" Background="#E74C3C" CornerRadius="8" Padding="20" Margin="5,0,5,0">
-                <StackPanel>
-                    <TextBlock Text="Total Pending Dues" Foreground="White" FontSize="16"/>
-                    <TextBlock Text="{Binding TotalPending, StringFormat=C}" Foreground="White" FontSize="28" FontWeight="Bold" Margin="0,10,0,0"/>
-                </StackPanel>
-            </Border>
+            <StackPanel Grid.Column="1" Margin="0,0,10,0">
+                <TextBlock Text="Report Type:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                <ComboBox ItemsSource="{Binding ReportTypes}" 
+                          SelectedItem="{Binding SelectedReportType}"
+                          Height="35"/>
+            </StackPanel>
 
-            <Border Grid.Column="2" Background="#3498DB" CornerRadius="8" Padding="20" Margin="10,0,0,0">
-                <StackPanel>
-                    <TextBlock Text="Total Active Students" Foreground="White" FontSize="16"/>
-                    <TextBlock Text="{Binding StudentCount}" Foreground="White" FontSize="28" FontWeight="Bold" Margin="0,10,0,0"/>
-                </StackPanel>
-            </Border>
+            <StackPanel Grid.Column="2" Margin="0,0,10,0">
+                <TextBlock Text="Search Student:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                <Grid>
+                    <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" 
+                             Height="35" Padding="5"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="5">
+                        <Button Content="🔍" Command="{Binding SearchStudentCommand}" 
+                                Width="30" Height="25" Margin="0,0,5,0"/>
+                        <Button Content="✖" Command="{Binding ClearSearchCommand}" 
+                                Width="30" Height="25"/>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+
+            <Button Grid.Column="3" Content="📄 Generate Report" 
+                    Command="{Binding GenerateReportCommand}"
+                    Background="#4CAF50" Foreground="White"
+                    FontWeight="Bold" FontSize="14"
+                    Height="35" Padding="20,0"
+                    Margin="0,20,0,0"
+                    VerticalAlignment="Bottom"/>
         </Grid>
 
-        <DockPanel Grid.Row="1" Background="White">
-            <Grid DockPanel.Dock="Top" Margin="10">
-                <TextBlock Text="Recent Transactions" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
-                <Button Content="Refresh Data" Command="{Binding RefreshCommand}" HorizontalAlignment="Right" Padding="10,5"/>
-            </Grid>
+        <!-- Data Grid -->
+        <Border Grid.Row="3" BorderBrush="#BDBDBD" BorderThickness="1" CornerRadius="5">
+            <DataGrid ItemsSource="{Binding CurrentSheetView}" 
+                      SelectedItem="{Binding SelectedRow}"
+                      AutoGenerateColumns="True"
+                      IsReadOnly="True"
+                      AlternatingRowBackground="#F5F5F5"
+                      GridLinesVisibility="Horizontal"
+                      HeadersVisibility="Column"
+                      CanUserResizeColumns="True"
+                      CanUserSortColumns="True"
+                      SelectionMode="Single"/>
+        </Border>
 
-            <DataGrid ItemsSource="{Binding RecentTransactions}" AutoGenerateColumns="False" IsReadOnly="True" BorderThickness="0">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Date" Binding="{Binding PaymentDate, StringFormat=g}" Width="150"/>
-                    <DataGridTextColumn Header="Student Name" Binding="{Binding StudentFee.Student.FullName}" Width="*"/>
-                    <DataGridTextColumn Header="Amount" Binding="{Binding AmountPaid, StringFormat=C}" Width="100" FontWeight="Bold"/>
-                    <DataGridTextColumn Header="Mode" Binding="{Binding PaymentMode}" Width="80"/>
-                </DataGrid.Columns>
-            </DataGrid>
-        </DockPanel>
+        <!-- Back Button -->
+        <Button Grid.Row="4" Content="← Back to Dashboard" 
+                Command="{Binding GoBackCommand}"
+                HorizontalAlignment="Left"
+                Margin="0,15,0,0"
+                Padding="15,8"/>
     </Grid>
 </UserControl>

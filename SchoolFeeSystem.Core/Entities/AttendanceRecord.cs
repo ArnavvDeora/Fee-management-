@@ -20,6 +20,11 @@ namespace SchoolFeeSystem.Core.Entities
         // Flags for Rules
         public bool IsLate { get; set; }
         public bool IsEarlyExit { get; set; }
+        // Overtime tracking
+        public int OvertimeMinutes { get; set; } = 0;          // Minutes worked after 5:00 PM
+        public int LateMinutes { get; set; } = 0;              // Minutes late arrival
+        public int LatePenaltyMinutes { get; set; } = 0;       // Penalty (rounded to 30-min blocks)
+        public int AllowanceTimeUsed { get; set; } = 0;        // Allowance time used to offset penalty
 
         public int EmployeeId { get; set; }
         [ForeignKey("EmployeeId")]

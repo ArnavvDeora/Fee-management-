@@ -4,19 +4,27 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" 
-             d:DesignHeight="800" d:DesignWidth="800" 
+             d:DesignHeight="900" d:DesignWidth="850" 
              Background="White">
+
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="#F0F0F0" Padding="10">
+        <!-- Print Button Bar -->
+        <Border Grid.Row="0" Background="#F0F0F0" Padding="10" BorderBrush="#DDD" BorderThickness="0,0,0,1">
             <Button Content="🖨 Print / Save as PDF" 
                     Command="{Binding PrintSlipCommand}" 
                     CommandParameter="{Binding ElementName=PrintArea}"
-                    HorizontalAlignment="Right" Background="#2C3E50" Foreground="White" Padding="15,5" FontWeight="Bold">
+                    HorizontalAlignment="Right" 
+                    Background="#2C3E50" 
+                    Foreground="White" 
+                    Padding="20,8" 
+                    FontWeight="SemiBold"
+                    FontSize="14"
+                    Cursor="Hand">
                 <Button.Resources>
                     <Style TargetType="Border">
                         <Setter Property="CornerRadius" Value="4"/>
@@ -25,180 +33,456 @@
             </Button>
         </Border>
 
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Background="#555" Padding="20">
-            <Border x:Name="PrintArea" Background="White" Padding="40" HorizontalAlignment="Center" VerticalAlignment="Top" Width="750">
+        <!-- Payslip Content (Printable Area) -->
+        <ScrollViewer Grid.Row="1" 
+                      VerticalScrollBarVisibility="Auto" 
+                      HorizontalScrollBarVisibility="Auto" 
+                      Background="#E8E8E8" 
+                      Padding="30">
+
+            <Border x:Name="PrintArea" 
+                    Background="White" 
+                    Padding="50" 
+                    HorizontalAlignment="Center" 
+                    VerticalAlignment="Top" 
+                    Width="750"
+                    Margin="0,10">
                 <Border.Effect>
-                    <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.3"/>
+                    <DropShadowEffect BlurRadius="15" ShadowDepth="3" Opacity="0.25" Color="#333"/>
                 </Border.Effect>
 
                 <StackPanel>
-                    <TextBlock Text="INSTITUTE NAME / HEADER" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center" Foreground="#2C3E50"/>
-                    <TextBlock Text="Salary Slip &amp; Cost Ledger" FontSize="16" HorizontalAlignment="Center" Foreground="Gray" Margin="0,5,0,20"/>
 
-                    <Separator Background="Black" Margin="0,0,0,20"/>
+                    <!-- ============================================ -->
+                    <!-- HEADER -->
+                    <!-- ============================================ -->
+                    <TextBlock Text="CENTRAL INSTITUTE OF HANDTOOLS" 
+                               FontSize="26" 
+                               FontWeight="Bold" 
+                               HorizontalAlignment="Center" 
+                               Foreground="#1A237E"/>
+                    <TextBlock Text="SALARY SLIP &amp; COST LEDGER" 
+                               FontSize="15" 
+                               HorizontalAlignment="Center" 
+                               Foreground="#555" 
+                               Margin="0,3,0,0"/>
+                    <TextBlock Text="(Employee's Share + Employer's Share)" 
+                               FontSize="11" 
+                               HorizontalAlignment="Center" 
+                               Foreground="#999" 
+                               Margin="0,2,0,20"/>
 
-                    <Grid Margin="0,0,0,20">
+                    <Separator Background="#333" Height="2" Margin="0,0,0,25"/>
+
+                    <!-- ============================================ -->
+                    <!-- EMPLOYEE INFORMATION -->
+                    <!-- ============================================ -->
+                    <Grid Margin="0,0,0,25">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="20"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Left Column: Employee Details -->
+                        <StackPanel Grid.Column="0">
+                            <StackPanel Orientation="Horizontal" Margin="0,3">
+                                <TextBlock Text="Name: " FontWeight="SemiBold" Width="110" Foreground="#555"/>
+                                <TextBlock Text="{Binding CurrentSlip.Employee.FullName}" FontWeight="Bold" Foreground="#222"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,3">
+                                <TextBlock Text="Designation: " FontWeight="SemiBold" Width="110" Foreground="#555"/>
+                                <TextBlock Text="{Binding CurrentSlip.Designation}" Foreground="#222"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,3">
+                                <TextBlock Text="Department: " FontWeight="SemiBold" Width="110" Foreground="#555"/>
+                                <TextBlock Text="{Binding CurrentSlip.Department}" Foreground="#222"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,3">
+                                <TextBlock Text="Employee ID: " FontWeight="SemiBold" Width="110" Foreground="#555"/>
+                                <TextBlock Text="{Binding CurrentSlip.Employee.BiometricId}" Foreground="#222" FontFamily="Consolas"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Right Column: Attendance Details -->
+                        <StackPanel Grid.Column="2">
+                            <StackPanel Orientation="Horizontal" Margin="0,3">
+                                <TextBlock Text="Month Days: " FontWeight="SemiBold" Width="130" Foreground="#555"/>
+                                <TextBlock Text="{Binding CurrentSlip.TotalMonthDays}" Foreground="#222"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,3">
+                                <TextBlock Text="Days Worked: " FontWeight="SemiBold" Width="130" Foreground="#555"/>
+                                <TextBlock Text="{Binding CurrentSlip.DaysWorked, StringFormat=F2}" Foreground="#222"/>
+                            </StackPanel>
+
+                            <!-- Recovery (if any) -->
+                            <StackPanel Orientation="Horizontal" Margin="0,3">
+                                <StackPanel.Style>
+                                    <Style TargetType="StackPanel">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentSlip.RecoveryHours}" Value="0">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </StackPanel.Style>
+                                <TextBlock Text="Recovery Hours: " FontWeight="SemiBold" Width="130" Foreground="#D32F2F"/>
+                                <TextBlock Text="{Binding CurrentSlip.RecoveryHours, StringFormat=F1}" Foreground="#D32F2F"/>
+                            </StackPanel>
+
+                            <!-- Payable Days (Highlighted) -->
+                            <Border Background="#E3F2FD" 
+                                    Padding="8,4" 
+                                    Margin="0,8,0,0" 
+                                    CornerRadius="4"
+                                    BorderBrush="#1976D2"
+                                    BorderThickness="1">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="PAYABLE DAYS: " 
+                                               FontWeight="Bold" 
+                                               Foreground="#1565C0"
+                                               FontSize="13"/>
+                                    <TextBlock Text="{Binding CurrentSlip.PayableDays, StringFormat=F2}" 
+                                               FontWeight="Bold" 
+                                               Foreground="#0D47A1"
+                                               FontSize="13"
+                                               Margin="5,0,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- ============================================ -->
+                    <!-- EMPLOYEE'S SALARY DETAILS -->
+                    <!-- ============================================ -->
+                    <Border BorderBrush="#1976D2" 
+                            BorderThickness="2" 
+                            Margin="0,0,0,20"
+                            CornerRadius="4">
+                        <StackPanel>
+                            <!-- Header -->
+                            <Border Background="#1976D2" 
+                                    Padding="12">
+                                <TextBlock Text="💰 EMPLOYEE'S SALARY BREAKDOWN" 
+                                           FontWeight="Bold" 
+                                           Foreground="White" 
+                                           FontSize="14"/>
+                            </Border>
+
+                            <!-- Content Grid -->
+                            <Grid Margin="20,15,20,15">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="1.1*"/>
+                                    <ColumnDefinition Width="2"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- LEFT: EARNINGS -->
+                                <StackPanel Grid.Column="0">
+
+                                    <!-- Basic Salary -->
+                                    <TextBlock Text="📊 EARNINGS" 
+                                               FontWeight="Bold" 
+                                               Foreground="#1976D2" 
+                                               FontSize="12"
+                                               Margin="0,0,0,8"/>
+
+                                    <Grid Margin="0,4">
+                                        <TextBlock Text="Basic Salary Rate" Foreground="#555"/>
+                                        <TextBlock Text="{Binding CurrentSlip.BasicSalary, StringFormat='₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="SemiBold"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,4">
+                                        <TextBlock Text="Salary Earned" Foreground="#555"/>
+                                        <TextBlock Text="{Binding CurrentSlip.SalaryEarned, StringFormat='₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="SemiBold"
+                                                   Foreground="#2E7D32"/>
+                                    </Grid>
+
+                                    <!-- OT Salary (if applicable) -->
+                                    <Grid Margin="0,4">
+                                        <Grid.Style>
+                                            <Style TargetType="Grid">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CurrentSlip.OTHours}" Value="0">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Grid.Style>
+                                        <TextBlock Foreground="#555">
+                                            <Run Text="OT Salary ("/>
+                                            <Run Text="{Binding CurrentSlip.OTHours, StringFormat=F1}"/>
+                                            <Run Text=" hrs)"/>
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding CurrentSlip.OTSalary, StringFormat='₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="SemiBold"
+                                                   Foreground="#FF6F00"/>
+                                    </Grid>
+
+                                    <!-- Recovery (if applicable) -->
+                                    <Grid Margin="0,4">
+                                        <Grid.Style>
+                                            <Style TargetType="Grid">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CurrentSlip.RecoverySalary}" Value="0">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Grid.Style>
+                                        <TextBlock Text="Recovery (Penalty)" Foreground="#D32F2F"/>
+                                        <TextBlock Text="{Binding CurrentSlip.RecoverySalary, StringFormat='- ₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="SemiBold"
+                                                   Foreground="#D32F2F"/>
+                                    </Grid>
+
+                                    <Separator Margin="0,12,0,8" Background="#DDD"/>
+
+                                    <!-- Gross Salary -->
+                                    <Grid>
+                                        <TextBlock Text="GROSS SALARY" FontWeight="Bold" FontSize="13"/>
+                                        <TextBlock Text="{Binding CurrentSlip.GrossSalary, StringFormat='₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="Bold" 
+                                                   FontSize="13"
+                                                   Foreground="#1976D2"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- DIVIDER -->
+                                <Rectangle Grid.Column="1" Fill="#E0E0E0"/>
+
+                                <!-- RIGHT: DEDUCTIONS -->
+                                <StackPanel Grid.Column="2" Margin="15,0,0,0">
+
+                                    <TextBlock Text="➖ DEDUCTIONS" 
+                                               FontWeight="Bold" 
+                                               Foreground="#D32F2F" 
+                                               FontSize="12"
+                                               Margin="0,0,0,8"/>
+
+                                    <Grid Margin="0,4">
+                                        <TextBlock Text="EPF @ 12%" Foreground="#555"/>
+                                        <TextBlock Text="{Binding CurrentSlip.EPF_Employee, StringFormat='₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="SemiBold"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,4">
+                                        <TextBlock Text="ESI @ 0.75%" Foreground="#555"/>
+                                        <TextBlock Text="{Binding CurrentSlip.ESI_Employee, StringFormat='₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="SemiBold"/>
+                                    </Grid>
+
+                                    <!-- TDS (if applicable) -->
+                                    <Grid Margin="0,4">
+                                        <Grid.Style>
+                                            <Style TargetType="Grid">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CurrentSlip.TDS}" Value="0">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Grid.Style>
+                                        <TextBlock Text="TDS @ 2%" Foreground="#555"/>
+                                        <TextBlock Text="{Binding CurrentSlip.TDS, StringFormat='₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="SemiBold"/>
+                                    </Grid>
+
+                                    <!-- Incentive (if any) -->
+                                    <Grid Margin="0,4">
+                                        <Grid.Style>
+                                            <Style TargetType="Grid">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CurrentSlip.Incentive}" Value="0">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Grid.Style>
+                                        <TextBlock Text="Incentive" Foreground="#2E7D32"/>
+                                        <TextBlock Text="{Binding CurrentSlip.Incentive, StringFormat='+ ₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="SemiBold"
+                                                   Foreground="#2E7D32"/>
+                                    </Grid>
+
+                                    <Separator Margin="0,12,0,8" Background="#DDD"/>
+
+                                    <!-- Total Deductions -->
+                                    <Grid>
+                                        <TextBlock Text="Total Deductions" FontWeight="Bold" Foreground="#D32F2F" FontSize="13"/>
+                                        <TextBlock Text="{Binding CurrentSlip.TotalDeductions, StringFormat='₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="Bold" 
+                                                   FontSize="13"
+                                                   Foreground="#D32F2F"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- NET PAYABLE (What Employee Receives) -->
+                            <Border Background="#E8F5E9" 
+                                    Padding="15,12" 
+                                    BorderBrush="#4CAF50" 
+                                    BorderThickness="0,2,0,0">
+                                <Grid>
+                                    <TextBlock Text="💵 NET PAYABLE TO EMPLOYEE" 
+                                               FontSize="15" 
+                                               FontWeight="Bold"
+                                               Foreground="#2E7D32"/>
+                                    <TextBlock Text="{Binding CurrentSlip.NetPaid, StringFormat='₹ {0:N2}'}" 
+                                               FontSize="17" 
+                                               FontWeight="Bold" 
+                                               HorizontalAlignment="Right" 
+                                               Foreground="#1B5E20"/>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ============================================ -->
+                    <!-- EMPLOYER'S COST LEDGER -->
+                    <!-- ============================================ -->
+                    <Border BorderBrush="#7B1FA2" 
+                            BorderThickness="2" 
+                            Margin="0,0,0,25"
+                            CornerRadius="4">
+                        <StackPanel>
+                            <!-- Header -->
+                            <Border Background="#7B1FA2" 
+                                    Padding="12">
+                                <TextBlock Text="🏢 EMPLOYER'S COST LEDGER (Accounting View)" 
+                                           FontWeight="Bold" 
+                                           Foreground="White" 
+                                           FontSize="14"/>
+                            </Border>
+
+                            <!-- Content -->
+                            <Grid Margin="20,15,20,15">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="1.2*"/>
+                                    <ColumnDefinition Width="2"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- LEFT: Employer Contributions -->
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Employer Statutory Contributions" 
+                                               FontWeight="Bold" 
+                                               Foreground="#6A1B9A" 
+                                               FontSize="12"
+                                               Margin="0,0,0,8"/>
+
+                                    <Grid Margin="0,4">
+                                        <TextBlock Text="EPF Employer @ 13%" Foreground="#555"/>
+                                        <TextBlock Text="{Binding CurrentSlip.EPF_Employer, StringFormat='₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="SemiBold"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,4">
+                                        <TextBlock Text="ESI Employer @ 3.25%" Foreground="#555"/>
+                                        <TextBlock Text="{Binding CurrentSlip.ESI_Employer, StringFormat='₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="SemiBold"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,4">
+                                        <TextBlock Text="Admin Charges @ 1.89%" Foreground="#555"/>
+                                        <TextBlock Text="{Binding CurrentSlip.AdminCharges, StringFormat='₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="SemiBold"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- DIVIDER -->
+                                <Rectangle Grid.Column="1" Fill="#E0E0E0"/>
+
+                                <!-- RIGHT: Total Cost Calculation -->
+                                <StackPanel Grid.Column="2" Margin="15,0,0,0">
+                                    <TextBlock Text="Total Institute Cost" 
+                                               FontWeight="Bold" 
+                                               Foreground="#6A1B9A" 
+                                               FontSize="12"
+                                               Margin="0,0,0,8"/>
+
+                                    <Grid Margin="0,4">
+                                        <TextBlock Text="Cost Before GST" Foreground="#555"/>
+                                        <TextBlock Text="{Binding CurrentSlip.InstituteCostBeforeGST, StringFormat='₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="SemiBold"/>
+                                    </Grid>
+
+                                    <Grid Margin="0,4">
+                                        <TextBlock Text="GST @ 18%" Foreground="#555"/>
+                                        <TextBlock Text="{Binding CurrentSlip.GST_Amount, StringFormat='₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="SemiBold"/>
+                                    </Grid>
+
+                                    <Separator Margin="0,8,0,6" Background="#DDD"/>
+
+                                    <Grid>
+                                        <TextBlock Text="TOTAL COST" FontWeight="Bold" FontSize="13"/>
+                                        <TextBlock Text="{Binding CurrentSlip.TotalInstituteCost, StringFormat='₹ {0:N2}'}" 
+                                                   HorizontalAlignment="Right" 
+                                                   FontWeight="Bold" 
+                                                   FontSize="13"
+                                                   Foreground="#7B1FA2"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ============================================ -->
+                    <!-- FOOTER (Signatures) -->
+                    <!-- ============================================ -->
+                    <Grid Margin="0,30,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0">
-                            <StackPanel Orientation="Horizontal" Margin="0,2">
-                                <TextBlock Text="Name: " FontWeight="Bold" Width="100"/>
-                                <TextBlock Text="{Binding CurrentSlip.Employee.FullName}"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,2">
-                                <TextBlock Text="Designation: " FontWeight="Bold" Width="100"/>
-                                <TextBlock Text="{Binding CurrentSlip.Designation}"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,2">
-                                <TextBlock Text="Employee ID: " FontWeight="Bold" Width="100"/>
-                                <TextBlock Text="{Binding CurrentSlip.Employee.BiometricId}"/>
-                            </StackPanel>
+                            <Rectangle Height="1" Fill="#999" Margin="0,0,50,5"/>
+                            <TextBlock Text="Employee Signature" 
+                                       HorizontalAlignment="Left" 
+                                       Foreground="#777"
+                                       FontSize="11"/>
                         </StackPanel>
 
-                        <StackPanel Grid.Column="1" HorizontalAlignment="Right">
-                            <StackPanel Orientation="Horizontal" Margin="0,2">
-                                <TextBlock Text="Month Days: " FontWeight="Bold" Width="120"/>
-                                <TextBlock Text="{Binding CurrentSlip.TotalMonthDays}"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,2">
-                                <TextBlock Text="Days Worked: " FontWeight="Bold" Width="120"/>
-                                <TextBlock Text="{Binding CurrentSlip.DaysWorked}"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,2">
-                                <TextBlock Text="Recovery Days: " FontWeight="Bold" Foreground="Red" Width="120"/>
-                                <TextBlock Text="{Binding CurrentSlip.RecoveryDays}" Foreground="Red"/>
-                            </StackPanel>
-                            <Border Background="#EAF2F8" Padding="5,2" Margin="0,5,0,0" HorizontalAlignment="Left" CornerRadius="4">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="PAYABLE DAYS: " FontWeight="Bold" Foreground="#2980B9"/>
-                                    <TextBlock Text="{Binding CurrentSlip.PayableDays}" FontWeight="Bold" Foreground="#2980B9"/>
-                                </StackPanel>
-                            </Border>
+                        <StackPanel Grid.Column="1">
+                            <Rectangle Height="1" Fill="#999" Margin="50,0,0,5"/>
+                            <TextBlock Text="Authorized Signatory" 
+                                       HorizontalAlignment="Right" 
+                                       Foreground="#777"
+                                       FontSize="11"/>
                         </StackPanel>
                     </Grid>
 
-                    <Border BorderBrush="#2C3E50" BorderThickness="2" Margin="0,0,0,20">
-                        <StackPanel>
-                            <TextBlock Text="EMPLOYEE SALARY DETAILS" FontWeight="Bold" Background="#2C3E50" Foreground="White" Padding="10"/>
-
-                            <Grid Margin="15">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="1"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-
-                                <StackPanel Grid.Column="0" Margin="10,0">
-                                    <TextBlock Text="Section A (Regular)" FontWeight="Bold" TextDecorations="Underline" Margin="0,0,0,5"/>
-                                    <Grid Margin="0,2">
-                                        <TextBlock Text="Basic Salary Rate"/>
-                                        <TextBlock Text="{Binding CurrentSlip.BasicSalary, StringFormat=N2}" HorizontalAlignment="Right"/>
-                                    </Grid>
-                                    <Grid Margin="0,2">
-                                        <TextBlock Text="Salary Earned"/>
-                                        <TextBlock Text="{Binding CurrentSlip.SalaryEarned, StringFormat=N2}" HorizontalAlignment="Right" FontWeight="SemiBold"/>
-                                    </Grid>
-
-                                    <TextBlock Text="Section B (Overtime)" FontWeight="Bold" TextDecorations="Underline" Margin="0,15,0,5"/>
-                                    <Grid Margin="0,2">
-                                        <TextBlock Text="{Binding CurrentSlip.OT_Hours, StringFormat='OT Amount ({0} hrs)'}"/>
-                                        <TextBlock Text="{Binding CurrentSlip.OT_Salary, StringFormat=N2}" HorizontalAlignment="Right"/>
-                                    </Grid>
-
-                                    <Separator Margin="0,10"/>
-                                    <Grid>
-                                        <TextBlock Text="GROSS SALARY" FontWeight="Bold"/>
-                                        <TextBlock Text="{Binding CurrentSlip.GrossSalary, StringFormat=N2}" HorizontalAlignment="Right" FontWeight="Bold"/>
-                                    </Grid>
-                                </StackPanel>
-
-                                <Rectangle Grid.Column="1" Fill="#CCC"/>
-
-                                <StackPanel Grid.Column="2" Margin="10,0">
-                                    <TextBlock Text="Deductions" FontWeight="Bold" TextDecorations="Underline" Margin="0,0,0,5"/>
-                                    <Grid Margin="0,2">
-                                        <TextBlock Text="EPF (Employee)"/>
-                                        <TextBlock Text="{Binding CurrentSlip.EPF_Employee, StringFormat=N2}" HorizontalAlignment="Right"/>
-                                    </Grid>
-                                    <Grid Margin="0,2">
-                                        <TextBlock Text="ESI (0.75%)"/>
-                                        <TextBlock Text="{Binding CurrentSlip.ESI_Employee, StringFormat=N2}" HorizontalAlignment="Right"/>
-                                    </Grid>
-                                    <Grid Margin="0,2">
-                                        <TextBlock Text="TDS (2.0%)"/>
-                                        <TextBlock Text="{Binding CurrentSlip.TDS, StringFormat=N2}" HorizontalAlignment="Right"/>
-                                    </Grid>
-
-                                    <Separator Margin="0,10"/>
-                                    <Grid>
-                                        <TextBlock Text="Total Deductions" FontWeight="Bold" Foreground="Red"/>
-                                        <TextBlock Text="{Binding CurrentSlip.TotalDeductions, StringFormat=N2}" HorizontalAlignment="Right" FontWeight="Bold" Foreground="Red"/>
-                                    </Grid>
-                                </StackPanel>
-                            </Grid>
-
-                            <Border Background="#E8F8F5" Padding="15" BorderBrush="#2C3E50" BorderThickness="0,1,0,0">
-                                <Grid>
-                                    <TextBlock Text="NET PAYABLE AMOUNT" FontSize="16" FontWeight="Bold"/>
-                                    <TextBlock Text="{Binding CurrentSlip.NetPaid, StringFormat='₹ {0:N2}'}" FontSize="18" FontWeight="Bold" HorizontalAlignment="Right" Foreground="#27AE60"/>
-                                </Grid>
-                            </Border>
-                        </StackPanel>
-                    </Border>
-
-                    <Border BorderBrush="#7F8C8D" BorderThickness="1">
-                        <StackPanel>
-                            <TextBlock Text="INSTITUTE COST LEDGER (Accounting View)" FontWeight="Bold" Background="#F0F0F0" Padding="10" Foreground="#555"/>
-
-                            <Grid Margin="15">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="1.2*"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-
-                                <StackPanel Grid.Column="0" Margin="0,0,20,0">
-                                    <TextBlock Text="Employer Liabilities" FontWeight="Bold" Margin="0,0,0,5"/>
-                                    <Grid Margin="0,2">
-                                        <TextBlock Text="EPF Employer (13%)"/>
-                                        <TextBlock Text="{Binding CurrentSlip.EPF_Employer, StringFormat=N2}" HorizontalAlignment="Right"/>
-                                    </Grid>
-                                    <Grid Margin="0,2">
-                                        <TextBlock Text="ESI Employer (3.25%)"/>
-                                        <TextBlock Text="{Binding CurrentSlip.ESI_Employer, StringFormat=N2}" HorizontalAlignment="Right"/>
-                                    </Grid>
-                                    <Grid Margin="0,2">
-                                        <TextBlock Text="Admin Charges"/>
-                                        <TextBlock Text="{Binding CurrentSlip.AdminCharges, StringFormat=N2}" HorizontalAlignment="Right"/>
-                                    </Grid>
-                                </StackPanel>
-
-                                <StackPanel Grid.Column="1">
-                                    <TextBlock Text="Total Cost Calculation" FontWeight="Bold" Margin="0,0,0,5"/>
-                                    <Grid Margin="0,2">
-                                        <TextBlock Text="Cost Before GST"/>
-                                        <TextBlock Text="{Binding CurrentSlip.InstituteCostBeforeGST, StringFormat=N2}" HorizontalAlignment="Right"/>
-                                    </Grid>
-                                    <Grid Margin="0,2">
-                                        <TextBlock Text="GST (18%)"/>
-                                        <TextBlock Text="{Binding CurrentSlip.GST_Amount, StringFormat=N2}" HorizontalAlignment="Right"/>
-                                    </Grid>
-                                    <Separator Margin="0,5"/>
-                                    <Grid>
-                                        <TextBlock Text="TOTAL COST" FontWeight="Bold"/>
-                                        <TextBlock Text="{Binding CurrentSlip.TotalInstituteCost, StringFormat=N2}" HorizontalAlignment="Right" FontWeight="Bold"/>
-                                    </Grid>
-                                </StackPanel>
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-
-                    <Grid Margin="0,40,0,0">
-                        <TextBlock Text="Employee Signature" HorizontalAlignment="Left" Foreground="Gray"/>
-                        <TextBlock Text="Authorized Signatory" HorizontalAlignment="Right" Foreground="Gray"/>
-                    </Grid>
+                    <!-- Small Print -->
+                    <TextBlock Text="This is a computer-generated payslip. No signature required." 
+                               HorizontalAlignment="Center" 
+                               Foreground="#BBB" 
+                               FontSize="9" 
+                               Margin="0,20,0,0"
+                               FontStyle="Italic"/>
 
                 </StackPanel>
             </Border>

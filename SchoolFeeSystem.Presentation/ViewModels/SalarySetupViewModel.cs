@@ -12,33 +12,82 @@ using SchoolFeeSystem.Presentation;
 
 namespace SchoolFeeSystem.Presentation.ViewModels
 {
+    /// <summary>
+    /// ViewModel for managing monthly incentives and deductions
+    /// Admin can add/remove incentives and deductions that affect monthly payroll
+    /// </summary>
     public partial class SalarySetupViewModel : ObservableObject
     {
         private readonly IPayrollService _payrollService;
 
-        [ObservableProperty] private ObservableCollection<Employee> _employeeList;
-        [ObservableProperty] private int _currentPage = 1;
-        [ObservableProperty] private int _totalPages = 1;
-        [ObservableProperty] private int _pageSize = 10;
-        [ObservableProperty] private string _paginationDisplay;
-        [ObservableProperty] private string _searchQuery;
+        // ========================================
+        // EMPLOYEE LIST & PAGINATION
+        // ========================================
+        [ObservableProperty]
+        private ObservableCollection<Employee> _employeeList;
 
-        [ObservableProperty] private Employee _selectedEmployee;
-        [ObservableProperty] private bool _isEmployeeSelected;
-        [ObservableProperty] private decimal _baseSalary;
-        [ObservableProperty] private string _payGrade;
-        [ObservableProperty] private ObservableCollection<Allowance> _allowancesList = new();
-        [ObservableProperty] private ObservableCollection<Deduction> _deductionsList = new();
-        [ObservableProperty] private ObservableCollection<SalaryRevision> _historyList = new();
+        [ObservableProperty]
+        private int _currentPage = 1;
 
-        [ObservableProperty] private decimal _totalAllowances;
-        [ObservableProperty] private decimal _totalDeductions;
-        [ObservableProperty] private decimal _netPay;
+        [ObservableProperty]
+        private int _totalPages = 1;
 
-        [ObservableProperty] private string _newAllowanceName;
-        [ObservableProperty] private decimal _newAllowanceAmount;
-        [ObservableProperty] private string _newDeductionName;
-        [ObservableProperty] private decimal _newDeductionAmount;
+        [ObservableProperty]
+        private int _pageSize = 10;
+
+        [ObservableProperty]
+        private string _paginationDisplay;
+
+        [ObservableProperty]
+        private string _searchQuery;
+
+        // ========================================
+        // SELECTED EMPLOYEE
+        // ========================================
+        [ObservableProperty]
+        private Employee _selectedEmployee;
+
+        [ObservableProperty]
+        private bool _isEmployeeSelected;
+
+        /// <summary>
+        /// Basic Salary (READ-ONLY - for display purposes only)
+        /// </summary>
+        [ObservableProperty]
+        private decimal _baseSalary;
+
+        // ========================================
+        // INCENTIVES & DEDUCTIONS
+        // ========================================
+        [ObservableProperty]
+        private ObservableCollection<Allowance> _allowancesList = new();
+
+        [ObservableProperty]
+        private ObservableCollection<Deduction> _deductionsList = new();
+
+        [ObservableProperty]
+        private decimal _totalAllowances;
+
+        [ObservableProperty]
+        private decimal _totalDeductions;
+
+        /// <summary>
+        /// New incentive entry fields
+        /// </summary>
+        [ObservableProperty]
+        private string _newAllowanceName;
+
+        [ObservableProperty]
+        private decimal _newAllowanceAmount;
+
+        /// <summary>
+        /// New deduction entry fields
+        /// </summary>
+        [ObservableProperty]
+        private string _newDeductionName;
+
+        [ObservableProperty]
+        private decimal _newDeductionAmount;
 
         public SalarySetupViewModel(IPayrollService payrollService)
         {
@@ -46,12 +95,18 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             LoadEmployees();
         }
 
+        // =========================================================
+        // EMPLOYEE LOADING & SEARCH
+        // =========================================================
+
         public void LoadEmployees()
         {
             int totalCount = _payrollService.GetTotalEmployeeCount();
             TotalPages = (int)Math.Ceiling((double)totalCount / PageSize);
             if (TotalPages == 0) TotalPages = 1;
+
             PaginationDisplay = $"Page {CurrentPage} of {TotalPages}";
+
             var data = _payrollService.GetEmployeesPaged(CurrentPage, PageSize);
             EmployeeList = new ObservableCollection<Employee>(data);
         }
@@ -59,139 +114,239 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [RelayCommand]
         public void NextPage()
         {
-            if (CurrentPage < TotalPages) { CurrentPage++; LoadEmployees(); }
+            if (CurrentPage < TotalPages)
+            {
+                CurrentPage++;
+                LoadEmployees();
+            }
         }
 
         [RelayCommand]
         public void PreviousPage()
         {
-            if (CurrentPage > 1) { CurrentPage--; LoadEmployees(); }
+            if (CurrentPage > 1)
+            {
+                CurrentPage--;
+                LoadEmployees();
+            }
         }
 
         [RelayCommand]
         public void SearchStaff()
         {
-            // 1. If search is empty, reload the default list
             if (string.IsNullOrWhiteSpace(SearchQuery))
             {
                 LoadEmployees();
                 return;
             }
 
-            // 2. Perform a "Contains" search (Case Insensitive)
-            // We search across First Name, Last Name, or Department
-            var allEmployees = _payrollService.GetAllEmployees(); // Get everyone first
+            var allEmployees = _payrollService.GetAllEmployees();
 
             var filtered = allEmployees.Where(e =>
                 (e.FirstName != null && e.FirstName.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase)) ||
                 (e.LastName != null && e.LastName.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase)) ||
                 (e.FullName != null && e.FullName.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase)) ||
-                (e.Department != null && e.Department.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase))
+                (e.Department != null && e.Department.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase)) ||
+                (e.BiometricId != null && e.BiometricId.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase))
             ).ToList();
 
-            // 3. Update the UI List
             EmployeeList = new ObservableCollection<Employee>(filtered);
-
-            // 4. Update display text
             PaginationDisplay = $"Found {filtered.Count} result(s)";
         }
+
+        // =========================================================
+        // EMPLOYEE SELECTION
+        // =========================================================
 
         [RelayCommand]
         public void SelectEmployee(Employee emp)
         {
             if (emp == null) return;
+
+            // Load full employee details with allowances and deductions
             var fullEmp = _payrollService.GetEmployeeWithSalaryDetails(emp.Id);
             SelectedEmployee = fullEmp;
+
+            // Set basic salary (READ-ONLY display)
             BaseSalary = fullEmp.BaseSalary;
-            PayGrade = fullEmp.PayGrade;
-            AllowancesList = new ObservableCollection<Allowance>(fullEmp.Allowances);
-            DeductionsList = new ObservableCollection<Deduction>(fullEmp.Deductions);
 
-            if (fullEmp.SalaryHistory != null)
-                HistoryList = new ObservableCollection<SalaryRevision>(fullEmp.SalaryHistory.OrderByDescending(h => h.RevisionDate));
+            // Load existing incentives and deductions
+            AllowancesList = new ObservableCollection<Allowance>(
+                fullEmp.Allowances ?? new System.Collections.Generic.List<Allowance>());
 
+            DeductionsList = new ObservableCollection<Deduction>(
+                fullEmp.Deductions ?? new System.Collections.Generic.List<Deduction>());
+
+            // Show the details panel
             IsEmployeeSelected = true;
+
+            // Calculate totals
             Recalculate();
         }
 
-        partial void OnBaseSalaryChanged(decimal value) => Recalculate();
-
-        private void Recalculate()
-        {
-            TotalAllowances = AllowancesList.Sum(a => a.Amount);
-            TotalDeductions = DeductionsList.Sum(d => d.Amount);
-            NetPay = BaseSalary + TotalAllowances - TotalDeductions;
-        }
+        // =========================================================
+        // INCENTIVES MANAGEMENT
+        // =========================================================
 
         [RelayCommand]
         public void AddAllowance()
         {
-            if (!string.IsNullOrWhiteSpace(NewAllowanceName) && NewAllowanceAmount > 0)
+            if (string.IsNullOrWhiteSpace(NewAllowanceName))
             {
-                AllowancesList.Add(new Allowance { Name = NewAllowanceName, Amount = NewAllowanceAmount, EmployeeId = SelectedEmployee.Id });
-                NewAllowanceName = ""; NewAllowanceAmount = 0;
-                Recalculate();
+                MessageBox.Show("Please enter an incentive name.", "Validation",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
             }
+
+            if (NewAllowanceAmount <= 0)
+            {
+                MessageBox.Show("Please enter a valid amount.", "Validation",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            AllowancesList.Add(new Allowance
+            {
+                Name = NewAllowanceName,
+                Amount = NewAllowanceAmount,
+                EmployeeId = SelectedEmployee.Id
+            });
+
+            // Clear fields
+            NewAllowanceName = "";
+            NewAllowanceAmount = 0;
+
+            Recalculate();
         }
 
         [RelayCommand]
         public void RemoveAllowance(Allowance item)
         {
-            AllowancesList.Remove(item);
-            Recalculate();
+            if (item == null) return;
+
+            var result = MessageBox.Show(
+                $"Remove incentive '{item.Name}' (₹{item.Amount:N2})?",
+                "Confirm Removal",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                AllowancesList.Remove(item);
+                Recalculate();
+            }
         }
+
+        // =========================================================
+        // DEDUCTIONS MANAGEMENT
+        // =========================================================
 
         [RelayCommand]
         public void AddDeduction()
         {
-            if (!string.IsNullOrWhiteSpace(NewDeductionName) && NewDeductionAmount > 0)
+            if (string.IsNullOrWhiteSpace(NewDeductionName))
             {
-                DeductionsList.Add(new Deduction { Name = NewDeductionName, Amount = NewDeductionAmount, EmployeeId = SelectedEmployee.Id });
-                NewDeductionName = ""; NewDeductionAmount = 0;
-                Recalculate();
+                MessageBox.Show("Please enter a deduction name.", "Validation",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
             }
+
+            if (NewDeductionAmount <= 0)
+            {
+                MessageBox.Show("Please enter a valid amount.", "Validation",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            DeductionsList.Add(new Deduction
+            {
+                Name = NewDeductionName,
+                Amount = NewDeductionAmount,
+                EmployeeId = SelectedEmployee.Id
+            });
+
+            // Clear fields
+            NewDeductionName = "";
+            NewDeductionAmount = 0;
+
+            Recalculate();
         }
 
         [RelayCommand]
         public void RemoveDeduction(Deduction item)
         {
-            DeductionsList.Remove(item);
-            Recalculate();
-        }
+            if (item == null) return;
 
-        [RelayCommand]
-        public void ApplyGlobalRules()
-        {
-            if (BaseSalary <= 0) { MessageBox.Show("Please enter a Base Salary first."); return; }
+            var result = MessageBox.Show(
+                $"Remove deduction '{item.Name}' (₹{item.Amount:N2})?",
+                "Confirm Removal",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
 
-            var components = _payrollService.GetSalaryComponents();
-            AllowancesList.Clear();
-            DeductionsList.Clear();
-
-            foreach (var comp in components)
+            if (result == MessageBoxResult.Yes)
             {
-                decimal amount = comp.CalculationType == "Fixed" ? comp.Value : (BaseSalary * comp.Value) / 100;
-
-                if (comp.Type == "Earning")
-                    AllowancesList.Add(new Allowance { Name = comp.Name, Amount = amount, EmployeeId = SelectedEmployee.Id });
-                else
-                    DeductionsList.Add(new Deduction { Name = comp.Name, Amount = amount, EmployeeId = SelectedEmployee.Id });
+                DeductionsList.Remove(item);
+                Recalculate();
             }
-            Recalculate();
-            MessageBox.Show("Salary structure generated based on global rules!");
         }
+
+        // =========================================================
+        // CALCULATION
+        // =========================================================
+
+        private void Recalculate()
+        {
+            TotalAllowances = AllowancesList.Sum(a => a.Amount);
+            TotalDeductions = DeductionsList.Sum(d => d.Amount);
+        }
+
+        // =========================================================
+        // SAVE CHANGES
+        // =========================================================
 
         [RelayCommand]
         public void SaveChanges()
         {
-            if (SelectedEmployee == null) return;
-            SelectedEmployee.BaseSalary = BaseSalary;
-            SelectedEmployee.PayGrade = PayGrade;
-            SelectedEmployee.Allowances = AllowancesList.ToList();
-            SelectedEmployee.Deductions = DeductionsList.ToList();
-            _payrollService.SaveSalaryConfiguration(SelectedEmployee, "Updated Salary Structure");
-            MessageBox.Show("Saved Successfully!");
+            if (SelectedEmployee == null)
+            {
+                MessageBox.Show("No employee selected.", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            try
+            {
+                // Update employee's allowances and deductions
+                SelectedEmployee.Allowances = AllowancesList.ToList();
+                SelectedEmployee.Deductions = DeductionsList.ToList();
+
+                // Save to database
+                _payrollService.SaveSalaryConfiguration(
+                    SelectedEmployee,
+                    "Updated monthly incentives and deductions");
+
+                MessageBox.Show(
+                    $"Incentives & deductions saved successfully for {SelectedEmployee.FullName}!\n\n" +
+                    $"Total Incentives: ₹{TotalAllowances:N2}\n" +
+                    $"Total Deductions: ₹{TotalDeductions:N2}\n\n" +
+                    "These will be reflected in the next payroll calculation.",
+                    "Success",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Error saving changes: {ex.Message}",
+                    "Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
+
+        // =========================================================
+        // NAVIGATION
+        // =========================================================
 
         [RelayCommand]
         public void GoBack()
