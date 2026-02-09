@@ -24,7 +24,7 @@ namespace SchoolFeeSystem.Core.Entities
 
         public int ClassId { get; set; }
         [ForeignKey("ClassId")]
-        public virtual Class Class { get; set; }
+        public virtual Class? Class { get; set; }
 
         public virtual ICollection<StudentFee> StudentFees { get; set; } = new List<StudentFee>();
 

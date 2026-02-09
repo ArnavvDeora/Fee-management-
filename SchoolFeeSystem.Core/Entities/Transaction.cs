@@ -11,7 +11,7 @@ namespace SchoolFeeSystem.Core.Entities
 
         public int StudentFeeId { get; set; }
         [ForeignKey("StudentFeeId")]
-        public virtual StudentFee StudentFee { get; set; }
+        public virtual StudentFee? StudentFee { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal AmountPaid { get; set; }

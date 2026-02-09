@@ -186,12 +186,12 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             Application.Current.MainWindow.Content = view;
         }
 
-        [RelayCommand]
-        public void ShowStudents()
+        
+        /*public void ShowStudents()
         {
             var view = App.Current.Services.GetRequiredService<StudentView>();
             Application.Current.MainWindow.Content = view;
-        }
+        }*/
 
         [RelayCommand]
         public void ShowFees()

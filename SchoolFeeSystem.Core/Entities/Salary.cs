@@ -15,7 +15,7 @@ namespace SchoolFeeSystem.Core.Entities
         public int EmployeeId { get; set; }
 
         [ForeignKey("EmployeeId")]
-        public virtual Employee Employee { get; set; }
+        public virtual Employee? Employee { get; set; }
 
         /// <summary>
         /// Basic salary amount

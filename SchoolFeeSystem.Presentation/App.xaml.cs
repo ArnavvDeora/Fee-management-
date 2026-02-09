@@ -79,7 +79,7 @@ namespace SchoolFeeSystem.Presentation
 
             // Core Features (Student, Fees, Reports)
             services.AddTransient<StudentViewModel>();
-            services.AddTransient<StudentView>();
+            //services.AddTransient<StudentView>();
             services.AddTransient<FeeViewModel>();
             services.AddTransient<FeeView>();
 

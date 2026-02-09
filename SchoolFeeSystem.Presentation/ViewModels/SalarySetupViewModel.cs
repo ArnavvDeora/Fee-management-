@@ -12,17 +12,10 @@ using SchoolFeeSystem.Presentation;
 
 namespace SchoolFeeSystem.Presentation.ViewModels
 {
-    /// <summary>
-    /// ViewModel for managing monthly incentives and deductions
-    /// Admin can add/remove incentives and deductions that affect monthly payroll
-    /// </summary>
     public partial class SalarySetupViewModel : ObservableObject
     {
         private readonly IPayrollService _payrollService;
 
-        // ========================================
-        // EMPLOYEE LIST & PAGINATION
-        // ========================================
         [ObservableProperty]
         private ObservableCollection<Employee> _employeeList;
 
@@ -41,24 +34,15 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty]
         private string _searchQuery;
 
-        // ========================================
-        // SELECTED EMPLOYEE
-        // ========================================
         [ObservableProperty]
         private Employee _selectedEmployee;
 
         [ObservableProperty]
         private bool _isEmployeeSelected;
 
-        /// <summary>
-        /// Basic Salary (READ-ONLY - for display purposes only)
-        /// </summary>
         [ObservableProperty]
         private decimal _baseSalary;
 
-        // ========================================
-        // INCENTIVES & DEDUCTIONS
-        // ========================================
         [ObservableProperty]
         private ObservableCollection<Allowance> _allowancesList = new();
 
@@ -71,18 +55,12 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty]
         private decimal _totalDeductions;
 
-        /// <summary>
-        /// New incentive entry fields
-        /// </summary>
         [ObservableProperty]
         private string _newAllowanceName;
 
         [ObservableProperty]
         private decimal _newAllowanceAmount;
 
-        /// <summary>
-        /// New deduction entry fields
-        /// </summary>
         [ObservableProperty]
         private string _newDeductionName;
 
@@ -92,12 +70,9 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         public SalarySetupViewModel(IPayrollService payrollService)
         {
             _payrollService = payrollService;
+            System.Diagnostics.Debug.WriteLine("▶▶▶ SalarySetupViewModel CONSTRUCTOR called");
             LoadEmployees();
         }
-
-        // =========================================================
-        // EMPLOYEE LOADING & SEARCH
-        // =========================================================
 
         public void LoadEmployees()
         {
@@ -109,6 +84,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             var data = _payrollService.GetEmployeesPaged(CurrentPage, PageSize);
             EmployeeList = new ObservableCollection<Employee>(data);
+
+            System.Diagnostics.Debug.WriteLine($"▶ LoadEmployees: Loaded {EmployeeList.Count} employees");
         }
 
         [RelayCommand]
@@ -154,43 +131,76 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             PaginationDisplay = $"Found {filtered.Count} result(s)";
         }
 
-        // =========================================================
-        // EMPLOYEE SELECTION
-        // =========================================================
-
         [RelayCommand]
         public void SelectEmployee(Employee emp)
         {
-            if (emp == null) return;
+            System.Diagnostics.Debug.WriteLine("╔════════════════════════════════════════╗");
+            System.Diagnostics.Debug.WriteLine("║   SELECT EMPLOYEE METHOD CALLED!       ║");
+            System.Diagnostics.Debug.WriteLine("╚════════════════════════════════════════╝");
+            System.Diagnostics.Debug.WriteLine($"▶ Employee parameter: {emp?.FullName ?? "NULL"}");
 
-            // Load full employee details with allowances and deductions
-            var fullEmp = _payrollService.GetEmployeeWithSalaryDetails(emp.Id);
-            SelectedEmployee = fullEmp;
+            if (emp == null)
+            {
+                System.Diagnostics.Debug.WriteLine("❌ Employee is NULL - RETURNING");
+                return;
+            }
 
-            // Set basic salary (READ-ONLY display)
-            BaseSalary = fullEmp.BaseSalary;
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"▶ Step 1: Calling GetEmployeeWithSalaryDetails for ID {emp.Id}");
+                var fullEmp = _payrollService.GetEmployeeWithSalaryDetails(emp.Id);
+                System.Diagnostics.Debug.WriteLine($"▶ Step 2: fullEmp loaded = {fullEmp != null}");
 
-            // Load existing incentives and deductions
-            AllowancesList = new ObservableCollection<Allowance>(
-                fullEmp.Allowances ?? new System.Collections.Generic.List<Allowance>());
+                if (fullEmp == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("❌ fullEmp is NULL!");
+                    MessageBox.Show("Error loading employee details.", "Error");
+                    return;
+                }
 
-            DeductionsList = new ObservableCollection<Deduction>(
-                fullEmp.Deductions ?? new System.Collections.Generic.List<Deduction>());
+                System.Diagnostics.Debug.WriteLine($"▶ Step 3: Setting SelectedEmployee");
+                SelectedEmployee = fullEmp;
+                System.Diagnostics.Debug.WriteLine($"   SelectedEmployee is now: {SelectedEmployee?.FullName}");
 
-            // Show the details panel
-            IsEmployeeSelected = true;
+                System.Diagnostics.Debug.WriteLine($"▶ Step 4: Setting BaseSalary = {fullEmp.BaseSalary}");
+                BaseSalary = fullEmp.BaseSalary;
+                System.Diagnostics.Debug.WriteLine($"   BaseSalary is now: {BaseSalary}");
 
-            // Calculate totals
-            Recalculate();
+                System.Diagnostics.Debug.WriteLine($"▶ Step 5: Loading Allowances (count: {fullEmp.Allowances?.Count ?? 0})");
+                AllowancesList = new ObservableCollection<Allowance>(
+                    fullEmp.Allowances ?? new System.Collections.Generic.List<Allowance>());
+                System.Diagnostics.Debug.WriteLine($"   AllowancesList count: {AllowancesList.Count}");
+
+                System.Diagnostics.Debug.WriteLine($"▶ Step 6: Loading Deductions (count: {fullEmp.Deductions?.Count ?? 0})");
+                DeductionsList = new ObservableCollection<Deduction>(
+                    fullEmp.Deductions ?? new System.Collections.Generic.List<Deduction>());
+                System.Diagnostics.Debug.WriteLine($"   DeductionsList count: {DeductionsList.Count}");
+
+                System.Diagnostics.Debug.WriteLine($"▶ Step 7: Setting IsEmployeeSelected = TRUE");
+                IsEmployeeSelected = true;
+                System.Diagnostics.Debug.WriteLine($"   IsEmployeeSelected is now: {IsEmployeeSelected}");
+
+                System.Diagnostics.Debug.WriteLine($"▶ Step 8: Calling Recalculate()");
+                Recalculate();
+                System.Diagnostics.Debug.WriteLine($"   TotalAllowances: {TotalAllowances}");
+                System.Diagnostics.Debug.WriteLine($"   TotalDeductions: {TotalDeductions}");
+
+                System.Diagnostics.Debug.WriteLine("✅ SELECT EMPLOYEE COMPLETED SUCCESSFULLY!");
+                System.Diagnostics.Debug.WriteLine("═══════════════════════════════════════════");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌❌❌ EXCEPTION in SelectEmployee: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
-
-        // =========================================================
-        // INCENTIVES MANAGEMENT
-        // =========================================================
 
         [RelayCommand]
         public void AddAllowance()
         {
+            System.Diagnostics.Debug.WriteLine($"▶ AddAllowance called - Name: '{NewAllowanceName}', Amount: {NewAllowanceAmount}");
+
             if (string.IsNullOrWhiteSpace(NewAllowanceName))
             {
                 MessageBox.Show("Please enter an incentive name.", "Validation",
@@ -212,11 +222,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 EmployeeId = SelectedEmployee.Id
             });
 
-            // Clear fields
             NewAllowanceName = "";
             NewAllowanceAmount = 0;
-
             Recalculate();
+
+            System.Diagnostics.Debug.WriteLine($"✅ Allowance added. Total: {AllowancesList.Count}");
         }
 
         [RelayCommand]
@@ -237,13 +247,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
         }
 
-        // =========================================================
-        // DEDUCTIONS MANAGEMENT
-        // =========================================================
-
         [RelayCommand]
         public void AddDeduction()
         {
+            System.Diagnostics.Debug.WriteLine($"▶ AddDeduction called - Name: '{NewDeductionName}', Amount: {NewDeductionAmount}");
+
             if (string.IsNullOrWhiteSpace(NewDeductionName))
             {
                 MessageBox.Show("Please enter a deduction name.", "Validation",
@@ -265,11 +273,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 EmployeeId = SelectedEmployee.Id
             });
 
-            // Clear fields
             NewDeductionName = "";
             NewDeductionAmount = 0;
-
             Recalculate();
+
+            System.Diagnostics.Debug.WriteLine($"✅ Deduction added. Total: {DeductionsList.Count}");
         }
 
         [RelayCommand]
@@ -290,19 +298,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
         }
 
-        // =========================================================
-        // CALCULATION
-        // =========================================================
-
         private void Recalculate()
         {
             TotalAllowances = AllowancesList.Sum(a => a.Amount);
             TotalDeductions = DeductionsList.Sum(d => d.Amount);
         }
-
-        // =========================================================
-        // SAVE CHANGES
-        // =========================================================
 
         [RelayCommand]
         public void SaveChanges()
@@ -316,11 +316,9 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             try
             {
-                // Update employee's allowances and deductions
                 SelectedEmployee.Allowances = AllowancesList.ToList();
                 SelectedEmployee.Deductions = DeductionsList.ToList();
 
-                // Save to database
                 _payrollService.SaveSalaryConfiguration(
                     SelectedEmployee,
                     "Updated monthly incentives and deductions");
@@ -343,10 +341,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     MessageBoxImage.Error);
             }
         }
-
-        // =========================================================
-        // NAVIGATION
-        // =========================================================
 
         [RelayCommand]
         public void GoBack()

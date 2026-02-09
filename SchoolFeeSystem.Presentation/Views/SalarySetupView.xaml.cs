@@ -20,7 +20,7 @@ namespace SchoolFeeSystem.Presentation.Views
         /// Handle employee card click to select employee
         /// ✅ FIXED: Changed MouseButtonEventArgs to MouseEventArgs to match XAML's MouseDown event
         /// </summary>
-        private void EmployeeCard_Click(object sender, MouseEventArgs e)
+        private void EmployeeCard_Click(object sender, MouseButtonEventArgs e)
         {
             if (sender is Border border && border.Tag is Employee employee)
             {

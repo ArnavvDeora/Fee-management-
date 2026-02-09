@@ -11,7 +11,7 @@ namespace SchoolFeeSystem.Core.Entities
         // ========================================
         // EMPLOYEE INFORMATION
         // ========================================
-        public Employee Employee { get; set; }
+        public Employee? Employee { get; set; }
 
         // ========================================
         // BASIC SALARY INFORMATION

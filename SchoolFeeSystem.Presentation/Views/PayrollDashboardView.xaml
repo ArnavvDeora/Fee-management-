@@ -38,7 +38,7 @@
                     </StackPanel>
                 </Button>
 
-                <!-- Salary Setup -->
+                <!-- Salary Setup 
                 <Button Command="{Binding GoToSalarySetupCommand}" Width="220" Height="140" Margin="0,0,20,20" Background="White" BorderThickness="0">
                     <Button.Resources>
                         <Style TargetType="Border">
@@ -56,7 +56,7 @@
                         <TextBlock Text="Base Pay &amp; Allowances" FontSize="12" Foreground="#95A5A6" HorizontalAlignment="Center" Margin="0,5,0,0"/>
                     </StackPanel>
                 </Button>
-
+                -->
                 <!-- Attendance -->
                 <Button Command="{Binding GoToAttendanceCommand}" Width="220" Height="140" Margin="0,0,20,20" Background="White" BorderThickness="0">
                     <Button.Resources>
@@ -151,7 +151,7 @@
                     </StackPanel>
                 </Button>
 
-                <!-- Reports Center -->
+                <!-- Reports Center 
                 <Button Command="{Binding GoToPayrollReportsCommand}" Width="220" Height="140" Margin="0,0,20,20" Background="White" BorderThickness="0">
                     <Button.Resources>
                         <Style TargetType="Border">
@@ -169,6 +169,7 @@
                         <TextBlock Text="Attendance &amp; Salary Logs" FontSize="12" Foreground="#95A5A6" HorizontalAlignment="Center" Margin="0,5,0,0"/>
                     </StackPanel>
                 </Button>
+                -->
 
             </WrapPanel>
         </ScrollViewer>

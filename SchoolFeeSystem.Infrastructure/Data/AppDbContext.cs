@@ -57,8 +57,24 @@ namespace SchoolFeeSystem.Infrastructure.Data
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
-            optionsBuilder.UseSqlite("Data Source=school_fees.db");
+            // Get a safe folder path: C:\Users\ClientName\AppData\Local\SchoolFeeSystem
+            var folder = Environment.SpecialFolder.LocalApplicationData;
+            var path = Environment.GetFolderPath(folder);
+
+            // Create a subfolder for your app so files don't get mixed up
+            var appFolder = System.IO.Path.Combine(path, "SchoolFeeSystem");
+            if (!System.IO.Directory.Exists(appFolder))
+            {
+                System.IO.Directory.CreateDirectory(appFolder);
+            }
+
+            // Set the full path for the database
+            var dbPath = System.IO.Path.Join(appFolder, "school_fees.db");
+
+            // Tell EF Core to use this path
+            optionsBuilder.UseSqlite($"Data Source={dbPath}");
         }
+        
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
