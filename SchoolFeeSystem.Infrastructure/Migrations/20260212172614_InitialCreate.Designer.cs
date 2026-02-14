@@ -11,8 +11,8 @@ using SchoolFeeSystem.Infrastructure.Data;
 namespace SchoolFeeSystem.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260207104525_AddLeaveManagement")]
-    partial class AddLeaveManagement
+    [Migration("20260212172614_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -258,6 +258,46 @@ namespace SchoolFeeSystem.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("Classes");
+                });
+
+            modelBuilder.Entity("SchoolFeeSystem.Core.Entities.CompanyGatePass", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedOn")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("EmployeeId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastUsedOn")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("MaxUsesPerMonth")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Month")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TimesUsed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TotalAllowanceMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("UsedMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Year")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId");
+
+                    b.ToTable("CompanyGatePasses");
                 });
 
             modelBuilder.Entity("SchoolFeeSystem.Core.Entities.Deduction", b =>
@@ -701,6 +741,17 @@ namespace SchoolFeeSystem.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("SchoolFeeSystem.Core.Entities.AttendanceRecord", b =>
+                {
+                    b.HasOne("Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Employee");
+                });
+
+            modelBuilder.Entity("SchoolFeeSystem.Core.Entities.CompanyGatePass", b =>
                 {
                     b.HasOne("Employee", "Employee")
                         .WithMany()

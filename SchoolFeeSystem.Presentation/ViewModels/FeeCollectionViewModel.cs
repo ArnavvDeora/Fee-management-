@@ -83,7 +83,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             _csvService = csvService;
             _paymentLogService = paymentLogService;
 
-            // CRITICAL FIX: Use GetSheetDisplayNames instead of GetSheetNames to avoid WPF binding errors
             foreach (var displayName in _csvService.GetSheetDisplayNames())
             {
                 SheetNames.Add(displayName);
@@ -126,7 +125,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
         private void LoadSheetData(string displayName)
         {
-            // CRITICAL FIX: Convert display name to actual sheet name
             _currentSheetName = _csvService.GetSheetNameFromDisplay(displayName);
             _fullSheetData = _csvService.GetSheet(_currentSheetName);
             ApplyFeeFilter();
@@ -138,12 +136,16 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             var table = _fullSheetData;
 
-            var pendingCol = table.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("pending") ||
-                                   c.ColumnName.ToLower().Contains("previous") ||
-                                   c.ColumnName.ToLower().Contains("due"));
+            // Get Previous Pending and Quarterly Fees columns (NOT Balance)
+            var previousPendingCol = table.Columns.Cast<DataColumn>()
+                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("previous") ||
+                                   c.ColumnName.ToLower().Contains("pending"));
 
-            if (pendingCol == null || SelectedFeeFilter == "All Students")
+            var quarterlyFeesCol = table.Columns.Cast<DataColumn>()
+                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("quarterly fees") ||
+                                   c.ColumnName.ToLower().Contains("installment"));
+
+            if ((previousPendingCol == null && quarterlyFeesCol == null) || SelectedFeeFilter == "All Students")
             {
                 PendingFeesView = table.DefaultView;
                 return;
@@ -153,16 +155,32 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             foreach (DataRow row in table.Rows)
             {
-                string raw = row[pendingCol]?.ToString()?.Trim();
+                // Calculate total pending from Previous Pending + Quarterly Fees
+                decimal totalPending = 0;
 
-                if (!decimal.TryParse(raw, out decimal pending))
-                    pending = 0;
+                if (previousPendingCol != null)
+                {
+                    string prevRaw = row[previousPendingCol]?.ToString()?.Trim();
+                    if (decimal.TryParse(prevRaw, out decimal prevAmount) && prevAmount > 0)
+                    {
+                        totalPending += prevAmount;
+                    }
+                }
+
+                if (quarterlyFeesCol != null)
+                {
+                    string quarterlyRaw = row[quarterlyFeesCol]?.ToString()?.Trim();
+                    if (decimal.TryParse(quarterlyRaw, out decimal quarterlyAmount) && quarterlyAmount > 0)
+                    {
+                        totalPending += quarterlyAmount;
+                    }
+                }
 
                 bool shouldInclude = false;
 
-                if (SelectedFeeFilter == "Pending Fees Only" && pending > 0)
+                if (SelectedFeeFilter == "Pending Fees Only" && totalPending > 0)
                     shouldInclude = true;
-                else if (SelectedFeeFilter == "No Pending Fees" && pending == 0)
+                else if (SelectedFeeFilter == "No Pending Fees" && totalPending == 0)
                     shouldInclude = true;
 
                 if (shouldInclude)
@@ -207,20 +225,34 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             if (phoneCol != null)
                 StudentPhoneNumber = SelectedRow[phoneCol.ColumnName]?.ToString()?.Trim() ?? "";
 
-            var pendingColumns = table.Columns
-                .Cast<DataColumn>()
-                .Where(c => c.ColumnName.ToLower().Contains("pending") ||
-                           c.ColumnName.ToLower().Contains("previous") ||
-                           c.ColumnName.ToLower().Contains("due"))
-                .ToList();
+            // Calculate total from Previous Pending + Quarterly Fees (NOT Balance)
+            var previousPendingCol = table.Columns.Cast<DataColumn>()
+                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("previous") ||
+                                   c.ColumnName.ToLower().Contains("pending"));
+
+            var quarterlyFeesCol = table.Columns.Cast<DataColumn>()
+                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("quarterly fees") ||
+                                   c.ColumnName.ToLower().Contains("installment"));
 
             decimal totalPending = 0;
-            foreach (var col in pendingColumns)
+
+            // Add previous pending
+            if (previousPendingCol != null)
             {
-                string raw = SelectedRow[col.ColumnName]?.ToString()?.Trim();
-                if (decimal.TryParse(raw, out decimal amount) && amount > 0)
+                string prevRaw = SelectedRow[previousPendingCol.ColumnName]?.ToString()?.Trim();
+                if (decimal.TryParse(prevRaw, out decimal prevAmount) && prevAmount > 0)
                 {
-                    totalPending += amount;
+                    totalPending += prevAmount;
+                }
+            }
+
+            // Add quarterly fees
+            if (quarterlyFeesCol != null)
+            {
+                string quarterlyRaw = SelectedRow[quarterlyFeesCol.ColumnName]?.ToString()?.Trim();
+                if (decimal.TryParse(quarterlyRaw, out decimal quarterlyAmount) && quarterlyAmount > 0)
+                {
+                    totalPending += quarterlyAmount;
                 }
             }
 
@@ -276,7 +308,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 return;
             }
 
-            if (PaymentAmount > TotalPendingForSelectedStudent)
+            // Allow overpayment with warning
+            if (PaymentAmount > TotalPendingForSelectedStudent && TotalPendingForSelectedStudent > 0)
             {
                 var result = MessageBox.Show(
                     $"⚠️ Payment amount (₹{PaymentAmount:F2}) exceeds pending fees (₹{TotalPendingForSelectedStudent:F2}).\n\n" +
@@ -291,10 +324,9 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             try
             {
-                // Store previous balance for logging
                 decimal previousBalance = TotalPendingForSelectedStudent;
 
-                // Find and update the row
+                // Find the target row
                 var table = _fullSheetData;
                 DataRow targetRow = null;
 
@@ -324,44 +356,83 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     return;
                 }
 
-                // Find pending columns
-                var pendingColumns = table.Columns
-                    .Cast<DataColumn>()
-                    .Where(c => c.ColumnName.ToLower().Contains("pending") ||
-                               c.ColumnName.ToLower().Contains("previous") ||
-                               c.ColumnName.ToLower().Contains("due"))
-                    .ToList();
+                // Find Previous Pending and Quarterly Fees columns
+                var previousPendingCol = table.Columns.Cast<DataColumn>()
+                    .FirstOrDefault(c => c.ColumnName.ToLower().Contains("previous") ||
+                                       c.ColumnName.ToLower().Contains("pending"));
 
-                // Apply payment
+                var quarterlyFeesCol = table.Columns.Cast<DataColumn>()
+                    .FirstOrDefault(c => c.ColumnName.ToLower().Contains("quarterly fees") ||
+                                       c.ColumnName.ToLower().Contains("installment"));
+
+                // Apply payment: Previous Pending FIRST, then Quarterly Fees
                 decimal remaining = PaymentAmount;
                 decimal totalApplied = 0;
 
-                foreach (var col in pendingColumns)
+                // Step 1: Deduct from Previous Pending first
+                if (previousPendingCol != null && remaining > 0)
                 {
-                    if (remaining <= 0) break;
-
-                    string raw = targetRow[col]?.ToString()?.Trim();
-                    if (!decimal.TryParse(raw, out decimal current) || current <= 0)
-                        continue;
-
-                    if (current <= remaining)
+                    string prevRaw = targetRow[previousPendingCol]?.ToString()?.Trim();
+                    if (decimal.TryParse(prevRaw, out decimal previousAmount) && previousAmount > 0)
                     {
-                        targetRow[col] = "0.00";
-                        totalApplied += current;
-                        remaining -= current;
-                    }
-                    else
-                    {
-                        targetRow[col] = (current - remaining).ToString("F2");
-                        totalApplied += remaining;
-                        remaining = 0;
+                        if (previousAmount <= remaining)
+                        {
+                            // Pay off all previous pending
+                            targetRow[previousPendingCol] = "0.00";
+                            totalApplied += previousAmount;
+                            remaining -= previousAmount;
+                        }
+                        else
+                        {
+                            // Partial payment on previous pending
+                            targetRow[previousPendingCol] = (previousAmount - remaining).ToString("F2");
+                            totalApplied += remaining;
+                            remaining = 0;
+                        }
                     }
                 }
 
-                // Recalculate total fees
+                // Step 2: If remaining, deduct from Quarterly Fees
+                if (quarterlyFeesCol != null && remaining > 0)
+                {
+                    string quarterlyRaw = targetRow[quarterlyFeesCol]?.ToString()?.Trim();
+                    if (decimal.TryParse(quarterlyRaw, out decimal quarterlyAmount) && quarterlyAmount > 0)
+                    {
+                        if (quarterlyAmount <= remaining)
+                        {
+                            // Pay off all quarterly fees
+                            targetRow[quarterlyFeesCol] = "0.00";
+                            totalApplied += quarterlyAmount;
+                            remaining -= quarterlyAmount;
+                        }
+                        else
+                        {
+                            // Partial payment on quarterly fees
+                            targetRow[quarterlyFeesCol] = (quarterlyAmount - remaining).ToString("F2");
+                            totalApplied += remaining;
+                            remaining = 0;
+                        }
+                    }
+                }
+
+                // Check if payment was applied
+                if (totalApplied == 0)
+                {
+                    MessageBox.Show(
+                        "⚠️ No payment could be applied.\n\n" +
+                        "This student has no pending fees in the 'Previous Pending' or 'Quarterly Fees' columns.",
+                        "No Fees to Pay",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return;
+                }
+
+                // ✅ NEW: Record payment in payment history
+                _csvService.RecordPayment(_currentSheetName, targetRow, totalApplied, SelectedPaymentMode, DateTime.Now);
+
+                // Recalculate totals and balance
                 _csvService.RecalculateRowFees(_currentSheetName, targetRow);
 
-                // Calculate new balance
                 decimal newBalance = previousBalance - totalApplied;
 
                 // Get metadata for logging
@@ -369,7 +440,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 string courseName = metadata?.CourseInfo ?? _currentSheetName;
                 string period = metadata?.Period ?? "";
 
-                // LOG THE PAYMENT TRANSACTION
+                // Log payment
                 _paymentLogService.LogPayment(
                     studentName: StudentName,
                     sheetName: _currentSheetName,
@@ -391,7 +462,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     $"Payment Mode: {SelectedPaymentMode}\n" +
                     $"Previous Balance: ₹{previousBalance:F2}\n" +
                     $"New Balance: ₹{newBalance:F2}\n\n" +
-                    $"📋 Transaction logged for reporting.\n\n" +
+                    $"📋 Transaction logged and payment history updated.\n\n" +
                     $"Note: Save changes to persist the payment.",
                     "Payment Applied",
                     MessageBoxButton.OK,

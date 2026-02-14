@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using SchoolFeeSystem.Core.Interfaces;
 using SchoolFeeSystem.Infrastructure.Data;
 using SchoolFeeSystem.Infrastructure.Services;
@@ -50,13 +51,13 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<IReportService, ReportService>();
             services.AddTransient<IPayrollService, PayrollService>();
             services.AddTransient<IAttendanceService, AttendanceService>();
-            services.AddScoped<ILeaveService, LeaveService>();  // ✅ FIXED: Only registered once
+            services.AddScoped<ILeaveService, LeaveService>();
             services.AddScoped<OvertimeCalculationService>();
 
-            // ✅ NEW: Payment Logging Service (for transaction audit trail)
+            // Payment Logging Service (for transaction audit trail)
             services.AddSingleton<PaymentLogService>();
 
-            // ✅ EXISTING: Core Services
+            // Core Presentation Services
             services.AddSingleton<CsvDataService>();
             services.AddSingleton<PdfReportService>();
 
@@ -77,13 +78,26 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<PayrollDashboardViewModel>();
             services.AddTransient<PayrollDashboardView>();
 
-            // Core Features (Student, Fees, Reports)
+            // ✅ FIX 1: Use teammate's PaymentHistoryViewModel (takes CsvDataService only).
+            // StudentPaymentHistoryViewModel is NOT registered here — it required
+            // PdfReportService.GeneratePaymentReceipt which did not exist (CS1061).
+            services.AddTransient<PaymentHistoryViewModel>();
+            services.AddTransient<PaymentHistoryView>();
+            //services.AddTransient<StudentPaymentHistoryView>();
+
+            // ✅ FIX 2: FineManagementViewModel/View were missing from DI entirely.
+            // DashboardViewModel.ShowFineManagement() calls GetRequiredService<FineManagementView>()
+            // so both must be registered or it crashes at runtime.
+            services.AddTransient<FineManagementViewModel>();
+            services.AddTransient<FineManagementView>();
+
+            // Core Features
             services.AddTransient<StudentViewModel>();
-            //services.AddTransient<StudentView>();
+            services.AddTransient<StudentView>(); // ✅ FIX 3: Was commented out, caused CS0246
             services.AddTransient<FeeViewModel>();
             services.AddTransient<FeeView>();
 
-            // ✅ UPDATED: FeeCollectionViewModel now requires PaymentLogService
+            // FeeCollectionViewModel requires manual factory (non-standard constructor)
             services.AddTransient<FeeCollectionViewModel>(sp =>
                 new FeeCollectionViewModel(
                     sp.GetRequiredService<CsvDataService>(),
@@ -91,7 +105,7 @@ namespace SchoolFeeSystem.Presentation
                 ));
             services.AddTransient<FeeCollectionView>();
 
-            // ✅ UPDATED: ReportsViewModel now requires PaymentLogService
+            // ReportsViewModel requires manual factory (non-standard constructor)
             services.AddTransient<ReportsViewModel>(sp =>
                 new ReportsViewModel(
                     sp.GetRequiredService<CsvDataService>(),
@@ -105,7 +119,7 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<HelpViewModel>();
             services.AddTransient<HelpView>();
 
-            // ✅ Scholarship ViewModel & View
+            // Scholarship
             services.AddTransient<ScholarshipViewModel>();
             services.AddTransient<ScholarshipView>();
 
@@ -115,7 +129,7 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<AddStaffViewModel>();
             services.AddTransient<AddStaffView>();
 
-            // Staff Details (Singleton for data passing)
+            // Staff Details (Singleton for data passing between pages)
             services.AddSingleton<StaffDetailsViewModel>();
             services.AddSingleton<StaffDetailsView>();
 
@@ -124,7 +138,7 @@ namespace SchoolFeeSystem.Presentation
 
             services.AddTransient<AttendanceManagementViewModel>();
             services.AddTransient<AttendanceManagementView>();
-            services.AddTransient<EditAttendanceViewModel>(); // Popup VM
+            services.AddTransient<EditAttendanceViewModel>();
 
             services.AddTransient<HolidayManagementViewModel>();
             services.AddTransient<HolidayManagementView>();
@@ -136,7 +150,7 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<PayrollReportsViewModel>();
             services.AddTransient<PayrollReportsView>();
 
-            // Register Popups
+            // Popups
             services.AddTransient<PayslipViewerViewModel>();
             services.AddTransient<PayslipViewerView>();
             services.AddTransient<ImportHolidaysViewModel>();
@@ -145,8 +159,9 @@ namespace SchoolFeeSystem.Presentation
             // Allowance Time
             services.AddTransient<AllowanceTimeViewModel>();
             services.AddTransient<AllowanceTimeView>();
+            services.AddScoped<ICompanyGatePassService, CompanyGatePassService>();
 
-            // ✅ FIXED: Leave Management (clean registration, no duplicates)
+            // Leave Management
             services.AddTransient<LeaveManagementViewModel>();
             services.AddTransient<LeaveManagementView>();
         }
@@ -155,16 +170,38 @@ namespace SchoolFeeSystem.Presentation
         {
             base.OnStartup(e);
 
+            // Initialize database in background to avoid blocking UI
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    using (var scope = Services.CreateScope())
+                    {
+                        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                        db.Database.Migrate();
+                        db.EnsureDefaultDataExists();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ DB Init error: {ex.Message}");
+                }
+            });
+
+            // Create ONLY ONE window, configured for login
             var mainWindow = Services.GetRequiredService<MainWindow>();
             var loginView = Services.GetRequiredService<LoginView>();
 
             mainWindow.Content = loginView;
-            mainWindow.Width = 450;
-            mainWindow.Height = 550;
+            mainWindow.Width = 500;
+            mainWindow.Height = 600;
             mainWindow.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            mainWindow.Title = "Login";
+            mainWindow.ResizeMode = ResizeMode.NoResize;
+            mainWindow.Title = "School Management System - Login";
+            mainWindow.WindowState = WindowState.Normal;
 
             mainWindow.Show();
+            MainWindow = mainWindow;
         }
     }
 }

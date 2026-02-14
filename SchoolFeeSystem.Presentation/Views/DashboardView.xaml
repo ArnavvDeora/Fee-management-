@@ -64,7 +64,6 @@
 
     </UserControl.Resources>
 
-
     <Grid Background="{StaticResource PageBackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -87,7 +86,7 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- BACK BUTTON (TOP LEFT) -->
+                <!-- BACK BUTTON -->
                 <Border Grid.Column="0"
                         Padding="12"
                         CornerRadius="12"
@@ -109,7 +108,7 @@
                     </StackPanel>
                 </Border>
 
-                <!-- TITLE CENTER -->
+                <!-- TITLE -->
                 <StackPanel Grid.Column="1">
                     <TextBlock Text="🏫 School Fee Management System"
                                FontSize="34"
@@ -126,8 +125,7 @@
             </Grid>
         </Border>
 
-
-        <!-- ================= CONTENT ================= -->
+        <!-- ================= MAIN CONTENT ================= -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <Grid Margin="50">
 
@@ -175,84 +173,92 @@
                 </Border>
 
                 <!-- MENU GRID -->
-                <Grid Grid.Row="2">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="40"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
+                <UniformGrid Grid.Row="2" Columns="3" Margin="0,20,0,20">
 
-                    <UniformGrid Grid.Row="0" Columns="3">
-                        <Border Style="{StaticResource ModernCardStyle}">
-                            <Border.InputBindings>
-                                <MouseBinding Command="{Binding ShowClassesCommand}" MouseAction="LeftClick"/>
-                            </Border.InputBindings>
-                            <StackPanel>
-                                <TextBlock Text="📚" Style="{StaticResource IconStyle}"/>
-                                <TextBlock Text="Manage Classes" Style="{StaticResource CardTitleStyle}"/>
-                                <TextBlock Text="View and edit class data from Excel sheets"
-                                           Style="{StaticResource CardSubTextStyle}"/>
-                            </StackPanel>
-                        </Border>
+                    <!-- Manage Classes -->
+                    <Border Style="{StaticResource ModernCardStyle}">
+                        <Border.InputBindings>
+                            <MouseBinding Command="{Binding ShowClassesCommand}" MouseAction="LeftClick"/>
+                        </Border.InputBindings>
+                        <StackPanel>
+                            <TextBlock Text="📚" Style="{StaticResource IconStyle}"/>
+                            <TextBlock Text="Manage Classes" Style="{StaticResource CardTitleStyle}"/>
+                            <TextBlock Text="View and edit class data"
+                                       Style="{StaticResource CardSubTextStyle}"/>
+                        </StackPanel>
+                    </Border>
 
-                        <Border Style="{StaticResource ModernCardStyle}">
-                            <Border.InputBindings>
-                                <MouseBinding Command="{Binding ShowFeeCollectionCommand}" MouseAction="LeftClick"/>
-                            </Border.InputBindings>
-                            <StackPanel>
-                                <TextBlock Text="💰" Style="{StaticResource IconStyle}"/>
-                                <TextBlock Text="Collect Fees" Style="{StaticResource CardTitleStyle}"/>
-                                <TextBlock Text="Process payments and manage pending fees"
-                                           Style="{StaticResource CardSubTextStyle}"/>
-                            </StackPanel>
-                        </Border>
+                    <!-- Collect Fees -->
+                    <Border Style="{StaticResource ModernCardStyle}">
+                        <Border.InputBindings>
+                            <MouseBinding Command="{Binding ShowFeeCollectionCommand}" MouseAction="LeftClick"/>
+                        </Border.InputBindings>
+                        <StackPanel>
+                            <TextBlock Text="💰" Style="{StaticResource IconStyle}"/>
+                            <TextBlock Text="Collect Fees" Style="{StaticResource CardTitleStyle}"/>
+                            <TextBlock Text="Process payments and manage pending fees"
+                                       Style="{StaticResource CardSubTextStyle}"/>
+                        </StackPanel>
+                    </Border>
 
-                        <Border Style="{StaticResource ModernCardStyle}">
-                            <Border.InputBindings>
-                                <MouseBinding Command="{Binding ShowScholarshipsCommand}" MouseAction="LeftClick"/>
-                            </Border.InputBindings>
-                            <StackPanel>
-                                <TextBlock Text="🎓" Style="{StaticResource IconStyle}"/>
-                                <TextBlock Text="Scholarships" Style="{StaticResource CardTitleStyle}"/>
-                                <TextBlock Text="Manage student scholarships and fee concessions"
-                                           Style="{StaticResource CardSubTextStyle}"/>
-                            </StackPanel>
-                        </Border>
-                    </UniformGrid>
+                    <!-- Scholarships -->
+                    <Border Style="{StaticResource ModernCardStyle}">
+                        <Border.InputBindings>
+                            <MouseBinding Command="{Binding ShowScholarshipsCommand}" MouseAction="LeftClick"/>
+                        </Border.InputBindings>
+                        <StackPanel>
+                            <TextBlock Text="🎓" Style="{StaticResource IconStyle}"/>
+                            <TextBlock Text="Scholarships" Style="{StaticResource CardTitleStyle}"/>
+                            <TextBlock Text="Manage fee concessions"
+                                       Style="{StaticResource CardSubTextStyle}"/>
+                        </StackPanel>
+                    </Border>
 
-                    <UniformGrid Grid.Row="2" Columns="3">
-                        <Border Style="{StaticResource ModernCardStyle}">
-                            <Border.InputBindings>
-                                <MouseBinding Command="{Binding ShowReportsCommand}" MouseAction="LeftClick"/>
-                            </Border.InputBindings>
-                            <StackPanel>
-                                <TextBlock Text="📊" Style="{StaticResource IconStyle}"/>
-                                <TextBlock Text="Generate Reports" Style="{StaticResource CardTitleStyle}"/>
-                                <TextBlock Text="Create PDF reports for fees and payments"
-                                           Style="{StaticResource CardSubTextStyle}"/>
-                            </StackPanel>
-                        </Border>
+                    <!-- Reports -->
+                    <Border Style="{StaticResource ModernCardStyle}">
+                        <Border.InputBindings>
+                            <MouseBinding Command="{Binding ShowReportsCommand}" MouseAction="LeftClick"/>
+                        </Border.InputBindings>
+                        <StackPanel>
+                            <TextBlock Text="📊" Style="{StaticResource IconStyle}"/>
+                            <TextBlock Text="Generate Reports" Style="{StaticResource CardTitleStyle}"/>
+                            <TextBlock Text="Create PDF reports"
+                                       Style="{StaticResource CardSubTextStyle}"/>
+                        </StackPanel>
+                    </Border>
 
-                        <Border Style="{StaticResource ModernCardStyle}">
-                            <Border.InputBindings>
-                                <MouseBinding Command="{Binding ShowHelpCommand}" MouseAction="LeftClick"/>
-                            </Border.InputBindings>
-                            <StackPanel>
-                                <TextBlock Text="❓" Style="{StaticResource IconStyle}"/>
-                                <TextBlock Text="Help" Style="{StaticResource CardTitleStyle}"/>
-                                <TextBlock Text="Get help and view user guide"
-                                           Style="{StaticResource CardSubTextStyle}"/>
-                            </StackPanel>
-                        </Border>
+                    <!-- Payment History -->
+                    <Border Style="{StaticResource ModernCardStyle}">
+                        <Border.InputBindings>
+                            <MouseBinding Command="{Binding ShowPaymentHistoryCommand}" MouseAction="LeftClick"/>
+                        </Border.InputBindings>
+                        <StackPanel>
+                            <TextBlock Text="🧾" Style="{StaticResource IconStyle}"/>
+                            <TextBlock Text="Payment History" Style="{StaticResource CardTitleStyle}"/>
+                            <TextBlock Text="View student transactions"
+                                       Style="{StaticResource CardSubTextStyle}"/>
+                        </StackPanel>
+                    </Border>
 
-                        <Border Background="Transparent"/>
-                    </UniformGrid>
-                </Grid>
+                    <!-- Fine Management -->
+                    <Border Style="{StaticResource ModernCardStyle}">
+                        <Border.InputBindings>
+                            <MouseBinding Command="{Binding ShowFineManagementCommand}" MouseAction="LeftClick"/>
+                        </Border.InputBindings>
+                        <StackPanel>
+                            <TextBlock Text="⚠️" Style="{StaticResource IconStyle}"/>
+                            <TextBlock Text="Fine Management" Style="{StaticResource CardTitleStyle}"/>
+                            <TextBlock Text="Manage late payment fines"
+                                       Style="{StaticResource CardSubTextStyle}"/>
+                        </StackPanel>
+                    </Border>
+
+                </UniformGrid>
+
             </Grid>
         </ScrollViewer>
 
-
-        <!-- ================= LOGOUT (BOTTOM RIGHT) ================= -->
+        <!-- LOGOUT -->
         <Grid Grid.Row="2" Margin="30">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>

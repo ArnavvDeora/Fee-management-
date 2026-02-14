@@ -4,17 +4,28 @@ using QuestPDF.Infrastructure;
 using System;
 using System.Data;
 using System.Linq;
+using System.Collections.Generic;
 
 namespace SchoolFeeSystem.Presentation.Services
 {
     public class PdfReportService
     {
+        private readonly CsvDataService _csvService;
+
+        public PdfReportService(CsvDataService csvService)
+        {
+            _csvService = csvService;
+        }
+
         /// <summary>
-        /// Generates a detailed student fee report with all columns from the Excel
+        /// Generates a detailed student fee report with payment history
         /// </summary>
         public void GenerateStudentReport(DataRow row, string filePath, CsvDataService.SheetMetadata metadata = null)
         {
             QuestPDF.Settings.License = LicenseType.Community;
+
+            // Extract student ID for payment history lookup
+            string studentId = GetValueFromRow(row, "Student ID", "Roll No", "ID");
 
             Document.Create(container =>
             {
@@ -30,7 +41,6 @@ namespace SchoolFeeSystem.Presentation.Services
                     {
                         column.Spacing(5);
 
-                        // Institute Name (if available from metadata)
                         if (metadata != null && !string.IsNullOrWhiteSpace(metadata.InstituteName))
                         {
                             column.Item().AlignCenter().Text(metadata.InstituteName)
@@ -46,7 +56,6 @@ namespace SchoolFeeSystem.Presentation.Services
                                 .FontColor(Colors.Blue.Darken2);
                         }
 
-                        // Period Info
                         if (metadata != null && !string.IsNullOrWhiteSpace(metadata.Period))
                         {
                             column.Item().AlignCenter().Text(metadata.Period)
@@ -54,7 +63,6 @@ namespace SchoolFeeSystem.Presentation.Services
                                 .Italic();
                         }
 
-                        // Course Info
                         if (metadata != null && !string.IsNullOrWhiteSpace(metadata.CourseInfo))
                         {
                             column.Item().AlignCenter().Text(metadata.CourseInfo)
@@ -62,7 +70,6 @@ namespace SchoolFeeSystem.Presentation.Services
                                 .FontColor(Colors.Grey.Darken1);
                         }
 
-                        // Separator Line
                         column.Item().PaddingTop(10).LineHorizontal(2).LineColor(Colors.Blue.Darken2);
                     });
 
@@ -87,57 +94,145 @@ namespace SchoolFeeSystem.Presentation.Services
                         // Main Details Table
                         column.Item().Table(table =>
                         {
-                            // Define columns: Label (40%) | Value (60%)
                             table.ColumnsDefinition(columns =>
                             {
                                 columns.RelativeColumn(2);
                                 columns.RelativeColumn(3);
                             });
 
-                            // Header Row
                             table.Cell().Element(HeaderCellStyle).Text("Field").Bold();
                             table.Cell().Element(HeaderCellStyle).Text("Value").Bold();
 
-                            // Data Rows - Display ALL columns from Excel
                             bool alternateRow = false;
                             foreach (DataColumn col in row.Table.Columns)
                             {
+                                // Skip Payment History column (will show separately)
+                                if (col.ColumnName.ToLower().Contains("payment history"))
+                                    continue;
+
                                 var cellValue = row[col]?.ToString() ?? "";
 
-                                // Skip empty columns
                                 if (string.IsNullOrWhiteSpace(cellValue) && string.IsNullOrWhiteSpace(col.ColumnName))
                                     continue;
 
-                                // Alternate row coloring for readability
                                 if (alternateRow)
                                 {
                                     table.Cell().Element(DataCellStyleAlt).Text(col.ColumnName).Bold();
-                                    table.Cell().Element(DataCellStyleAlt).Text(FormatValue(cellValue));
+                                    table.Cell().Element(DataCellStyleAlt).Text(FormatValue(cellValue, col.ColumnName));
                                 }
                                 else
                                 {
                                     table.Cell().Element(DataCellStyle).Text(col.ColumnName).Bold();
-                                    table.Cell().Element(DataCellStyle).Text(FormatValue(cellValue));
+                                    table.Cell().Element(DataCellStyle).Text(FormatValue(cellValue, col.ColumnName));
                                 }
 
                                 alternateRow = !alternateRow;
                             }
                         });
 
-                        // Summary Box (if Total exists)
-                        var totalCol = row.Table.Columns.Cast<DataColumn>()
-                            .FirstOrDefault(c => c.ColumnName.ToLower().Contains("total"));
-
-                        if (totalCol != null)
+                        // ✅ NEW: Payment History Section
+                        var paymentHistory = _csvService.GetPaymentHistory(studentId);
+                        if (paymentHistory != null && paymentHistory.Rows.Count > 0)
                         {
-                            column.Item().AlignRight().Width(200).Background(Colors.Green.Lighten4)
-                                .Border(1).BorderColor(Colors.Green.Darken1)
-                                .Padding(10).Text(text =>
+                            column.Item().PaddingTop(15).Column(historyColumn =>
+                            {
+                                historyColumn.Item().Background(Colors.Green.Lighten4)
+                                    .Padding(10)
+                                    .Text("💳 Payment History")
+                                    .FontSize(13)
+                                    .Bold()
+                                    .FontColor(Colors.Green.Darken3);
+
+                                historyColumn.Item().PaddingTop(10).Table(historyTable =>
                                 {
-                                    text.Span("Total Amount: ").Bold();
-                                    text.Span(row[totalCol]?.ToString() ?? "0").FontSize(14).Bold().FontColor(Colors.Green.Darken3);
+                                    historyTable.ColumnsDefinition(columns =>
+                                    {
+                                        columns.RelativeColumn(2);  // Date
+                                        columns.RelativeColumn(2);  // Amount
+                                        columns.RelativeColumn(2);  // Type
+                                    });
+
+                                    // Headers
+                                    historyTable.Cell().Element(HeaderCellStyle).Text("Date").Bold();
+                                    historyTable.Cell().Element(HeaderCellStyle).Text("Amount Paid").Bold();
+                                    historyTable.Cell().Element(HeaderCellStyle).Text("Payment Type").Bold();
+
+                                    // Payment entries
+                                    bool altRow = false;
+                                    foreach (DataRow paymentRow in paymentHistory.Rows)
+                                    {
+                                        DateTime paymentDate = Convert.ToDateTime(paymentRow["Payment Date"]);
+                                        decimal amount = Convert.ToDecimal(paymentRow["Amount"]);
+                                        string paymentType = paymentRow["Payment Type"]?.ToString() ?? "";
+
+                                        if (altRow)
+                                        {
+                                            historyTable.Cell().Element(DataCellStyleAlt).Text(paymentDate.ToString("dd-MM-yyyy"));
+                                            historyTable.Cell().Element(DataCellStyleAlt).Text($"₹{amount:N2}").FontColor(Colors.Green.Darken2).Bold();
+                                            historyTable.Cell().Element(DataCellStyleAlt).Text(paymentType);
+                                        }
+                                        else
+                                        {
+                                            historyTable.Cell().Element(DataCellStyle).Text(paymentDate.ToString("dd-MM-yyyy"));
+                                            historyTable.Cell().Element(DataCellStyle).Text($"₹{amount:N2}").FontColor(Colors.Green.Darken2).Bold();
+                                            historyTable.Cell().Element(DataCellStyle).Text(paymentType);
+                                        }
+                                        altRow = !altRow;
+                                    }
                                 });
+
+                                // Total paid summary
+                                var totalPaid = paymentHistory.AsEnumerable()
+                                    .Sum(r => Convert.ToDecimal(r["Amount"]));
+
+                                historyColumn.Item().AlignRight().PaddingTop(10).Width(250)
+                                    .Background(Colors.Green.Lighten3)
+                                    .Border(1).BorderColor(Colors.Green.Darken1)
+                                    .Padding(8).Text(text =>
+                                    {
+                                        text.Span("Total Paid to Date: ").Bold().FontSize(11);
+                                        text.Span($"₹{totalPaid:N2}").FontSize(13).Bold().FontColor(Colors.Green.Darken3);
+                                    });
+                            });
                         }
+
+                        // Summary Box (Total & Balance)
+                        column.Item().PaddingTop(15).Row(rowLayout =>
+                        {
+                            var totalCol = row.Table.Columns.Cast<DataColumn>()
+                                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("total"));
+
+                            var balanceCol = row.Table.Columns.Cast<DataColumn>()
+                                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("balance"));
+
+                            if (totalCol != null)
+                            {
+                                rowLayout.RelativeItem().Background(Colors.Blue.Lighten4)
+                                    .Border(1).BorderColor(Colors.Blue.Darken1)
+                                    .Padding(10).Text(text =>
+                                    {
+                                        text.Span("Total Fees: ").Bold();
+                                        text.Span(row[totalCol]?.ToString() ?? "0")
+                                            .FontSize(14).Bold().FontColor(Colors.Blue.Darken3);
+                                    });
+                            }
+
+                            if (balanceCol != null)
+                            {
+                                var balanceValue = decimal.TryParse(row[balanceCol]?.ToString(), out decimal bal) ? bal : 0;
+                                var balanceColor = balanceValue > 0 ? Colors.Red.Darken1 : Colors.Green.Darken1;
+                                var balanceBg = balanceValue > 0 ? Colors.Red.Lighten4 : Colors.Green.Lighten4;
+
+                                rowLayout.RelativeItem().Background(balanceBg)
+                                    .Border(1).BorderColor(balanceColor)
+                                    .Padding(10).Text(text =>
+                                    {
+                                        text.Span("Balance Remaining: ").Bold();
+                                        text.Span(row[balanceCol]?.ToString() ?? "0")
+                                            .FontSize(14).Bold().FontColor(balanceColor);
+                                    });
+                            }
+                        });
                     });
 
                     // ============ FOOTER ============
@@ -160,7 +255,7 @@ namespace SchoolFeeSystem.Presentation.Services
         }
 
         /// <summary>
-        /// Generates a summary report for multiple students (e.g., pending fees list)
+        /// Generates a summary report for multiple students
         /// </summary>
         public void GenerateSummaryReport(DataTable data, string filePath, string reportTitle, CsvDataService.SheetMetadata metadata = null)
         {
@@ -170,7 +265,7 @@ namespace SchoolFeeSystem.Presentation.Services
             {
                 container.Page(page =>
                 {
-                    page.Size(PageSizes.A4.Landscape()); // Landscape for wider tables
+                    page.Size(PageSizes.A4.Landscape());
                     page.Margin(20);
                     page.PageColor(Colors.White);
                     page.DefaultTextStyle(x => x.FontSize(9).FontFamily("Arial"));
@@ -224,12 +319,15 @@ namespace SchoolFeeSystem.Presentation.Services
                         // Main Data Table
                         column.Item().PaddingTop(15).Table(table =>
                         {
-                            // Dynamic column definition based on data
                             table.ColumnsDefinition(columns =>
                             {
                                 foreach (DataColumn col in data.Columns)
                                 {
-                                    columns.RelativeColumn();
+                                    // Make Payment History column wider
+                                    if (col.ColumnName.ToLower().Contains("payment history"))
+                                        columns.RelativeColumn(3);
+                                    else
+                                        columns.RelativeColumn();
                                 }
                             });
 
@@ -248,9 +346,9 @@ namespace SchoolFeeSystem.Presentation.Services
                                     var value = dataRow[col]?.ToString() ?? "";
 
                                     if (alternateRow)
-                                        table.Cell().Element(DataCellStyleAlt).Text(FormatValue(value));
+                                        table.Cell().Element(DataCellStyleAlt).Text(FormatValue(value, col.ColumnName));
                                     else
-                                        table.Cell().Element(DataCellStyle).Text(FormatValue(value));
+                                        table.Cell().Element(DataCellStyle).Text(FormatValue(value, col.ColumnName));
                                 }
                                 alternateRow = !alternateRow;
                             }
@@ -305,20 +403,42 @@ namespace SchoolFeeSystem.Presentation.Services
         }
 
         /// <summary>
-        /// Format values for better display (currency, dates, etc.)
+        /// Format values for better display
         /// </summary>
-        private static string FormatValue(string value)
+        private static string FormatValue(string value, string columnName = "")
         {
             if (string.IsNullOrWhiteSpace(value))
                 return "-";
 
-            // Try to format as currency if it's a number
+            // Special formatting for payment history
+            if (columnName.ToLower().Contains("payment history"))
+            {
+                // Replace semicolons with line breaks for better readability
+                return value.Replace("; ", "\n");
+            }
+
+            // Format as currency if it's a number
             if (decimal.TryParse(value, out decimal number))
             {
                 return $"₹{number:N2}";
             }
 
             return value;
+        }
+
+        /// <summary>
+        /// Helper method to get value from DataRow with fallback column names
+        /// </summary>
+        private string GetValueFromRow(DataRow row, params string[] columnNames)
+        {
+            foreach (var colName in columnNames)
+            {
+                if (row.Table.Columns.Contains(colName) && row[colName] != DBNull.Value)
+                {
+                    return row[colName].ToString();
+                }
+            }
+            return string.Empty;
         }
     }
 }

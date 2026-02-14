@@ -6,7 +6,9 @@ namespace SchoolFeeSystem.Infrastructure.Data
 {
     public class AppDbContext : DbContext
     {
-        // Tables
+        // ====================================================
+        // SCHOOL FEE TABLES
+        // ====================================================
         public DbSet<User> Users { get; set; }
         public DbSet<Class> Classes { get; set; }
         public DbSet<Student> Students { get; set; }
@@ -19,7 +21,9 @@ namespace SchoolFeeSystem.Infrastructure.Data
         public DbSet<Holiday> Holidays { get; set; }
         public DbSet<AttendanceSettings> AttendanceSettings { get; set; }
 
-        // HR Tables
+        // ====================================================
+        // HR / PAYROLL TABLES
+        // ====================================================
         public DbSet<Employee> Employees { get; set; }
         public DbSet<AttendanceRecord> AttendanceRecords { get; set; }
         public DbSet<SalaryRecord> SalaryRecords { get; set; }
@@ -27,13 +31,59 @@ namespace SchoolFeeSystem.Infrastructure.Data
         public DbSet<OvertimeAllowance> OvertimeAllowances { get; set; }
         public DbSet<LeaveRequest> LeaveRequests { get; set; }
         public DbSet<Salary> Salaries { get; set; }
+        public DbSet<CompanyGatePass> CompanyGatePasses { get; set; }
 
+        // ====================================================
+        // CONSTRUCTOR - NO DB ACCESS, MIGRATION ONLY
+        // ====================================================
         public AppDbContext()
         {
-            // ✅ FIXED: Ensure database is created before accessing tables
-            Database.EnsureCreated();
+            // ✅ This runs all pending migrations on startup
+            // Creates the .db file and ALL tables if they don't exist
+            //Database.Migrate();
+            //Database.EnsureCreated();
+        }
 
-            // ✅ FIXED: Wrapped in try-catch to prevent errors on first run
+        protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+        {
+            // ✅ FIXED: Print the path so you can verify which DB is being used
+            var folder = Environment.SpecialFolder.LocalApplicationData;
+            var path = Environment.GetFolderPath(folder);
+            var appFolder = System.IO.Path.Combine(path, "SchoolFeeSystem");
+
+            if (!System.IO.Directory.Exists(appFolder))
+                System.IO.Directory.CreateDirectory(appFolder);
+
+            var dbPath = System.IO.Path.Join(appFolder, "school_fees.db");
+
+            // ✅ DEBUG: This will print the exact DB path in Output window
+            System.Diagnostics.Debug.WriteLine($"🗄️ DATABASE PATH: {dbPath}");
+
+            optionsBuilder.UseSqlite($"Data Source={dbPath}");
+        }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Class>()
+                .HasIndex(c => new { c.Name, c.Section })
+                .IsUnique();
+
+            modelBuilder.Entity<Employee>()
+                .HasIndex(e => e.BiometricId)
+                .IsUnique();
+
+            modelBuilder.Entity<Employee>()
+                .Property(e => e.BaseSalary)
+                .HasConversion<double>();
+
+            base.OnModelCreating(modelBuilder);
+        }
+
+        // ====================================================
+        // ✅ SEED DATA - Called from App.xaml.cs AFTER startup
+        // ====================================================
+        public void EnsureDefaultDataExists()
+        {
             try
             {
                 if (!Users.Any())
@@ -46,48 +96,13 @@ namespace SchoolFeeSystem.Infrastructure.Data
                     };
                     Users.Add(admin);
                     SaveChanges();
+                    System.Diagnostics.Debug.WriteLine("✅ Default admin user created");
                 }
             }
-            catch (System.Exception)
+            catch (System.Exception ex)
             {
-                // Table doesn't exist yet - migrations will create it
-                // This is normal on first run
+                System.Diagnostics.Debug.WriteLine($"⚠️ Seed error: {ex.Message}");
             }
-        }
-
-        protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-        {
-            // Get a safe folder path: C:\Users\ClientName\AppData\Local\SchoolFeeSystem
-            var folder = Environment.SpecialFolder.LocalApplicationData;
-            var path = Environment.GetFolderPath(folder);
-
-            // Create a subfolder for your app so files don't get mixed up
-            var appFolder = System.IO.Path.Combine(path, "SchoolFeeSystem");
-            if (!System.IO.Directory.Exists(appFolder))
-            {
-                System.IO.Directory.CreateDirectory(appFolder);
-            }
-
-            // Set the full path for the database
-            var dbPath = System.IO.Path.Join(appFolder, "school_fees.db");
-
-            // Tell EF Core to use this path
-            optionsBuilder.UseSqlite($"Data Source={dbPath}");
-        }
-        
-
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            // FIX 3: Changed 'c.ClassName' to 'c.Name' (This was causing the crash)
-            modelBuilder.Entity<Class>()
-                .HasIndex(c => new { c.Name, c.Section })
-                .IsUnique();
-            modelBuilder.Entity<Employee>().HasIndex(e => e.BiometricId).IsUnique();
-            modelBuilder.Entity<Employee>()
-                .Property(e => e.BaseSalary)
-                .HasConversion<double>();
-
-            base.OnModelCreating(modelBuilder);
         }
     }
 }

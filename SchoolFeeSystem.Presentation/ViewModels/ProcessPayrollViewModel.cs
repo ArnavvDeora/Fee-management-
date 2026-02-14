@@ -1,11 +1,13 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.Extensions.DependencyInjection; // For getting Services
+using Microsoft.Extensions.DependencyInjection;
 using SchoolFeeSystem.Core.Entities;
 using SchoolFeeSystem.Core.Interfaces;
 using SchoolFeeSystem.Presentation.Views;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Windows;
 using SchoolFeeSystem.Presentation;
 
@@ -15,6 +17,13 @@ namespace SchoolFeeSystem.Presentation.ViewModels
     {
         private readonly IPayrollService _payrollService;
 
+        // ✅ NEW: Search properties
+        private List<Employee> _allEmployees = new List<Employee>();
+
+        [ObservableProperty] private string _searchText = string.Empty;
+        [ObservableProperty] private ObservableCollection<Employee> _employees;
+        [ObservableProperty] private Employee _selectedEmployee;
+
         [ObservableProperty] private ObservableCollection<SalarySlipItem> _salaryList;
         [ObservableProperty] private DateTime _selectedMonth = DateTime.Now;
         [ObservableProperty] private decimal _totalPayout;
@@ -22,6 +31,94 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         public ProcessPayrollViewModel(IPayrollService payrollService)
         {
             _payrollService = payrollService;
+            LoadEmployees();
+        }
+
+        // ✅ NEW: Load all employees for search
+        private void LoadEmployees()
+        {
+            var list = _payrollService.GetAllEmployees();
+            _allEmployees = list;
+            Employees = new ObservableCollection<Employee>(list);
+        }
+
+        // ✅ NEW: Search employee command
+        [RelayCommand]
+        public void SearchEmployee()
+        {
+            if (string.IsNullOrWhiteSpace(SearchText))
+            {
+                // Show all employees if search is empty
+                Employees = new ObservableCollection<Employee>(_allEmployees);
+            }
+            else
+            {
+                // Filter employees by name or biometric ID
+                var filtered = _allEmployees.Where(e =>
+                    (e.FullName != null && e.FullName.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                    (e.BiometricId != null && e.BiometricId.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                    (e.FirstName != null && e.FirstName.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                    (e.LastName != null && e.LastName.Contains(SearchText, StringComparison.OrdinalIgnoreCase))
+                ).ToList();
+
+                Employees = new ObservableCollection<Employee>(filtered);
+            }
+
+            // Auto-select first result if available
+            if (Employees.Count > 0)
+            {
+                SelectedEmployee = Employees[0];
+            }
+            else
+            {
+                SelectedEmployee = null;
+            }
+        }
+
+        // ✅ NEW: Clear search
+        [RelayCommand]
+        public void ClearSearch()
+        {
+            SearchText = string.Empty;
+            SearchEmployee();
+            SelectedEmployee = null;
+        }
+
+        // ✅ NEW: Calculate salary for single employee
+        [RelayCommand]
+        public void CalculateSingleSalary()
+        {
+            if (SelectedEmployee == null)
+            {
+                MessageBox.Show("Please search and select an employee first.", "No Employee Selected",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var slip = _payrollService.GenerateDetailedSalary(
+                SelectedEmployee.Id,
+                SelectedMonth.Month,
+                SelectedMonth.Year);
+
+            if (slip != null)
+            {
+                SalaryList = new ObservableCollection<SalarySlipItem> { slip };
+                TotalPayout = slip.NetSalary;
+
+                MessageBox.Show(
+                    $"Salary calculated for {SelectedEmployee.FullName}\n\n" +
+                    $"Net Paid: ₹{slip.NetPaid:N2}\n" +
+                    $"Days Worked: {slip.DaysWorked}\n" +
+                    $"Gross: ₹{slip.GrossSalary:N2}",
+                    "Calculation Complete",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            else
+            {
+                MessageBox.Show("Error calculating salary for this employee.", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         [RelayCommand]
@@ -33,7 +130,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             foreach (var emp in employees)
             {
-                // CALL THE NEW LOGIC HERE
                 var slip = _payrollService.GenerateDetailedSalary(emp.Id, SelectedMonth.Month, SelectedMonth.Year);
 
                 if (slip != null)
@@ -52,14 +148,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             if (item == null) return;
 
-            // Open the Printable Slip Window
             var services = ((App)Application.Current).Services;
 
-            // Get the View Model and Load Data
             var viewerVM = services.GetRequiredService<PayslipViewerViewModel>();
-            viewerVM.LoadData(item); // Pass the detailed item
+            viewerVM.LoadData(item);
 
-            // Open Window
             var viewer = services.GetRequiredService<PayslipViewerView>();
             viewer.DataContext = viewerVM;
 

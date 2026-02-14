@@ -13,14 +13,21 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="ViewModels\StudentPaymentHistoryViewModel.cs" />
+    <Compile Remove="Views\StudentPaymentHistoryView.xaml.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Remove="Assets\default-avatar.png" />
     <None Remove="school_fees.db" />
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="school_fees.db">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+    <Page Remove="Views\StudentPaymentHistoryView.xaml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="school_fees.db" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,518 @@
+﻿<UserControl x:Class="SchoolFeeSystem.Presentation.Views.FineManagementView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d" 
+             d:DesignHeight="900" d:DesignWidth="1400"
+             Background="#F5F5F5">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#FF9800" CornerRadius="8" Padding="20" Margin="0,0,0,20">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="⚠️ Fine Management" 
+                               FontSize="28" 
+                               FontWeight="Bold" 
+                               Foreground="White"/>
+                    <TextBlock Text="Track, manage, and calculate late payment fines" 
+                               FontSize="14" 
+                               Foreground="#FFF3E0" 
+                               Margin="0,5,0,0"/>
+                </StackPanel>
+
+                <Button Grid.Column="1" 
+                        Content="← Back to Dashboard" 
+                        Command="{Binding GoBackCommand}"
+                        Background="#F57C00"
+                        Foreground="White"
+                        Padding="20,10"
+                        FontSize="14"
+                        BorderThickness="0"
+                        Cursor="Hand"
+                        VerticalAlignment="Center">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}" 
+                                                CornerRadius="6" 
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter HorizontalAlignment="Center" 
+                                                            VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#E65100"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- Statistics Cards -->
+        <Grid Grid.Row="1" Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Total Fines -->
+            <Border Grid.Column="0" Background="White" CornerRadius="8" Padding="20" Margin="0,0,10,0"
+                    BorderBrush="#E0E0E0" BorderThickness="2">
+                <StackPanel>
+                    <TextBlock Text="💰 Total Fines" FontSize="14" Foreground="#666"/>
+                    <TextBlock Text="{Binding TotalFinesAmount, FallbackValue='₹0.00'}" 
+                               FontSize="24" 
+                               FontWeight="Bold" 
+                               Foreground="#FF9800" 
+                               Margin="0,5,0,0"/>
+                    <TextBlock Text="All time" FontSize="11" Foreground="#999" Margin="0,2,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Pending Fines -->
+            <Border Grid.Column="1" Background="White" CornerRadius="8" Padding="20" Margin="5,0"
+                    BorderBrush="#E0E0E0" BorderThickness="2">
+                <StackPanel>
+                    <TextBlock Text="⏳ Pending Fines" FontSize="14" Foreground="#666"/>
+                    <TextBlock Text="{Binding PendingFinesAmount, FallbackValue='₹0.00'}" 
+                               FontSize="24" 
+                               FontWeight="Bold" 
+                               Foreground="#F44336" 
+                               Margin="0,5,0,0"/>
+                    <TextBlock FontSize="11" Foreground="#999" Margin="0,2,0,0">
+                        <Run Text="{Binding PendingFinesCount}"/>
+                        <Run Text=" students"/>
+                    </TextBlock>
+                </StackPanel>
+            </Border>
+
+            <!-- Paid Fines -->
+            <Border Grid.Column="2" Background="White" CornerRadius="8" Padding="20" Margin="5,0"
+                    BorderBrush="#E0E0E0" BorderThickness="2">
+                <StackPanel>
+                    <TextBlock Text="✅ Paid Fines" FontSize="14" Foreground="#666"/>
+                    <TextBlock Text="{Binding PaidFinesAmount, FallbackValue='₹0.00'}" 
+                               FontSize="24" 
+                               FontWeight="Bold" 
+                               Foreground="#4CAF50" 
+                               Margin="0,5,0,0"/>
+                    <TextBlock Text="Collected" FontSize="11" Foreground="#999" Margin="0,2,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Students with Fines -->
+            <Border Grid.Column="3" Background="White" CornerRadius="8" Padding="20" Margin="10,0,0,0"
+                    BorderBrush="#E0E0E0" BorderThickness="2">
+                <StackPanel>
+                    <TextBlock Text="👥 Students" FontSize="14" Foreground="#666"/>
+                    <TextBlock Text="{Binding TotalStudentsWithFines}" 
+                               FontSize="24" 
+                               FontWeight="Bold" 
+                               Foreground="#2196F3" 
+                               Margin="0,5,0,0"/>
+                    <TextBlock Text="with fines" FontSize="11" Foreground="#999" Margin="0,2,0,0"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Filter and Calculator Section -->
+        <Grid Grid.Row="2" Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Filters -->
+            <Border Grid.Column="0" Background="White" CornerRadius="8" Padding="20" Margin="0,0,10,0"
+                    BorderBrush="#E0E0E0" BorderThickness="1">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" 
+                               Text="🔍 Filter Fines" 
+                               FontSize="18" 
+                               FontWeight="SemiBold" 
+                               Margin="0,0,0,15"/>
+
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Student Search -->
+                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                            <TextBlock Text="Student ID/Name" FontSize="12" Foreground="#666" Margin="0,0,0,5"/>
+                            <TextBox Text="{Binding StudentSearchText, UpdateSourceTrigger=PropertyChanged}"
+                                     Padding="10"
+                                     FontSize="14"
+                                     BorderBrush="#BDBDBD"
+                                     BorderThickness="1"/>
+                        </StackPanel>
+
+                        <!-- Department Filter -->
+                        <StackPanel Grid.Column="1" Margin="5,0">
+                            <TextBlock Text="Department" FontSize="12" Foreground="#666" Margin="0,0,0,5"/>
+                            <ComboBox ItemsSource="{Binding Departments}"
+                                     SelectedItem="{Binding DepartmentFilter}"
+                                     Padding="10"
+                                     FontSize="14"
+                                     BorderBrush="#BDBDBD"
+                                     BorderThickness="1"/>
+                        </StackPanel>
+
+                        <!-- Status Filter -->
+                        <StackPanel Grid.Column="2" Margin="10,0,0,0">
+                            <TextBlock Text="Fine Status" FontSize="12" Foreground="#666" Margin="0,0,0,5"/>
+                            <ComboBox ItemsSource="{Binding FineStatusOptions}"
+                                     SelectedItem="{Binding SelectedFineStatus}"
+                                     Padding="10"
+                                     FontSize="14"
+                                     BorderBrush="#BDBDBD"
+                                     BorderThickness="1"/>
+                        </StackPanel>
+
+                        <!-- Action Buttons -->
+                        <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" 
+                                   Orientation="Horizontal" 
+                                   HorizontalAlignment="Right"
+                                   Margin="0,15,0,0">
+                            <Button Content="🔍 Apply Filters" 
+                                    Command="{Binding ApplyFiltersCommand}"
+                                    Background="#2196F3"
+                                    Foreground="White"
+                                    Padding="20,10"
+                                    Margin="0,0,10,0"
+                                    FontSize="14"
+                                    BorderThickness="0"
+                                    Cursor="Hand">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}" 
+                                                            CornerRadius="6" 
+                                                            Padding="{TemplateBinding Padding}">
+                                                        <ContentPresenter HorizontalAlignment="Center" 
+                                                                        VerticalAlignment="Center"/>
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="#1976D2"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+
+                            <Button Content="🗑️ Clear" 
+                                    Command="{Binding ClearFiltersCommand}"
+                                    Background="#9E9E9E"
+                                    Foreground="White"
+                                    Padding="20,10"
+                                    FontSize="14"
+                                    BorderThickness="0"
+                                    Cursor="Hand">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}" 
+                                                            CornerRadius="6" 
+                                                            Padding="{TemplateBinding Padding}">
+                                                        <ContentPresenter HorizontalAlignment="Center" 
+                                                                        VerticalAlignment="Center"/>
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="#757575"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- Fine Calculator -->
+            <Border Grid.Column="1" Background="White" CornerRadius="8" Padding="20" Margin="10,0,0,0"
+                    BorderBrush="#FF9800" BorderThickness="2">
+                <StackPanel>
+                    <TextBlock Text="🧮 Fine Calculator" 
+                               FontSize="18" 
+                               FontWeight="SemiBold" 
+                               Foreground="#FF9800"
+                               Margin="0,0,0,15"/>
+
+                    <TextBlock Text="Due Date" FontSize="12" Foreground="#666" Margin="0,0,0,5"/>
+                    <DatePicker SelectedDate="{Binding SelectedDueDate}"
+                               Padding="10"
+                               FontSize="14"
+                               BorderBrush="#BDBDBD"
+                               BorderThickness="1"
+                               Margin="0,0,0,10"/>
+
+                    <TextBlock Text="Payment Date (optional)" FontSize="12" Foreground="#666" Margin="0,0,0,5"/>
+                    <DatePicker SelectedDate="{Binding SelectedPaymentDate}"
+                               Padding="10"
+                               FontSize="14"
+                               BorderBrush="#BDBDBD"
+                               BorderThickness="1"
+                               Margin="0,0,0,10"/>
+
+                    <TextBlock Text="Month Number" FontSize="12" Foreground="#666" Margin="0,0,0,5"/>
+                    <TextBox Text="{Binding MonthNumber}"
+                             Padding="10"
+                             FontSize="14"
+                             BorderBrush="#BDBDBD"
+                             BorderThickness="1"
+                             Margin="0,0,0,10"/>
+
+                    <Button Content="📊 Calculate Fine" 
+                            Command="{Binding CalculateFineEstimateCommand}"
+                            Background="#FF9800"
+                            Foreground="White"
+                            Padding="15,10"
+                            FontSize="14"
+                            FontWeight="SemiBold"
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            Margin="0,10,0,0">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="{TemplateBinding Background}" 
+                                                    CornerRadius="6" 
+                                                    Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter HorizontalAlignment="Center" 
+                                                                VerticalAlignment="Center"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="#F57C00"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+
+                    <Border Background="#FFF3E0" 
+                            BorderBrush="#FF9800" 
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="10"
+                            Margin="0,10,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Calculated Fine:" FontSize="12" Foreground="#666"/>
+                            <TextBlock Text="{Binding CalculatedFine}" 
+                                       FontSize="20" 
+                                       FontWeight="Bold" 
+                                       Foreground="#FF9800"
+                                       Margin="0,5,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Fine Report DataGrid -->
+        <Border Grid.Row="3" Background="White" CornerRadius="8" BorderBrush="#E0E0E0" BorderThickness="1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0"
+                           Text="📋 Fine Report"
+                           FontSize="18"
+                           FontWeight="SemiBold"
+                           Margin="20,20,20,10"/>
+
+                <DataGrid Grid.Row="1"
+                         ItemsSource="{Binding FineReportView}"
+                         AutoGenerateColumns="True"
+                         IsReadOnly="True"
+                         AlternatingRowBackground="#FFF3E0"
+                         GridLinesVisibility="Horizontal"
+                         HeadersVisibility="Column"
+                         CanUserAddRows="False"
+                         CanUserDeleteRows="False"
+                         SelectionMode="Single"
+                         FontSize="13"
+                         Margin="10,0,10,10">
+                    <DataGrid.ColumnHeaderStyle>
+                        <Style TargetType="DataGridColumnHeader">
+                            <Setter Property="Background" Value="#FF9800"/>
+                            <Setter Property="Foreground" Value="White"/>
+                            <Setter Property="FontWeight" Value="Bold"/>
+                            <Setter Property="Padding" Value="10"/>
+                            <Setter Property="BorderBrush" Value="#F57C00"/>
+                            <Setter Property="BorderThickness" Value="0,0,1,0"/>
+                        </Style>
+                    </DataGrid.ColumnHeaderStyle>
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Status}" Value="Pending">
+                                    <Setter Property="Background" Value="#FFEBEE"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Status}" Value="Paid">
+                                    <Setter Property="Background" Value="#E8F5E9"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
+                </DataGrid>
+            </Grid>
+        </Border>
+
+        <!-- Action Buttons -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,20,0,0">
+            <Button Content="📥 Export Report" 
+                    Command="{Binding ExportFineReportCommand}"
+                    Background="#4CAF50"
+                    Foreground="White"
+                    Padding="25,12"
+                    Margin="0,0,15,0"
+                    FontSize="15"
+                    FontWeight="SemiBold"
+                    BorderThickness="0"
+                    Cursor="Hand">
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="{TemplateBinding Background}" 
+                                            CornerRadius="8" 
+                                            Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter HorizontalAlignment="Center" 
+                                                        VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#388E3C"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+
+            <Button Content="📧 Send Reminders" 
+                    Command="{Binding SendFineRemindersCommand}"
+                    Background="#9C27B0"
+                    Foreground="White"
+                    Padding="25,12"
+                    Margin="0,0,15,0"
+                    FontSize="15"
+                    FontWeight="SemiBold"
+                    BorderThickness="0"
+                    Cursor="Hand">
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="{TemplateBinding Background}" 
+                                            CornerRadius="8" 
+                                            Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter HorizontalAlignment="Center" 
+                                                        VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#7B1FA2"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+
+            <Button Content="🔄 Refresh Data" 
+                    Command="{Binding RefreshDataCommand}"
+                    Background="#2196F3"
+                    Foreground="White"
+                    Padding="25,12"
+                    FontSize="15"
+                    FontWeight="SemiBold"
+                    BorderThickness="0"
+                    Cursor="Hand">
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="{TemplateBinding Background}" 
+                                            CornerRadius="8" 
+                                            Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter HorizontalAlignment="Center" 
+                                                        VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#1976D2"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+        </StackPanel>
+    </Grid>
+</UserControl>

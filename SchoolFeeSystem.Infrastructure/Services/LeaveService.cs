@@ -12,20 +12,25 @@ namespace SchoolFeeSystem.Infrastructure.Services
     {
         private readonly AppDbContext _context;
         private readonly OvertimeCalculationService _overtimeService;
+        private readonly ICompanyGatePassService _gatePassService;
 
         // Constants
         private const decimal FULL_DAY_HOURS = 8m;
         private const decimal HALF_DAY_HOURS = 4m;
 
-        public LeaveService(AppDbContext context, OvertimeCalculationService overtimeService)
+        public LeaveService(
+            AppDbContext context,
+            OvertimeCalculationService overtimeService,
+            ICompanyGatePassService gatePassService)
         {
             _context = context;
             _overtimeService = overtimeService;
+            _gatePassService = gatePassService;
         }
 
         /// <summary>
         /// Grant leave to an employee
-        /// Automatically deducts from allowance time if available
+        /// Automatically deducts from Company Gate Pass FIRST, then personal allowance
         /// </summary>
         public LeaveRequest GrantLeave(LeaveRequest request)
         {
@@ -40,38 +45,72 @@ namespace SchoolFeeSystem.Infrastructure.Services
             // Calculate leave hours based on type
             decimal leaveHours = CalculateLeaveHours(request);
             request.LeaveHours = leaveHours;
-
             int leaveMinutes = (int)(leaveHours * 60);
 
-            // Check allowance time availability
-            var allowance = _context.OvertimeAllowances
-                .FirstOrDefault(a => a.EmployeeId == request.EmployeeId);
+            // ===== STEP 1: TRY COMPANY GATE PASS FIRST =====
+            int gatePassMinutesUsed = _gatePassService.TryUseGatePass(
+                request.EmployeeId,
+                leaveMinutes,
+                request.Reason,
+                request.LeaveDate
+            );
 
-            if (allowance != null && allowance.AvailableMinutes > 0)
+            request.AllowanceMinutesUsed = gatePassMinutesUsed;
+            int remainingMinutes = leaveMinutes - gatePassMinutesUsed;
+
+            // ===== STEP 2: IF GATE PASS DOESN'T COVER ALL, USE PERSONAL ALLOWANCE =====
+            if (remainingMinutes > 0)
             {
-                // Use allowance time to cover leave
-                int minutesToDeduct = Math.Min(leaveMinutes, allowance.AvailableMinutes);
+                var allowance = _context.OvertimeAllowances
+                    .FirstOrDefault(a => a.EmployeeId == request.EmployeeId);
 
-                allowance.UsedAllowanceMinutes += minutesToDeduct;
-                allowance.LastUpdated = DateTime.Now;
-                _context.OvertimeAllowances.Update(allowance);
-
-                request.AllowanceMinutesUsed = minutesToDeduct;
-                request.LeaveSource = minutesToDeduct == leaveMinutes
-                    ? "Allowance Time"
-                    : "Partially Allowance, Partially Unpaid";
-
-                // If allowance doesn't cover full leave, remaining is unpaid
-                if (minutesToDeduct < leaveMinutes)
+                if (allowance != null && allowance.AvailableMinutes > 0)
                 {
-                    request.LeaveSource = "Allowance Time + Unpaid";
+                    int personalAllowanceUsed = Math.Min(remainingMinutes, allowance.AvailableMinutes);
+
+                    allowance.UsedAllowanceMinutes += personalAllowanceUsed;
+                    allowance.LastUpdated = DateTime.Now;
+                    _context.OvertimeAllowances.Update(allowance);
+
+                    request.AllowanceMinutesUsed += personalAllowanceUsed;
+                    remainingMinutes -= personalAllowanceUsed;
+
+                    // Determine source
+                    if (gatePassMinutesUsed > 0 && personalAllowanceUsed > 0)
+                    {
+                        request.LeaveSource = "Company Gate Pass + Personal Allowance";
+                    }
+                    else if (gatePassMinutesUsed > 0)
+                    {
+                        request.LeaveSource = "Company Gate Pass";
+                    }
+                    else
+                    {
+                        request.LeaveSource = "Personal Allowance";
+                    }
+
+                    if (remainingMinutes > 0)
+                    {
+                        request.LeaveSource += " + Unpaid";
+                    }
+                }
+                else
+                {
+                    // No personal allowance available
+                    if (gatePassMinutesUsed > 0)
+                    {
+                        request.LeaveSource = "Company Gate Pass + Unpaid";
+                    }
+                    else
+                    {
+                        request.LeaveSource = "Unpaid";
+                    }
                 }
             }
             else
             {
-                // No allowance time available - unpaid leave
-                request.LeaveSource = "Unpaid";
-                request.AllowanceMinutesUsed = 0;
+                // Fully covered by company gate pass
+                request.LeaveSource = "Company Gate Pass";
             }
 
             // Create attendance record for this leave
@@ -159,27 +198,79 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
         /// <summary>
         /// Cancel a leave and refund allowance time
+        /// ✅ FIXED: Prevents multiple cancellations and properly refunds gate pass
         /// </summary>
         public bool CancelLeave(int leaveRequestId)
         {
             var leave = _context.LeaveRequests.Find(leaveRequestId);
             if (leave == null) return false;
 
-            // Refund allowance time if it was used
-            if (leave.AllowanceMinutesUsed > 0)
+            // ✅ FIX: Check if already cancelled (prevents infinite refund loop)
+            if (leave.Status == "Cancelled")
+            {
+                return false; // Already cancelled, don't refund again!
+            }
+
+            // ===== STEP 1: Analyze the leave source to determine what to refund =====
+            int totalMinutesUsed = leave.AllowanceMinutesUsed;
+            int leaveMinutes = (int)(leave.LeaveHours * 60);
+
+            int gatePassMinutesUsed = 0;
+            int personalAllowanceMinutesUsed = 0;
+
+            // Determine how much came from gate pass vs personal allowance
+            // Priority was: Gate Pass FIRST, then Personal Allowance
+            var gatePass = _gatePassService.GetOrCreateGatePass(
+                leave.EmployeeId,
+                leave.LeaveDate.Month,
+                leave.LeaveDate.Year
+            );
+
+            // Calculate gate pass contribution
+            // Logic: If gate pass was available at the time, it was used first
+            if (leave.LeaveSource.Contains("Company Gate Pass"))
+            {
+                // Gate pass was used - figure out how much
+                gatePassMinutesUsed = Math.Min(totalMinutesUsed, 120); // Max 120 mins from gate pass
+                personalAllowanceMinutesUsed = totalMinutesUsed - gatePassMinutesUsed;
+            }
+            else
+            {
+                // Only personal allowance was used
+                personalAllowanceMinutesUsed = totalMinutesUsed;
+            }
+
+            // ===== STEP 2: Refund Company Gate Pass (if used) =====
+            if (gatePassMinutesUsed > 0 && gatePass.Id > 0)
+            {
+                try
+                {
+                    gatePass.UsedMinutes -= gatePassMinutesUsed;
+                    gatePass.TimesUsed = Math.Max(0, gatePass.TimesUsed - 1);
+                    gatePass.LastUsedOn = DateTime.Now;
+                    _context.CompanyGatePasses.Update(gatePass);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"⚠️ Gate pass refund error: {ex.Message}");
+                }
+            }
+
+            // ===== STEP 3: Refund Personal Allowance (if used) =====
+            if (personalAllowanceMinutesUsed > 0)
             {
                 var allowance = _context.OvertimeAllowances
                     .FirstOrDefault(a => a.EmployeeId == leave.EmployeeId);
 
                 if (allowance != null)
                 {
-                    allowance.UsedAllowanceMinutes -= leave.AllowanceMinutesUsed;
+                    allowance.UsedAllowanceMinutes -= personalAllowanceMinutesUsed;
                     allowance.LastUpdated = DateTime.Now;
                     _context.OvertimeAllowances.Update(allowance);
                 }
             }
 
-            // Delete related attendance record
+            // ===== STEP 4: Delete related attendance record =====
             var attendanceRecord = _context.AttendanceRecords
                 .FirstOrDefault(a => a.EmployeeId == leave.EmployeeId &&
                                     a.Date.Date == leave.LeaveDate.Date);
@@ -188,6 +279,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
                 _context.AttendanceRecords.Remove(attendanceRecord);
             }
 
+            // ===== STEP 5: Mark as cancelled =====
             leave.Status = "Cancelled";
             _context.SaveChanges();
 
@@ -314,8 +406,6 @@ namespace SchoolFeeSystem.Infrastructure.Services
         /// <summary>
         /// Calculate salary deduction for unpaid leave hours
         /// Formula: (Basic Salary / 26 days / 8 hours) * Unpaid Hours
-        /// 
-        /// ✅ FIXED: Now uses Employee.BaseSalary directly OR Salaries table (whichever is available)
         /// </summary>
         private decimal CalculateLeaveDeductionInternal(Employee employee, decimal unpaidHours)
         {

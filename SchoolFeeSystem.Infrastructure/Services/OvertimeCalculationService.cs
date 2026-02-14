@@ -133,17 +133,19 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
         /// <summary>
         /// Calculate OT Salary based on Excel formula:
-        /// OT Salary = (Basic Salary ÷ 26 ÷ 8) × OT Hours
+        /// OT Salary = (Basic Salary ÷ 26 ÷ 8) × 2 × OT Hours
         /// 
         /// NOTE: This uses 26 WORKING DAYS, not 30 calendar days!
+        /// OVERTIME IS PAID AT DOUBLE THE HOURLY RATE
         /// </summary>
         public decimal CalculateOTSalary(decimal basicSalary, decimal otHours)
         {
             if (otHours <= 0) return 0;
 
-            // Formula from Excel: (Basic Salary / 26 working days / 8 hours per day) * OT Hours
+            // Formula: (Basic Salary / 26 working days / 8 hours per day) * 2 * OT Hours
             decimal hourlyRate = basicSalary / 26m / 8m;
-            return Math.Round(hourlyRate * otHours, 2);
+            decimal overtimeRate = hourlyRate * 2m; // DOUBLE PAY for overtime
+            return Math.Round(overtimeRate * otHours, 2);
         }
 
         /// <summary>

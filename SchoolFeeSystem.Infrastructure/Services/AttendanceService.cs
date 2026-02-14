@@ -56,16 +56,24 @@ namespace SchoolFeeSystem.Infrastructure.Services
                         progress?.Report($"File loaded. Total rows: {table.Rows.Count}");
 
                         // 1. Check Format
+                        // Detect Format
                         string format = DetectFormatOrDie(table);
                         progress?.Report($"Format detected: {format}");
 
-                        if (format == "FACE_ATTENDANCE")
+                        // ✅ UPDATED: Add switch case
+                        switch (format)
                         {
-                            ProcessFaceAttendance(table, progress);
-                        }
-                        else
-                        {
-                            ProcessDetailedReport(table, progress);
+                            case "FACE_ATTENDANCE":
+                                ProcessFaceAttendance(table, progress);
+                                break;
+                            case "DETAILED_REPORT":
+                                ProcessDetailedReport(table, progress);
+                                break;
+                            case "WORK_DURATION_REPORT":
+                                ProcessWorkDurationReport(table, progress);  // ← NEW!
+                                break;
+                            default:
+                                throw new Exception($"Unknown format: {format}");
                         }
                     }
                 }
@@ -89,15 +97,27 @@ namespace SchoolFeeSystem.Infrastructure.Services
             {
                 string rowStr = string.Join(" ", table.Rows[i].ItemArray.Select(x => x?.ToString() ?? ""));
 
+                // Face Attendance
                 if (rowStr.Contains("Code & Name", StringComparison.OrdinalIgnoreCase) ||
-                    rowStr.Contains("Total In Time", StringComparison.OrdinalIgnoreCase) ||
-                    rowStr.Contains("In/Out Punches", StringComparison.OrdinalIgnoreCase))
+                    rowStr.Contains("Total In Time", StringComparison.OrdinalIgnoreCase))
                     return "FACE_ATTENDANCE";
 
+                // Detailed Report (CSV)
                 if (rowStr.Contains("Attendance ID", StringComparison.OrdinalIgnoreCase))
                     return "DETAILED_REPORT";
+
+                // ✅ NEW: Work Duration Report
+                if (rowStr.Contains("Monthly Status Report", StringComparison.OrdinalIgnoreCase) &&
+                    rowStr.Contains("Work Duration", StringComparison.OrdinalIgnoreCase))
+                    return "WORK_DURATION_REPORT";
+
+                // Alternative detection
+                if (rowStr.Contains("Total Work Duration", StringComparison.OrdinalIgnoreCase) ||
+                    rowStr.Contains("WeeklyOff", StringComparison.OrdinalIgnoreCase))
+                    return "WORK_DURATION_REPORT";
             }
 
+            // Format not recognized
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("❌ File Format Unknown.");
             sb.AppendLine("\n--- First 5 Rows ---");
@@ -106,7 +126,206 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
             throw new Exception(sb.ToString());
         }
+        // =========================================================
+        // PROCESSOR: WORK DURATION REPORT (.xls FORMAT)
+        // =========================================================
+        private void ProcessWorkDurationReport(DataTable table, IProgress<string> progress = null)
+        {
+            var batch = new List<AttendanceRecord>();
+            int month = DateTime.Now.Month;
+            int year = DateTime.Now.Year;
 
+            progress?.Report("Processing Work Duration Report...");
+
+            // Extract month/year from header
+            for (int r = 0; r < Math.Min(10, table.Rows.Count); r++)
+            {
+                string rowStr = string.Join(" ", table.Rows[r].ItemArray.Select(x => x?.ToString() ?? ""));
+
+                // Pattern: "Jan 01 2026 To Jan 31 2026"
+                var dateMatch = Regex.Match(rowStr, @"(\w+)\s+\d{1,2}\s+(\d{4})\s+To\s+\w+\s+\d{1,2}\s+(\d{4})");
+                if (dateMatch.Success)
+                {
+                    string monthName = dateMatch.Groups[1].Value;
+                    year = int.Parse(dateMatch.Groups[2].Value);
+                    month = DateTime.ParseExact(monthName, "MMM", CultureInfo.InvariantCulture).Month;
+
+                    progress?.Report($"Detected period: {monthName} {year}");
+                    break;
+                }
+            }
+
+            var employeesCache = _context.Employees.ToList();
+            int employeesProcessed = 0;
+            int recordsProcessed = 0;
+
+            // Find employee blocks
+            for (int r = 0; r < table.Rows.Count; r++)
+            {
+                var row = table.Rows[r];
+                string cellValue = row[0]?.ToString()?.Trim() ?? "";
+
+                // ✅ FIX: Check entire row for "Employee:" keyword, not just first cell
+                string fullRowText = string.Join(" ", row.ItemArray.Select(x => x?.ToString() ?? "")).Trim();
+
+                // Check if this is an Employee row
+                if (cellValue.StartsWith("Employee:", StringComparison.OrdinalIgnoreCase) ||
+                    fullRowText.StartsWith("Employee:", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Parse employee info
+                    string fullText = fullRowText;
+
+                    // ✅ FIX: Updated regex to handle both numeric IDs (2078) and alphanumeric IDs (NAT09, NATS01)
+                    // Also improved to handle varying name lengths by using .+? instead of [^T]+?
+                    var empMatch = Regex.Match(fullText, @"Employee:\s*([A-Za-z0-9]+)\s*:\s*(.+?)(?:\s+Total|$)", RegexOptions.IgnoreCase);
+                    if (!empMatch.Success)
+                    {
+                        progress?.Report($"⚠️ Skipping row {r}: Could not parse employee info from: {fullText.Substring(0, Math.Min(100, fullText.Length))}");
+                        continue;
+                    }
+
+                    string bioId = empMatch.Groups[1].Value.Trim();
+                    string empName = empMatch.Groups[2].Value.Trim();
+
+                    // ✅ FIX: Remove title prefixes like "Ms.", "Mr.", "Mrs."
+                    empName = Regex.Replace(empName, @"^(Ms\.|Mr\.|Mrs\.)\s*", "", RegexOptions.IgnoreCase).Trim();
+
+                    progress?.Report($"Processing {empName} (ID: {bioId})...");
+
+                    // Find or create employee
+                    var emp = employeesCache.FirstOrDefault(e => e.BiometricId == bioId);
+                    if (emp == null)
+                    {
+                        emp = employeesCache.FirstOrDefault(e =>
+                            e.FullName.Equals(empName, StringComparison.OrdinalIgnoreCase));
+
+                        if (emp != null)
+                        {
+                            emp.BiometricId = bioId;
+                            _context.Employees.Update(emp);
+                        }
+                    }
+
+                    if (emp == null)
+                    {
+                        string[] parts = empName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                        emp = new Employee
+                        {
+                            FirstName = parts.Length > 0 ? parts[0] : empName,
+                            LastName = parts.Length > 1 ? string.Join(" ", parts.Skip(1)) : "",
+                            BiometricId = bioId,
+                            Designation = "Staff"
+                        };
+
+                        _context.Employees.Add(emp);
+                        _context.SaveChanges();
+                        employeesCache.Add(emp);
+
+                        progress?.Report($"✨ Created new employee: {empName} (BioID: {bioId})");
+                    }
+
+                    employeesProcessed++;
+
+                    // Get data rows (next 4-5 rows after employee row)
+                    int statusRow = r + 1;
+                    int inTimeRow = r + 2;
+                    int outTimeRow = r + 3;
+                    int durationRow = r + 4;
+
+                    if (durationRow >= table.Rows.Count)
+                    {
+                        progress?.Report($"⚠️ Incomplete data for {empName}");
+                        continue;
+                    }
+
+                    var statusData = table.Rows[statusRow];
+                    var inTimeData = table.Rows[inTimeRow];
+                    var outTimeData = table.Rows[outTimeRow];
+                    var durationData = table.Rows[durationRow];
+
+                    // Process each day (columns 1-31)
+                    int daysInMonth = DateTime.DaysInMonth(year, month);
+
+                    for (int day = 1; day <= daysInMonth; day++)
+                    {
+                        int colIndex = day; // Column 1 = Day 1
+
+                        if (colIndex >= statusData.ItemArray.Length) break;
+
+                        string status = statusData[colIndex]?.ToString()?.Trim() ?? "";
+                        string inTime = inTimeData[colIndex]?.ToString()?.Trim() ?? "00:00";
+                        string outTime = outTimeData[colIndex]?.ToString()?.Trim() ?? "00:00";
+                        string duration = durationData[colIndex]?.ToString()?.Trim() ?? "00:00";
+
+                        // Determine status
+                        string finalStatus = "Absent";
+                        if (status.Equals("P", StringComparison.OrdinalIgnoreCase))
+                            finalStatus = "Present";
+                        else if (status.Equals("WO", StringComparison.OrdinalIgnoreCase))
+                            finalStatus = "WeeklyOff";
+                        else if (status.Equals("A", StringComparison.OrdinalIgnoreCase))
+                            finalStatus = "Absent";
+                        else if (!string.IsNullOrEmpty(status))
+                            finalStatus = status;
+
+                        // Skip absent days and weekly offs
+                        if (finalStatus == "Absent" && inTime == "00:00")
+                            continue;
+                        if (finalStatus == "WeeklyOff")
+                            continue;
+
+                        DateTime date = new DateTime(year, month, day);
+
+                        batch.Add(new AttendanceRecord
+                        {
+                            EmployeeId = emp.Id,
+                            Date = date,
+                            Status = finalStatus,
+                            InTime = inTime,
+                            OutTime = outTime,
+                            Duration = duration,
+                            IsManualEntry = false,
+                            Remarks = ""
+                        });
+
+                        recordsProcessed++;
+                    }
+
+                    // Progress update
+                    if (employeesProcessed % 10 == 0)
+                    {
+                        progress?.Report($"Processed {employeesProcessed} employees, {recordsProcessed} records...");
+                    }
+
+                    // ✅ FIX: Skip only the 8 data rows, then continue searching for next employee
+                    // Each employee block has exactly 8 data rows after the Employee row:
+                    // Row r: Employee info
+                    // Row r+1: Status
+                    // Row r+2: InTime
+                    // Row r+3: OutTime
+                    // Row r+4: Duration
+                    // Row r+5: Late By
+                    // Row r+6: Early By
+                    // Row r+7: OT
+                    // Row r+8: Shift
+                    // After that, there may be blank rows, Department rows, or the next Employee
+                    // By skipping exactly 8 rows (data rows only), we let the loop naturally
+                    // find the next "Employee:" row wherever it appears
+
+                    r += 8; // Skip the 8 data rows; loop will do r++ making total skip = 9
+                }
+            }
+
+            // Save all records
+            if (batch.Any())
+            {
+                progress?.Report($"Saving {batch.Count} attendance records...");
+                AddOrUpdateAttendanceBatch(batch);
+            }
+
+            _context.SaveChanges();
+            progress?.Report($"✅ Import completed! {employeesProcessed} employees, {recordsProcessed} attendance records.");
+        }
         private IExcelDataReader GetReaderForFile(string filePath, FileStream stream)
         {
             if (Path.GetExtension(filePath).Equals(".csv", StringComparison.OrdinalIgnoreCase))

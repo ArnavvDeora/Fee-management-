@@ -12,6 +12,41 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Margin="0,0,0,40">
+            <!-- ✅ ADDED: Back Button -->
+            <Button Content="⬅ Back to Main Menu" 
+                    Command="{Binding GoBackCommand}" 
+                    HorizontalAlignment="Left" 
+                    Background="Transparent" 
+                    BorderThickness="0" 
+                    Foreground="#7F8C8D" 
+                    FontWeight="Bold" 
+                    FontSize="14"
+                    Cursor="Hand"
+                    Margin="0,0,0,15"
+                    Padding="5">
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="{TemplateBinding Background}" 
+                                            Padding="{TemplateBinding Padding}"
+                                            CornerRadius="4">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="#3498DB"/>
+                                <Setter Property="Background" Value="#F0F0F0"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+
             <TextBlock Text="Payroll Dashboard" FontSize="32" FontWeight="Bold" Foreground="#2C3E50"/>
             <TextBlock Text="Manage staff, attendance, holidays, and salary processing." FontSize="16" Foreground="#7F8C8D" Margin="0,5,0,0"/>
         </StackPanel>

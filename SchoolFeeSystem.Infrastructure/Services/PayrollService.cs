@@ -43,6 +43,160 @@ namespace SchoolFeeSystem.Infrastructure.Services
         }
 
         // =========================================================
+        // ✅ NEW: HARD DELETE EMPLOYEE AND ALL RELATED DATA
+        // =========================================================
+        /// <summary>
+        /// Permanently deletes an employee and ALL associated data from the database.
+        /// This is a CASCADE DELETE operation that removes:
+        /// - Employee record
+        /// - All attendance records
+        /// - All leave requests
+        /// - All salary history/revisions
+        /// - All allowances
+        /// - All deductions
+        /// - All overtime allowance records
+        /// - All company gate pass usage
+        /// WARNING: This operation CANNOT be undone!
+        /// </summary>
+        public bool DeleteEmployeePermanently(int employeeId)
+        {
+            try
+            {
+                // Start a transaction to ensure all-or-nothing deletion
+                using (var transaction = _context.Database.BeginTransaction())
+                {
+                    try
+                    {
+                        // Get the employee
+                        var employee = _context.Employees.Find(employeeId);
+                        if (employee == null)
+                        {
+                            return false;
+                        }
+
+                        string employeeName = employee.FullName;
+
+                        // Delete Attendance Records
+                        var attendanceRecords = _context.AttendanceRecords
+                            .Where(a => a.EmployeeId == employeeId)
+                            .ToList();
+
+                        if (attendanceRecords.Any())
+                        {
+                            _context.AttendanceRecords.RemoveRange(attendanceRecords);
+                        }
+
+                        // Delete Leave Requests
+                        var leaveRequests = _context.LeaveRequests
+                            .Where(l => l.EmployeeId == employeeId)
+                            .ToList();
+
+                        if (leaveRequests.Any())
+                        {
+                            _context.LeaveRequests.RemoveRange(leaveRequests);
+                        }
+
+                        // Delete Salary Revisions
+                        var salaryRevisions = _context.SalaryRevisions
+                            .Where(s => s.EmployeeId == employeeId)
+                            .ToList();
+
+                        if (salaryRevisions.Any())
+                        {
+                            _context.SalaryRevisions.RemoveRange(salaryRevisions);
+                        }
+
+                        // Delete Allowances
+                        var allowances = _context.Allowances
+                            .Where(a => a.EmployeeId == employeeId)
+                            .ToList();
+
+                        if (allowances.Any())
+                        {
+                            _context.Allowances.RemoveRange(allowances);
+                        }
+
+                        // Delete Deductions
+                        var deductions = _context.Deductions
+                            .Where(d => d.EmployeeId == employeeId)
+                            .ToList();
+
+                        if (deductions.Any())
+                        {
+                            _context.Deductions.RemoveRange(deductions);
+                        }
+
+                        // Delete Overtime Allowances (if table exists)
+                        try
+                        {
+                            var overtimeAllowances = _context.OvertimeAllowances
+                                .Where(o => o.EmployeeId == employeeId)
+                                .ToList();
+
+                            if (overtimeAllowances.Any())
+                            {
+                                _context.OvertimeAllowances.RemoveRange(overtimeAllowances);
+                            }
+                        }
+                        catch { /* Table might not exist */ }
+
+                        // Delete Company Gate Pass Usage (if table exists)
+                        try
+                        {
+                            var gatePassUsage = _context.CompanyGatePasses
+                                .Where(g => g.EmployeeId == employeeId)
+                                .ToList();
+
+                            if (gatePassUsage.Any())
+                            {
+                                _context.CompanyGatePasses.RemoveRange(gatePassUsage);
+                            }
+                        }
+                        catch { /* Table might not exist */ }
+
+                        // Delete Salary Records (if table exists)
+                        try
+                        {
+                            var salaryRecords = _context.SalaryRecords
+                                .Where(s => s.EmployeeId == employeeId)
+                                .ToList();
+
+                            if (salaryRecords.Any())
+                            {
+                                _context.SalaryRecords.RemoveRange(salaryRecords);
+                            }
+                        }
+                        catch { /* Table might not exist */ }
+
+                        // Finally, delete the Employee record itself
+                        _context.Employees.Remove(employee);
+
+                        // Save all changes
+                        _context.SaveChanges();
+
+                        // Commit transaction
+                        transaction.Commit();
+
+                        System.Diagnostics.Debug.WriteLine($"✅ Successfully deleted employee {employeeName} and all related data");
+                        return true;
+                    }
+                    catch (Exception ex)
+                    {
+                        // Rollback transaction on error
+                        transaction.Rollback();
+                        System.Diagnostics.Debug.WriteLine($"❌ Error during deletion: {ex.Message}");
+                        throw;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ Failed to delete employee {employeeId}: {ex.Message}");
+                return false;
+            }
+        }
+
+        // =========================================================
         // EXACT SALARY CALCULATION MATCHING EXCEL
         // =========================================================
         public SchoolFeeSystem.Core.Entities.SalarySlipItem GenerateDetailedSalary(
@@ -75,32 +229,26 @@ namespace SchoolFeeSystem.Infrastructure.Services
                 h.Date.Year == year);
 
             // ===== STEP 2: CALCULATE LATE PENALTY (RECOVERY) =====
-            // Net penalty = Total penalty - Allowance time used
             int totalLatePenaltyMinutes = attendanceRecords
                 .Where(a => a.Status == "Present")
                 .Sum(a => Math.Max(0, a.LatePenaltyMinutes - a.AllowanceTimeUsed));
 
-            // Convert to hours for display
             decimal penaltyHours = totalLatePenaltyMinutes / 60m;
             slip.RecoveryHours = penaltyHours;
 
             // ===== STEP 3: CALCULATE DAYS WORKED =====
-            // Days Worked = Present Days + Holidays
             int totalDaysFound = presentDays + holidays;
             slip.DaysWorked = totalDaysFound == 0 ? 30 :
                              (totalDaysFound > 30 ? 30 : totalDaysFound);
 
-            // Initially set payable days = days worked (will adjust later)
             slip.PayableDays = slip.DaysWorked;
 
-            // ===== STEP 4: SALARY EARNED (Before any deductions) =====
-            // Formula: (Basic Salary × Days Worked) ÷ 30
+            // ===== STEP 4: SALARY EARNED =====
             slip.SalaryEarned = Math.Round(
                 (slip.BasicSalary * slip.DaysWorked) / TOTAL_DAYS_IN_MONTH,
                 2);
 
-            // ===== STEP 5: OVERTIME SALARY (Only for TRAINING WORKSHOP & HEAT-TREATMENT SHOP) =====
-            // Formula: (Basic ÷ 26 ÷ 8) × OT Hours
+            // ===== STEP 5: OVERTIME SALARY =====
             decimal otHours = _overtimeService.GetPaidOvertimeHours(employeeId, month, year);
             slip.OTHours = otHours;
 
@@ -114,8 +262,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
                 slip.OTSalary = 0;
             }
 
-            // ===== STEP 6: RECOVERY SALARY (Penalty deduction) =====
-            // Formula: (Basic ÷ 30 ÷ 8) × Penalty Hours
+            // ===== STEP 6: RECOVERY SALARY =====
             if (penaltyHours > 0)
             {
                 decimal hourlyRateForRecovery = slip.BasicSalary / TOTAL_DAYS_IN_MONTH / HOURS_PER_DAY;
@@ -126,41 +273,32 @@ namespace SchoolFeeSystem.Infrastructure.Services
                 slip.RecoverySalary = 0;
             }
 
-            // ===== STEP 7: GROSS SALARY (WITH CUSTOM INCENTIVES) =====
+            // ===== STEP 7: GROSS SALARY =====
             decimal baseGross = slip.SalaryEarned + slip.OTSalary - slip.RecoverySalary;
 
-            // Add custom monthly allowances/incentives
             decimal customAllowances = emp.Allowances?.Sum(a => a.Amount) ?? 0;
             decimal customDeductions = emp.Deductions?.Sum(d => d.Amount) ?? 0;
 
-            // Final Gross = Base + Custom Incentives
             slip.GrossSalary = baseGross + customAllowances;
             slip.Incentive = customAllowances;
 
-            // ===== STEP 8: EPF WAGE BASE CALCULATION (CRITICAL!) =====
-            // This determines EPF for both employee AND employer
+            // ===== STEP 8: EPF WAGE BASE =====
             decimal epfWageBase;
 
             if (slip.BasicSalary >= EPF_WAGE_CAP)
             {
-                // If basic >= 15,000: EPF Base = ((15,000 × Days) ÷ 30) - Recovery
                 epfWageBase = ((EPF_WAGE_CAP * slip.DaysWorked) / TOTAL_DAYS_IN_MONTH) - slip.RecoverySalary;
             }
             else
             {
-                // If basic < 15,000: EPF Base = Salary Earned - Recovery
                 epfWageBase = slip.SalaryEarned - slip.RecoverySalary;
             }
 
-            // EPF base cannot be negative
             epfWageBase = Math.Max(0, epfWageBase);
 
-            // ===== STEP 9: EMPLOYEE'S SHARE (Deductions) =====
-
-            // EPF Employee @ 12% of EPF Wage Base
+            // ===== STEP 9: EMPLOYEE'S SHARE =====
             slip.EPF_Employee = Math.Round(epfWageBase * EPF_EMPLOYEE_RATE, 2);
 
-            // ESI Employee @ 0.75% of Gross (only if Basic ≤ 21,000)
             if (slip.BasicSalary <= ESI_SALARY_LIMIT)
             {
                 slip.ESI_Employee = Math.Round(slip.GrossSalary * ESI_EMPLOYEE_RATE, 2);
@@ -170,28 +308,19 @@ namespace SchoolFeeSystem.Infrastructure.Services
                 slip.ESI_Employee = 0;
             }
 
-            // Other deductions
-            slip.TDS = 0;  // Set if applicable
-            slip.Incentive = 0;  // Can be positive (addition) or negative (deduction)
+            slip.TDS = 0;
+            slip.Incentive = 0;
 
-            // Total Deductions = EPF + ESI + TDS - Incentive
             slip.TotalDeductions = slip.EPF_Employee + slip.ESI_Employee + slip.TDS + customDeductions;
 
-            // ===== STEP 10: NET PAID TO EMPLOYEE =====
-            // Formula: Gross Salary - Total Deductions
+            // ===== STEP 10: NET PAID =====
             slip.NetPaid = slip.GrossSalary - slip.TotalDeductions;
-            slip.NetSalary = slip.NetPaid;  // Same value
+            slip.NetSalary = slip.NetPaid;
 
-            // =========================================================
-            // EMPLOYER'S SHARE (What company pays on top)
-            // =========================================================
-
-            // ===== STEP 11: EPF EMPLOYER @ 13% =====
-            // CRITICAL: Uses SAME EPF Wage Base as employee
+            // ===== STEP 11: EPF EMPLOYER =====
             slip.EPF_Employer = Math.Round(epfWageBase * EPF_EMPLOYER_RATE, 2);
 
-            // ===== STEP 12: ESI EMPLOYER @ 3.25% =====
-            // Only if Basic ≤ 21,000 (same condition as employee ESI)
+            // ===== STEP 12: ESI EMPLOYER =====
             if (slip.BasicSalary <= ESI_SALARY_LIMIT)
             {
                 slip.ESI_Employer = Math.Round(slip.GrossSalary * ESI_EMPLOYER_RATE, 2);
@@ -201,19 +330,15 @@ namespace SchoolFeeSystem.Infrastructure.Services
                 slip.ESI_Employer = 0;
             }
 
-            // ===== STEP 13: ADMIN CHARGES @ 1.89% =====
-            // Calculated on Gross Salary
+            // ===== STEP 13: ADMIN CHARGES =====
             slip.AdminCharges = Math.Round(slip.GrossSalary * ADMIN_CHARGES_RATE, 2);
 
-            // ===== STEP 14: GST @ 18% =====
-            // Calculated on total employer cost before GST
-            // Total Cost Before GST = Gross + EPF Employer + ESI Employer + Admin + Incentive
+            // ===== STEP 14: GST =====
             decimal costBeforeGST = slip.GrossSalary + slip.EPF_Employer +
                                    slip.ESI_Employer + slip.AdminCharges + slip.Incentive;
 
             slip.GST_Amount = Math.Round(costBeforeGST * GST_RATE, 2);
 
-            // Status
             slip.Status = "Calculated";
 
             return slip;

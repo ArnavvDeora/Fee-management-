@@ -15,14 +15,32 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         private readonly CsvDataService _csvService;
 
         public ObservableCollection<string> LoadedFiles { get; } = new();
+        public ObservableCollection<string> Departments { get; } = new();
 
         [ObservableProperty]
         private string selectedFile;
+
+        [ObservableProperty]
+        private string selectedDepartment;
+
+        [ObservableProperty]
+        private int totalStudents;
+
+        [ObservableProperty]
+        private string totalFeesCollected;
+
+        [ObservableProperty]
+        private string totalFinesPending;
+
+        [ObservableProperty]
+        private int departmentCount;
 
         public DashboardViewModel(CsvDataService csvService)
         {
             _csvService = csvService;
             RefreshLoadedFiles();
+            RefreshDepartments();
+            UpdateDashboardStats();
         }
 
         private void RefreshLoadedFiles()
@@ -34,16 +52,39 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
         }
 
+        private void RefreshDepartments()
+        {
+            Departments.Clear();
+            var depts = _csvService.GetDepartments();
+
+            foreach (var dept in depts)
+            {
+                Departments.Add(dept);
+            }
+
+            DepartmentCount = depts.Count;
+        }
+
+        private void UpdateDashboardStats()
+        {
+            // This would calculate actual statistics from loaded data
+            // For now, placeholder values
+            TotalStudents = 0;
+            TotalFeesCollected = "₹0.00";
+            TotalFinesPending = "₹0.00";
+        }
+
         // =========================
-        // UPLOAD CSV / EXCEL
+        // DEPARTMENT-BASED UPLOAD
         // =========================
         [RelayCommand]
-        public void UploadCsv()
+        public void UploadByDepartment(string department)
         {
             var dialog = new OpenFileDialog
             {
                 Filter = "Excel Files (*.xlsx)|*.xlsx",
-                Multiselect = true
+                Multiselect = true,
+                Title = $"Upload Excel Files for {department} Department"
             };
 
             if (dialog.ShowDialog() == true)
@@ -67,11 +108,13 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 }
 
                 RefreshLoadedFiles();
+                RefreshDepartments();
+                UpdateDashboardStats();
 
                 if (successCount > 0 && failCount == 0)
                 {
                     MessageBox.Show(
-                        $"✅ {successCount} Excel file(s) loaded successfully!",
+                        $"✅ {successCount} Excel file(s) loaded successfully for {department}!",
                         "Success",
                         MessageBoxButton.OK,
                         MessageBoxImage.Information);
@@ -96,6 +139,98 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                         MessageBoxImage.Error);
                 }
             }
+        }
+
+        // =========================
+        // GENERAL UPLOAD CSV / EXCEL
+        // =========================
+        [RelayCommand]
+        public void UploadCsv()
+        {
+            var dialog = new OpenFileDialog
+            {
+                Filter = "Excel Files (*.xlsx)|*.xlsx",
+                Multiselect = true,
+                Title = "Upload Excel Files (Auto-Department Detection)"
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                int successCount = 0;
+                int failCount = 0;
+                string errors = "";
+
+                foreach (var fileName in dialog.FileNames)
+                {
+                    try
+                    {
+                        _csvService.LoadFile(fileName);
+                        successCount++;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        failCount++;
+                        errors += $"\n• {System.IO.Path.GetFileName(fileName)}: {ex.Message}";
+                    }
+                }
+
+                RefreshLoadedFiles();
+                RefreshDepartments();
+                UpdateDashboardStats();
+
+                if (successCount > 0 && failCount == 0)
+                {
+                    MessageBox.Show(
+                        $"✅ {successCount} Excel file(s) loaded successfully!\n\n" +
+                        $"Files have been automatically categorized by department.",
+                        "Success",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+                else if (successCount > 0 && failCount > 0)
+                {
+                    MessageBox.Show(
+                        $"⚠️ Partially successful:\n\n" +
+                        $"✅ Loaded: {successCount}\n" +
+                        $"❌ Failed: {failCount}\n\n" +
+                        $"Errors:{errors}",
+                        "Partial Success",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                }
+                else
+                {
+                    MessageBox.Show(
+                        $"❌ Failed to load files:\n{errors}",
+                        "Error",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                }
+            }
+        }
+
+        // =========================
+        // VIEW DEPARTMENT CLASSES
+        // =========================
+        [RelayCommand]
+        public void ViewDepartmentClasses(string department)
+        {
+            if (string.IsNullOrEmpty(department))
+            {
+                MessageBox.Show(
+                    "Please select a department first.",
+                    "No Department Selected",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            // Navigate to ClassView with department filter
+            var view = App.Current.Services.GetRequiredService<ClassView>();
+
+            // You would set a property on the ClassViewModel to filter by department
+            // For now, just navigate
+            Application.Current.MainWindow.Content = view;
         }
 
         // =========================
@@ -129,7 +264,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             if (result == MessageBoxResult.Yes)
             {
-                // Double confirmation for safety
                 var doubleCheck = MessageBox.Show(
                     $"🛑 FINAL CONFIRMATION\n\n" +
                     $"You are about to permanently delete:\n" +
@@ -150,6 +284,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                         {
                             _csvService.RemoveFile(fullPath);
                             RefreshLoadedFiles();
+                            RefreshDepartments();
+                            UpdateDashboardStats();
 
                             MessageBox.Show(
                                 $"✅ Course deleted successfully!\n\n" +
@@ -160,7 +296,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                                 MessageBoxButton.OK,
                                 MessageBoxImage.Information);
 
-                            // Clear selection
                             SelectedFile = null;
                         }
                         catch (System.Exception ex)
@@ -186,12 +321,12 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             Application.Current.MainWindow.Content = view;
         }
 
-        
-        /*public void ShowStudents()
+        [RelayCommand]
+        public void ShowStudents()
         {
             var view = App.Current.Services.GetRequiredService<StudentView>();
             Application.Current.MainWindow.Content = view;
-        }*/
+        }
 
         [RelayCommand]
         public void ShowFees()
@@ -225,6 +360,23 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         public void ShowHelp()
         {
             var view = App.Current.Services.GetRequiredService<HelpView>();
+            Application.Current.MainWindow.Content = view;
+        }
+
+        // =========================
+        // NEW NAVIGATION - FINES & PAYMENT HISTORY
+        // =========================
+        [RelayCommand]
+        public void ShowFineManagement()
+        {
+            var view = App.Current.Services.GetRequiredService<FineManagementView>();
+            Application.Current.MainWindow.Content = view;
+        }
+
+        [RelayCommand]
+        public void ShowPaymentHistory()
+        {
+            var view = App.Current.Services.GetRequiredService<PaymentHistoryView>();
             Application.Current.MainWindow.Content = view;
         }
 

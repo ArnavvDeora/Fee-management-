@@ -11,6 +11,15 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 {
     public partial class PayrollDashboardViewModel : ObservableObject
     {
+        // ✅ ADDED: Go Back to Main Selection
+        [RelayCommand]
+        public void GoBack()
+        {
+            var services = ((App)Application.Current).Services;
+            var view = services.GetRequiredService<MainSelectionView>();
+            Application.Current.MainWindow.Content = view;
+        }
+
         [RelayCommand]
         public void GoToManageStaff()
         {

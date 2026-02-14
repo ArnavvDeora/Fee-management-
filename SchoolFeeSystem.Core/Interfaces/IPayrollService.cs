@@ -16,6 +16,9 @@ namespace SchoolFeeSystem.Core.Interfaces
         List<Employee> SearchStaff(string query, string type);
         Employee GetEmployeeWithSalaryDetails(int id);
 
+        // ✅ NEW: Hard delete employee and all related data
+        bool DeleteEmployeePermanently(int employeeId);
+
         // --- Salary Configuration ---
         List<SalaryComponent> GetSalaryComponents();
         void SaveSalaryComponent(SalaryComponent component);
