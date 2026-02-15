@@ -8,48 +8,85 @@ using System.Collections.ObjectModel;
 using System.Data;
 using System.Linq;
 using System.Windows;
+using System.Windows.Media;
 
 namespace SchoolFeeSystem.Presentation.ViewModels
 {
     public partial class ClassViewModel : ObservableObject
     {
         private readonly CsvDataService _csvService;
+        private readonly PdfReportService _pdfReportService;
         private DataTable _originalData;
         private string _currentSheetName;
 
         // ==========================
-        // DEPARTMENT & COURSE STRUCTURE
+        // DEPARTMENT STRUCTURE
         // ==========================
 
         public ObservableCollection<DepartmentInfo> Departments { get; } = new();
+        public ObservableCollection<CourseInfo> AllCourses { get; } = new();
+        public ObservableCollection<CourseInfo> FilteredCourses { get; } = new();
 
         [ObservableProperty]
         private DepartmentInfo selectedDepartment;
 
-        [ObservableProperty]
-        private int selectedYear;
-
-        [ObservableProperty]
-        private string selectedQuarter; // "Aug-Oct", "Nov-Jan", "Feb-Apr"
-
-        public ObservableCollection<string> AvailableYears { get; } = new();
-        public ObservableCollection<string> AvailableQuarters { get; } = new();
-
         // ==========================
-        // VIEW MODE
+        // VIEW MODES
         // ==========================
 
         [ObservableProperty]
         private bool isDepartmentViewMode = true;
 
         [ObservableProperty]
-        private bool isYearViewMode = false;
+        private bool isDepartmentManagementMode = false;
 
         [ObservableProperty]
         private bool isDataViewMode = false;
 
         // ==========================
-        // TABLE DATA
+        // FILTER OPTIONS
+        // ==========================
+
+        public ObservableCollection<string> YearFilterOptions { get; } = new();
+        public ObservableCollection<string> QuarterFilterOptions { get; } = new();
+        public ObservableCollection<string> StatusFilterOptions { get; } = new();
+
+        [ObservableProperty]
+        private string selectedYearFilter = "All Years";
+
+        [ObservableProperty]
+        private string selectedQuarterFilter = "All Quarters";
+
+        [ObservableProperty]
+        private string selectedStatusFilter = "All Status";
+
+        [ObservableProperty]
+        private string globalSearchText;
+
+        // ==========================
+        // DASHBOARD STATISTICS
+        // ==========================
+
+        [ObservableProperty]
+        private int totalCourses;
+
+        [ObservableProperty]
+        private int totalStudents;
+
+        [ObservableProperty]
+        private int totalPendingStudents;
+
+        [ObservableProperty]
+        private decimal totalPendingAmount;
+
+        [ObservableProperty]
+        private int activeQuarters;
+
+        [ObservableProperty]
+        private string departmentSummary;
+
+        // ==========================
+        // DATA VIEW PROPERTIES
         // ==========================
 
         [ObservableProperty]
@@ -58,23 +95,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty]
         private string currentViewTitle;
 
-        // ==========================
-        // SEARCH
-        // ==========================
-
-        [ObservableProperty]
-        private string searchText;
-
-        // ==========================
-        // ROW SELECTION
-        // ==========================
-
         [ObservableProperty]
         private DataRowView selectedRow;
-
-        // ==========================
-        // UPDATE CELL
-        // ==========================
 
         public ObservableCollection<string> Columns { get; } = new();
 
@@ -84,32 +106,43 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty]
         private string newValue;
 
-        // ==========================
-        // STATISTICS
-        // ==========================
+        [ObservableProperty]
+        private string searchText;
 
         [ObservableProperty]
-        private int totalStudents;
-
-        [ObservableProperty]
-        private decimal totalPendingFees;
-
-        [ObservableProperty]
-        private int studentsWithPendingFees;
+        private string rowCountDisplay = "0 students";
 
         // ==========================
         // CONSTRUCTOR
         // ==========================
 
-        public ClassViewModel(CsvDataService csvService)
+        public ClassViewModel(CsvDataService csvService, PdfReportService pdfReportService)
         {
             _csvService = csvService;
+            _pdfReportService = pdfReportService;
+
             InitializeDepartments();
-            LoadAvailableQuarters();
+            InitializeFilters();
+
+            // Watch for filter changes
+            PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(SelectedYearFilter) ||
+                    e.PropertyName == nameof(SelectedQuarterFilter) ||
+                    e.PropertyName == nameof(SelectedStatusFilter) ||
+                    e.PropertyName == nameof(GlobalSearchText))
+                {
+                    ApplyFilters();
+                }
+                if (e.PropertyName == nameof(SearchText))
+                {
+                    ApplyDataViewSearch();
+                }
+            };
         }
 
         // ==========================
-        // INITIALIZE DEPARTMENTS
+        // INITIALIZATION
         // ==========================
 
         private void InitializeDepartments()
@@ -171,485 +204,412 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             });
         }
 
-        private void LoadAvailableQuarters()
+        private void InitializeFilters()
         {
-            AvailableQuarters.Clear();
-            AvailableQuarters.Add("Aug-Oct");
-            AvailableQuarters.Add("Nov-Jan");
-            AvailableQuarters.Add("Feb-Apr");
-            SelectedQuarter = AvailableQuarters[0];
+            YearFilterOptions.Clear();
+            YearFilterOptions.Add("All Years");
+            YearFilterOptions.Add("Year 1");
+            YearFilterOptions.Add("Year 2");
+            YearFilterOptions.Add("Year 3");
+            YearFilterOptions.Add("Year 4");
+
+            QuarterFilterOptions.Clear();
+            QuarterFilterOptions.Add("All Quarters");
+            QuarterFilterOptions.Add("Aug-Oct");
+            QuarterFilterOptions.Add("Nov-Jan");
+            QuarterFilterOptions.Add("Feb-Apr");
+            QuarterFilterOptions.Add("May-Jun");
+
+            StatusFilterOptions.Clear();
+            StatusFilterOptions.Add("All Status");
+            StatusFilterOptions.Add("Has Pending");
+            StatusFilterOptions.Add("Fully Paid");
+            StatusFilterOptions.Add("No Data");
         }
 
         // ==========================
-        // DEPARTMENT SELECTION - FIXED TO USE OBJECT PARAMETER
+        // DEPARTMENT SELECTION
         // ==========================
 
         [RelayCommand]
         public void SelectDepartment(object parameter)
         {
-            // Convert parameter to string
             string deptCode = parameter?.ToString();
             if (string.IsNullOrEmpty(deptCode)) return;
 
-            // Find department by code
             var dept = Departments.FirstOrDefault(d => d.Code == deptCode);
             if (dept == null) return;
 
             SelectedDepartment = dept;
-            LoadYearsForDepartment(dept);
+            LoadDepartmentCourses();
 
-            // Show year selection view
+            // Show management dashboard
             IsDepartmentViewMode = false;
-            IsYearViewMode = true;
+            IsDepartmentManagementMode = true;
             IsDataViewMode = false;
         }
 
-        private void LoadYearsForDepartment(DepartmentInfo dept)
+        private void LoadDepartmentCourses()
         {
-            AvailableYears.Clear();
-
-            if (dept.Code == "PASSOUT")
-            {
-                var years = _csvService.GetAvailableAcademicYears(dept.Code);
-                foreach (var year in years)
-                {
-                    AvailableYears.Add($"Batch {year}");
-                }
-            }
-            else if (dept.Code == "MISC")
-            {
-                AvailableYears.Add("All Courses");
-            }
-            else
-            {
-                for (int i = 1; i <= dept.Years; i++)
-                {
-                    AvailableYears.Add($"Year {i}");
-                }
-            }
-
-            if (AvailableYears.Count > 0)
-                SelectedYear = 1;
-        }
-
-        // ==========================
-        // YEAR SELECTION - FIXED TO USE OBJECT PARAMETER
-        // ==========================
-
-        [RelayCommand]
-        public void SelectYear(object parameter)
-        {
-            // Convert parameter to int
-            if (parameter == null) return;
-
-            int year;
-            if (parameter is int intParam)
-            {
-                year = intParam;
-            }
-            else if (int.TryParse(parameter.ToString(), out int parsedYear))
-            {
-                year = parsedYear;
-            }
-            else
-            {
-                return;
-            }
-
-            SelectedYear = year;
-            LoadDataForSelection();
-        }
-
-        [RelayCommand]
-        public void SelectQuarter(object parameter)
-        {
-            string quarter = parameter?.ToString();
-            if (string.IsNullOrEmpty(quarter)) return;
-
-            SelectedQuarter = quarter;
-            LoadDataForSelection();
-        }
-
-        private void LoadDataForSelection()
-        {
-            if (SelectedDepartment == null) return;
-
-            // Build the sheet identifier
-            string sheetKey = BuildSheetKey();
-
-            // Try to find the sheet
-            var sheet = _csvService.GetSheetByFilter(
-                SelectedDepartment.Code,
-                SelectedYear,
-                SelectedQuarter
-            );
-
-            if (sheet != null)
-            {
-                _currentSheetName = sheet.TableName;
-                _originalData = sheet;
-                CsvTableView = _originalData.DefaultView;
-                CsvTableView.RowFilter = string.Empty;
-
-                Columns.Clear();
-                foreach (DataColumn col in _originalData.Columns)
-                    Columns.Add(col.ColumnName);
-
-                // Update title
-                CurrentViewTitle = $"{SelectedDepartment.Name} - Year {SelectedYear} - {SelectedQuarter}";
-
-                // Calculate statistics
-                CalculateStatistics();
-
-                // Show data view
-                IsDepartmentViewMode = false;
-                IsYearViewMode = false;
-                IsDataViewMode = true;
-            }
-            else
-            {
-                MessageBox.Show(
-                    $"No data found for:\n\n" +
-                    $"Department: {SelectedDepartment.Name}\n" +
-                    $"Year: {SelectedYear}\n" +
-                    $"Quarter: {SelectedQuarter}\n\n" +
-                    "Please upload the Excel file for this period from the Dashboard.",
-                    "No Data",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-            }
-        }
-
-        private string BuildSheetKey()
-        {
-            string quarterCode = SelectedQuarter.Replace("-", "");
-            return $"{SelectedDepartment.Code}-{SelectedYear}-{quarterCode}";
-        }
-
-        // ==========================
-        // STATISTICS
-        // ==========================
-
-        private void CalculateStatistics()
-        {
-            if (_originalData == null)
-            {
-                TotalStudents = 0;
-                TotalPendingFees = 0;
-                StudentsWithPendingFees = 0;
-                return;
-            }
-
-            TotalStudents = _originalData.Rows.Count;
-
-            var pendingCol = _originalData.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("previous") ||
-                                   c.ColumnName.ToLower().Contains("pending") ||
-                                   c.ColumnName.ToLower().Contains("balance"));
-
-            if (pendingCol != null)
-            {
-                decimal totalPending = 0;
-                int countWithPending = 0;
-
-                foreach (DataRow row in _originalData.Rows)
-                {
-                    string rawValue = row[pendingCol]?.ToString()?.Trim();
-                    if (decimal.TryParse(rawValue?.Replace("₹", "").Replace(",", ""), out decimal pending) && pending > 0)
-                    {
-                        totalPending += pending;
-                        countWithPending++;
-                    }
-                }
-
-                TotalPendingFees = totalPending;
-                StudentsWithPendingFees = countWithPending;
-            }
-        }
-
-        // ==========================
-        // YEAR PROGRESSION
-        // ==========================
-
-        [RelayCommand]
-        public void PromoteStudentsToNextYear()
-        {
-            if (SelectedDepartment == null || SelectedDepartment.Code == "PASSOUT" || SelectedDepartment.Code == "MISC")
-            {
-                MessageBox.Show(
-                    "Year progression is only available for regular courses.",
-                    "Invalid Operation",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-                return;
-            }
-
-            var result = MessageBox.Show(
-                $"⚠️ PROMOTE STUDENTS TO NEXT YEAR\n\n" +
-                $"This will move all students in:\n" +
-                $"{SelectedDepartment.Name} - Year {SelectedYear}\n\n" +
-                $"To Year {SelectedYear + 1}\n\n" +
-                $"Students in final year will be moved to Pass-outs.\n\n" +
-                "This action CANNOT be undone automatically.\n" +
-                "Do you want to proceed?",
-                "⚠️ Confirm Year Progression",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning);
-
-            if (result == MessageBoxResult.Yes)
-            {
-                try
-                {
-                    bool isLastYear = SelectedYear == SelectedDepartment.Years;
-
-                    _csvService.PromoteStudentsToNextYear(
-                        SelectedDepartment.Code,
-                        SelectedYear,
-                        isLastYear
-                    );
-
-                    MessageBox.Show(
-                        $"✅ Students promoted successfully!\n\n" +
-                        $"Year {SelectedYear} → Year {SelectedYear + 1}" +
-                        (isLastYear ? " (Moved to Pass-outs)" : ""),
-                        "Promotion Complete",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
-
-                    LoadDataForSelection();
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(
-                        $"❌ Failed to promote students:\n\n{ex.Message}",
-                        "Promotion Error",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Error);
-                }
-            }
-        }
-
-        // ==========================
-        // SEARCH
-        // ==========================
-
-        [RelayCommand]
-        public void Search()
-        {
-            if (_originalData == null) return;
-
-            if (string.IsNullOrWhiteSpace(SearchText))
-            {
-                CsvTableView.RowFilter = string.Empty;
-                return;
-            }
+            AllCourses.Clear();
+            FilteredCourses.Clear();
 
             try
             {
-                var filtered = _originalData.Clone();
+                // Get all available sheets for this department
+                var allSheets = _csvService.GetAllSheets();
 
-                foreach (DataRow row in _originalData.Rows)
+                foreach (var sheet in allSheets)
                 {
-                    foreach (var item in row.ItemArray)
+                    // Try to match sheet to department
+                    var courseInfo = ParseCourseFromSheet(sheet);
+                    if (courseInfo != null && courseInfo.DepartmentCode == SelectedDepartment.Code)
                     {
-                        if (item != null && item.ToString().Contains(SearchText, StringComparison.OrdinalIgnoreCase))
-                        {
-                            filtered.Rows.Add(row.ItemArray);
-                            break;
-                        }
+                        AllCourses.Add(courseInfo);
+                        FilteredCourses.Add(courseInfo);
                     }
                 }
 
-                CsvTableView = filtered.DefaultView;
+                // Calculate dashboard statistics
+                CalculateDashboardStatistics();
+                ApplyFilters();
             }
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    $"Search failed: {ex.Message}",
-                    "Search Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-            }
-        }
-
-        [RelayCommand]
-        public void ClearSearch()
-        {
-            SearchText = string.Empty;
-            if (_originalData != null)
-            {
-                CsvTableView = _originalData.DefaultView;
-                CsvTableView.RowFilter = string.Empty;
-            }
-        }
-
-        // ==========================
-        // ROW ACTIONS
-        // ==========================
-
-        [RelayCommand]
-        public void AddRow()
-        {
-            if (_originalData == null)
-            {
-                MessageBox.Show("No table loaded.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-
-            var newRow = _originalData.NewRow();
-
-            foreach (DataColumn col in _originalData.Columns)
-                newRow[col.ColumnName] = "";
-
-            if (_originalData.Columns.Count > 0)
-            {
-                var firstCol = _originalData.Columns[0];
-                if (firstCol.ColumnName.ToLower().Contains("sr") || firstCol.ColumnName.ToLower().Contains("no"))
-                {
-                    int nextNumber = _originalData.Rows.Count + 1;
-                    newRow[firstCol.ColumnName] = nextNumber.ToString();
-                }
-            }
-
-            _originalData.Rows.Add(newRow);
-            CsvTableView = _originalData.DefaultView;
-            TotalStudents = _originalData.Rows.Count;
-
-            MessageBox.Show(
-                "New row added successfully!\n\nPlease fill in the student details.",
-                "Row Added",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-        }
-
-        [RelayCommand]
-        public void DeleteSelectedRow()
-        {
-            if (SelectedRow == null)
-            {
-                MessageBox.Show(
-                    "Please select a row to delete.",
-                    "No Row Selected",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-                return;
-            }
-
-            var result = MessageBox.Show(
-                "Are you sure you want to delete this row?\n\nThis action cannot be undone.",
-                "Confirm Delete",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning);
-
-            if (result == MessageBoxResult.Yes)
-            {
-                try
-                {
-                    var rowToDelete = SelectedRow.Row;
-
-                    foreach (DataRow row in _originalData.Rows)
-                    {
-                        bool match = true;
-                        for (int i = 0; i < _originalData.Columns.Count; i++)
-                        {
-                            if (!row[i].Equals(rowToDelete[i]))
-                            {
-                                match = false;
-                                break;
-                            }
-                        }
-
-                        if (match)
-                        {
-                            _originalData.Rows.Remove(row);
-                            break;
-                        }
-                    }
-
-                    CsvTableView = _originalData.DefaultView;
-                    CalculateStatistics();
-
-                    MessageBox.Show(
-                        "Row deleted successfully!",
-                        "Row Deleted",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(
-                        $"Failed to delete row: {ex.Message}",
-                        "Delete Error",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Error);
-                }
-            }
-        }
-
-        // ==========================
-        // UPDATE CELL
-        // ==========================
-
-        [RelayCommand]
-        public void UpdateCell()
-        {
-            if (SelectedRow == null || string.IsNullOrWhiteSpace(SelectedColumn))
-            {
-                MessageBox.Show(
-                    "Please select a row and a column first.",
-                    "Selection Required",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-                return;
-            }
-
-            try
-            {
-                var rowToUpdate = SelectedRow.Row;
-
-                foreach (DataRow row in _originalData.Rows)
-                {
-                    bool match = true;
-                    for (int i = 0; i < _originalData.Columns.Count; i++)
-                    {
-                        if (!row[i].Equals(rowToUpdate[i]))
-                        {
-                            match = false;
-                            break;
-                        }
-                    }
-
-                    if (match)
-                    {
-                        row[SelectedColumn] = NewValue;
-                        _csvService.RecalculateRowFees(_currentSheetName, row);
-                        break;
-                    }
-                }
-
-                CsvTableView = _originalData.DefaultView;
-                CalculateStatistics();
-
-                MessageBox.Show(
-                    $"Cell updated successfully!\n\nColumn: {SelectedColumn}\nNew Value: {NewValue}",
-                    "Cell Updated",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-
-                NewValue = string.Empty;
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    $"Failed to update cell: {ex.Message}",
-                    "Update Error",
+                    $"Error loading courses: {ex.Message}",
+                    "Load Error",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
             }
         }
 
+        private CourseInfo ParseCourseFromSheet(DataTable sheet)
+        {
+            try
+            {
+                // Parse sheet name and metadata to create CourseInfo
+                // Expected format: "ME-1-AugOct" or similar
+                string sheetName = sheet.TableName;
+
+                // Extract year and quarter from sheet name or metadata
+                int year = ExtractYear(sheet);
+                string quarter = ExtractQuarter(sheet);
+                string deptCode = ExtractDepartmentCode(sheet);
+
+                if (string.IsNullOrEmpty(deptCode)) return null;
+
+                var courseInfo = new CourseInfo
+                {
+                    SheetName = sheetName,
+                    DepartmentCode = deptCode,
+                    Year = year,
+                    Quarter = quarter,
+                    CourseName = $"{GetDepartmentName(deptCode)} - Year {year}",
+                    YearDisplay = $"Year {year}",
+                    QuarterDisplay = FormatQuarter(quarter),
+                    DataTable = sheet
+                };
+
+                // Calculate statistics for this course
+                CalculateCourseStatistics(courseInfo);
+
+                return courseInfo;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void CalculateCourseStatistics(CourseInfo course)
+        {
+            if (course.DataTable == null) return;
+
+            course.LastUpdated = DateTime.Now.ToString("dd MMM yyyy");
+
+            // Find the Name column — only rows with a non-empty Name are real students.
+            // This correctly excludes gap rows, SUM rows, label rows, and the _Section tag.
+            var nameCol = course.DataTable.Columns.Cast<DataColumn>()
+                .FirstOrDefault(c => c.ColumnName.Equals("Name", StringComparison.OrdinalIgnoreCase));
+
+            // Collect only genuine student rows
+            var studentRows = course.DataTable.Rows.Cast<DataRow>()
+                .Where(r =>
+                {
+                    if (nameCol != null)
+                    {
+                        string name = r[nameCol]?.ToString()?.Trim() ?? "";
+                        // Empty name — gap, SUM, or formula row
+                        if (string.IsNullOrEmpty(name)) return false;
+                        // Repeated sub-header
+                        if (name.Equals("Name", StringComparison.OrdinalIgnoreCase)) return false;
+                        // Note/disclaimer rows — starts with "Note" or is a long sentence
+                        if (name.StartsWith("Note", StringComparison.OrdinalIgnoreCase)) return false;
+                        if (name.Length > 60 || name.Contains(":-") ||
+                            name.Contains("Per Day") || name.Contains("deposited")) return false;
+                    }
+                    return true;
+                })
+                .ToList();
+
+            course.TotalStudents = studentRows.Count;
+
+            // Find pending column (skip _Section column)
+            var pendingCol = course.DataTable.Columns.Cast<DataColumn>()
+                .Where(c => !c.ColumnName.StartsWith("_"))
+                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("previous") &&
+                                     c.ColumnName.ToLower().Contains("pending") ||
+                                     c.ColumnName.ToLower().Contains("balance") ||
+                                     c.ColumnName.Equals("TOTAL PENDING FEES", StringComparison.OrdinalIgnoreCase));
+
+            // Also fallback to any column named "pending" or "balance" if the above didn't match
+            if (pendingCol == null)
+            {
+                pendingCol = course.DataTable.Columns.Cast<DataColumn>()
+                    .Where(c => !c.ColumnName.StartsWith("_"))
+                    .FirstOrDefault(c => c.ColumnName.ToLower().Contains("pending") ||
+                                         c.ColumnName.ToLower().Contains("balance"));
+            }
+
+            if (pendingCol != null)
+            {
+                decimal totalPending = 0;
+                int pendingCount = 0;
+
+                foreach (DataRow row in studentRows)
+                {
+                    string rawValue = row[pendingCol]?.ToString()?.Trim();
+                    if (decimal.TryParse(rawValue?.Replace("₹", "").Replace(",", ""),
+                            System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            out decimal pending) && pending > 0)
+                    {
+                        totalPending += pending;
+                        pendingCount++;
+                    }
+                }
+
+                course.PendingAmount = totalPending;
+                course.PendingStudents = pendingCount;
+                course.PaidStudents = course.TotalStudents - pendingCount;
+                course.HasPendingFees = pendingCount > 0;
+            }
+            else
+            {
+                course.PaidStudents = course.TotalStudents;
+            }
+
+            // Set file status
+            if (course.TotalStudents == 0)
+            {
+                course.FileStatus = "No Data";
+                course.StatusColor = "#9E9E9E";
+            }
+            else if (course.PendingStudents == 0)
+            {
+                course.FileStatus = "All Paid";
+                course.StatusColor = "#4CAF50";
+            }
+            else
+            {
+                course.FileStatus = "Active";
+                course.StatusColor = "#2196F3";
+            }
+
+            // Check if can promote
+            var dept = Departments.FirstOrDefault(d => d.Code == course.DepartmentCode);
+            course.CanPromote = dept != null && course.Year < dept.Years;
+
+            // Set color brush
+            course.ColorBrush = new SolidColorBrush(
+                (Color)ColorConverter.ConvertFromString(dept?.Color ?? "#2196F3"));
+        }
+
+        private void CalculateDashboardStatistics()
+        {
+            TotalCourses = AllCourses.Count;
+            TotalStudents = AllCourses.Sum(c => c.TotalStudents);
+            TotalPendingStudents = AllCourses.Sum(c => c.PendingStudents);
+            TotalPendingAmount = AllCourses.Sum(c => c.PendingAmount);
+            ActiveQuarters = AllCourses.Select(c => c.Quarter).Distinct().Count();
+
+            DepartmentSummary = $"{TotalCourses} courses • {TotalStudents} students • {ActiveQuarters} active quarters";
+        }
+
         // ==========================
-        // SAVE CHANGES
+        // FILTERING
+        // ==========================
+
+        private void ApplyFilters()
+        {
+            FilteredCourses.Clear();
+
+            var filtered = AllCourses.AsEnumerable();
+
+            // Apply year filter
+            if (SelectedYearFilter != "All Years")
+            {
+                int yearNum = int.Parse(SelectedYearFilter.Replace("Year ", ""));
+                filtered = filtered.Where(c => c.Year == yearNum);
+            }
+
+            // Apply quarter filter
+            if (SelectedQuarterFilter != "All Quarters")
+            {
+                filtered = filtered.Where(c => c.Quarter.Replace("-", "") == SelectedQuarterFilter.Replace("-", ""));
+            }
+
+            // Apply status filter
+            if (SelectedStatusFilter == "Has Pending")
+            {
+                filtered = filtered.Where(c => c.HasPendingFees);
+            }
+            else if (SelectedStatusFilter == "Fully Paid")
+            {
+                filtered = filtered.Where(c => !c.HasPendingFees && c.TotalStudents > 0);
+            }
+            else if (SelectedStatusFilter == "No Data")
+            {
+                filtered = filtered.Where(c => c.TotalStudents == 0);
+            }
+
+            // Apply global search
+            if (!string.IsNullOrWhiteSpace(GlobalSearchText))
+            {
+                filtered = filtered.Where(c =>
+                    c.CourseName.Contains(GlobalSearchText, StringComparison.OrdinalIgnoreCase) ||
+                    c.YearDisplay.Contains(GlobalSearchText, StringComparison.OrdinalIgnoreCase) ||
+                    c.QuarterDisplay.Contains(GlobalSearchText, StringComparison.OrdinalIgnoreCase));
+            }
+
+            foreach (var course in filtered)
+            {
+                FilteredCourses.Add(course);
+            }
+        }
+
+        // ==========================
+        // COURSE ACTIONS
+        // ==========================
+
+        [RelayCommand]
+        public void ViewCourseData(CourseInfo course)
+        {
+            if (course == null || course.DataTable == null) return;
+
+            _originalData = course.DataTable;
+            _currentSheetName = course.SheetName;
+
+            CsvTableView = _originalData.DefaultView;
+            CsvTableView.RowFilter = string.Empty;
+
+            Columns.Clear();
+            foreach (DataColumn col in _originalData.Columns)
+                Columns.Add(col.ColumnName);
+
+            SelectedColumn = Columns.FirstOrDefault();
+            SearchText = string.Empty;
+            CurrentViewTitle = course.CourseName + " - " + course.QuarterDisplay;
+
+            // Switch to data view
+            IsDepartmentViewMode = false;
+            IsDepartmentManagementMode = false;
+            IsDataViewMode = true;
+
+            UpdateRowCountDisplay();
+        }
+
+        [RelayCommand]
+        public void PromoteCourse(CourseInfo course)
+        {
+            if (course == null || !course.CanPromote) return;
+
+            var result = MessageBox.Show(
+                $"Promote all students in:\n\n" +
+                $"{course.CourseName}\n" +
+                $"{course.QuarterDisplay}\n\n" +
+                $"From Year {course.Year} to Year {course.Year + 1}?",
+                "Confirm Promotion",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                try
+                {
+                    bool isLastYear = course.Year == Departments.FirstOrDefault(d => d.Code == course.DepartmentCode)?.Years;
+
+                    _csvService.PromoteStudentsToNextYear(course.DepartmentCode, course.Year, isLastYear);
+
+                    MessageBox.Show(
+                        "Students promoted successfully!",
+                        "Success",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+
+                    // Reload courses
+                    LoadDepartmentCourses();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(
+                        $"Error promoting students: {ex.Message}",
+                        "Error",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                }
+            }
+        }
+
+        [RelayCommand]
+        public void GenerateReport(CourseInfo course)
+        {
+            if (course == null || course.DataTable == null) return;
+
+            try
+            {
+                string fileName = $"{course.CourseName}_{course.QuarterDisplay}_{DateTime.Now:yyyyMMdd}.pdf";
+                string filePath = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                    "SchoolFeeReports",
+                    fileName);
+
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(filePath));
+
+                _pdfReportService.GenerateCourseReport(course.DataTable, filePath, course.CourseName, course.QuarterDisplay);
+
+                MessageBox.Show(
+                    $"Report generated successfully!\n\nSaved to: {filePath}",
+                    "Report Generated",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+
+                // Open the file
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = filePath,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Error generating report: {ex.Message}",
+                    "Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        [RelayCommand]
+        public void QuickEdit(CourseInfo course)
+        {
+            ViewCourseData(course);
+        }
+
+        // ==========================
+        // DATA VIEW COMMANDS
         // ==========================
 
         [RelayCommand]
@@ -657,21 +617,263 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             try
             {
+                if (string.IsNullOrEmpty(_currentSheetName)) return;
                 _csvService.SaveFile();
-                MessageBox.Show(
-                    "✅ Changes saved successfully!",
-                    "Saved",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
+                MessageBox.Show("Changes saved successfully!", "Saved",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(
-                    $"❌ Failed to save changes:\n\n{ex.Message}",
-                    "Save Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
+                MessageBox.Show($"Error saving: {ex.Message}", "Save Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        [RelayCommand]
+        public void ExportCurrentSheet()
+        {
+            MessageBox.Show("Export to Excel coming soon!", "Info",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        [RelayCommand]
+        public void PrintReport()
+        {
+            if (_originalData == null) return;
+            try
+            {
+                string fileName = $"{_currentSheetName}_{DateTime.Now:yyyyMMdd_HHmm}.pdf";
+                string filePath = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                    "SchoolFeeReports", fileName);
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(filePath));
+                _pdfReportService.GenerateCourseReport(_originalData, filePath, CurrentViewTitle, "");
+                MessageBox.Show($"Report saved to:\n{filePath}", "Report Generated",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                { FileName = filePath, UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error: {ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        [RelayCommand]
+        public void ShowAllRows()
+        {
+            if (CsvTableView == null) return;
+            CsvTableView.RowFilter = string.Empty;
+            SearchText = string.Empty;
+            UpdateRowCountDisplay();
+        }
+
+        [RelayCommand]
+        public void ShowPendingOnly()
+        {
+            if (_originalData == null) return;
+            var pendingCol = _originalData.Columns.Cast<DataColumn>()
+                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("pending") ||
+                                     c.ColumnName.ToLower().Contains("balance"));
+            if (pendingCol != null)
+            {
+                CsvTableView.RowFilter = $"[{pendingCol.ColumnName}] > 0";
+                UpdateRowCountDisplay();
+            }
+        }
+
+        [RelayCommand]
+        public void ShowPaidOnly()
+        {
+            if (_originalData == null) return;
+            var pendingCol = _originalData.Columns.Cast<DataColumn>()
+                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("pending") ||
+                                     c.ColumnName.ToLower().Contains("balance"));
+            if (pendingCol != null)
+            {
+                CsvTableView.RowFilter =
+                    $"[{pendingCol.ColumnName}] = 0 OR [{pendingCol.ColumnName}] IS NULL OR " +
+                    $"[{pendingCol.ColumnName}] = ''";
+                UpdateRowCountDisplay();
+            }
+        }
+
+        [RelayCommand]
+        public void ApplyCellEdit()
+        {
+            if (SelectedRow == null || string.IsNullOrEmpty(SelectedColumn)) return;
+            try
+            {
+                SelectedRow[SelectedColumn] = NewValue;
+                UpdateRowCountDisplay();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error applying edit: {ex.Message}", "Edit Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        [RelayCommand]
+        public void AddRow()
+        {
+            if (_originalData == null) return;
+            try
+            {
+                _originalData.Rows.Add(_originalData.NewRow());
+                UpdateRowCountDisplay();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error adding row: {ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        [RelayCommand]
+        public void DeleteRow()
+        {
+            if (SelectedRow == null) return;
+            var result = MessageBox.Show(
+                "Delete the selected student row? This cannot be undone.",
+                "Confirm Delete", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (result == MessageBoxResult.Yes)
+            {
+                try
+                {
+                    SelectedRow.Row.Delete();
+                    UpdateRowCountDisplay();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error deleting row: {ex.Message}", "Error",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+
+        // ==========================
+        // DATA VIEW HELPERS
+        // ==========================
+
+        private void ApplyDataViewSearch()
+        {
+            if (CsvTableView == null || _originalData == null) return;
+
+            if (string.IsNullOrWhiteSpace(SearchText))
+            {
+                CsvTableView.RowFilter = string.Empty;
+            }
+            else
+            {
+                string search = SearchText.Replace("'", "''");
+                if (!string.IsNullOrEmpty(SelectedColumn) &&
+                    _originalData.Columns.Contains(SelectedColumn))
+                {
+                    CsvTableView.RowFilter = $"[{SelectedColumn}] LIKE '%{search}%'";
+                }
+                else
+                {
+                    var strCols = _originalData.Columns.Cast<DataColumn>()
+                        .Where(c => c.DataType == typeof(string))
+                        .Select(c => $"[{c.ColumnName}] LIKE '%{search}%'");
+                    CsvTableView.RowFilter = string.Join(" OR ", strCols);
+                }
+            }
+            UpdateRowCountDisplay();
+        }
+
+        private void UpdateRowCountDisplay()
+        {
+            if (CsvTableView == null) { RowCountDisplay = "0 students"; return; }
+
+            // Count only real student rows (non-empty Name)
+            int CountStudents(System.Collections.IEnumerable rows)
+            {
+                int count = 0;
+                int nameIdx = -1;
+                if (_originalData != null)
+                    for (int ci = 0; ci < _originalData.Columns.Count; ci++)
+                        if (_originalData.Columns[ci].ColumnName
+                                .Equals("Name", StringComparison.OrdinalIgnoreCase))
+                        { nameIdx = ci; break; }
+
+                foreach (System.Data.DataRowView drv in rows)
+                {
+                    if (nameIdx >= 0)
+                    {
+                        string name = drv.Row[nameIdx]?.ToString()?.Trim() ?? "";
+                        if (!string.IsNullOrEmpty(name) &&
+                            !name.Equals("Name", StringComparison.OrdinalIgnoreCase) &&
+                            !name.StartsWith("Note", StringComparison.OrdinalIgnoreCase) &&
+                            name.Length <= 60)
+                            count++;
+                    }
+                    else { count++; }
+                }
+                return count;
+            }
+
+            int visible = CountStudents(CsvTableView);
+            int total = _originalData != null
+                ? CountStudents(_originalData.DefaultView)
+                : visible;
+
+            RowCountDisplay = visible == total
+                ? $"{total} students"
+                : $"{visible} of {total} students";
+        }
+
+        [RelayCommand]
+        public void PromoteAllYears()
+        {
+            var result = MessageBox.Show(
+                $"⚠️ MASS PROMOTION WARNING\n\n" +
+                $"This will promote ALL students in ALL years of {SelectedDepartment.Name} to the next year.\n\n" +
+                $"Final year students will be moved to Pass-outs.\n\n" +
+                $"This action cannot be undone automatically.\n\n" +
+                $"Are you absolutely sure?",
+                "Confirm Mass Promotion",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                try
+                {
+                    int promotedCount = 0;
+                    foreach (var course in AllCourses.Where(c => c.CanPromote))
+                    {
+                        bool isLastYear = course.Year == Departments.FirstOrDefault(d => d.Code == course.DepartmentCode)?.Years;
+                        _csvService.PromoteStudentsToNextYear(course.DepartmentCode, course.Year, isLastYear);
+                        promotedCount++;
+                    }
+
+                    MessageBox.Show(
+                        $"Successfully promoted {promotedCount} courses!",
+                        "Mass Promotion Complete",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+
+                    LoadDepartmentCourses();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(
+                        $"Error during mass promotion: {ex.Message}",
+                        "Error",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                }
+            }
+        }
+
+        [RelayCommand]
+        public void ExportAllCourses()
+        {
+            // Implement export functionality
+            MessageBox.Show("Export feature coming soon!", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         // ==========================
@@ -682,55 +884,124 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         public void GoBackToDepartments()
         {
             IsDepartmentViewMode = true;
-            IsYearViewMode = false;
+            IsDepartmentManagementMode = false;
             IsDataViewMode = false;
             SelectedDepartment = null;
         }
 
         [RelayCommand]
-        public void GoBackToYears()
+        public void GoBackToDashboard()
         {
             IsDepartmentViewMode = false;
-            IsYearViewMode = true;
+            IsDepartmentManagementMode = true;
             IsDataViewMode = false;
         }
 
         [RelayCommand]
         public void GoBack()
         {
-            var result = MessageBox.Show(
-                "Do you want to save changes before going back?",
-                "Save Changes?",
-                MessageBoxButton.YesNoCancel,
-                MessageBoxImage.Question);
-
-            if (result == MessageBoxResult.Yes)
-            {
-                try
-                {
-                    _csvService.SaveFile();
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(
-                        $"Failed to save: {ex.Message}",
-                        "Save Error",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Error);
-                    return;
-                }
-            }
-            else if (result == MessageBoxResult.Cancel)
-            {
-                return;
-            }
-
             var dashboard = App.Current.Services.GetRequiredService<DashboardView>();
             Application.Current.MainWindow.Content = dashboard;
         }
 
         // ==========================
-        // HELPER CLASS
+        // HELPER METHODS
+        // ==========================
+
+        private int ExtractYear(DataTable sheet)
+        {
+            // First: trust the metadata CsvDataService extracted from header rows
+            if (sheet.ExtendedProperties.ContainsKey("Year") &&
+                int.TryParse(sheet.ExtendedProperties["Year"]?.ToString(), out int metaYear) &&
+                metaYear >= 1)
+                return metaYear;
+
+            // Fallback: parse the sheet tab name
+            string name = sheet.TableName.ToLower();
+            for (int i = 1; i <= 4; i++)
+            {
+                if (name.Contains($"-{i}-") || name.Contains($"year{i}") ||
+                    name.Contains($"{i}year") || name.Contains($"{i}st") ||
+                    name.Contains($"{i}nd") || name.Contains($"{i}rd") ||
+                    name.Contains($"{i}th"))
+                    return i;
+            }
+            return 1;
+        }
+
+        private string ExtractQuarter(DataTable sheet)
+        {
+            // First: trust the metadata CsvDataService extracted from header rows
+            string metaQuarter = sheet.ExtendedProperties["Quarter"]?.ToString();
+            if (!string.IsNullOrEmpty(metaQuarter) && metaQuarter != "Unknown")
+                return metaQuarter;
+
+            // Fallback: parse the sheet tab name (unlikely to work for this school's naming)
+            string name = sheet.TableName.ToLower();
+            if (name.Contains("augoct") || name.Contains("aug-oct") || name.Contains("aug_oct")) return "Aug-Oct";
+            if (name.Contains("novjan") || name.Contains("nov-jan") || name.Contains("nov_jan")) return "Nov-Jan";
+            if (name.Contains("febapr") || name.Contains("feb-apr") || name.Contains("feb_apr")) return "Feb-Apr";
+            if (name.Contains("mayjun") || name.Contains("may-jun") || name.Contains("may_jun")) return "May-Jun";
+
+            // Last resort: check CourseInfo / Period extended properties
+            string period = sheet.ExtendedProperties["Period"]?.ToString() ?? "";
+            if (!string.IsNullOrEmpty(period))
+            {
+                string p = period.ToUpper();
+                if (p.Contains("AUG") || p.Contains("AUGUST") || p.Contains("SEP") || p.Contains("OCT")) return "Aug-Oct";
+                if (p.Contains("NOV") || p.Contains("DEC") || p.Contains("JAN")) return "Nov-Jan";
+                if (p.Contains("FEB") || p.Contains("FEBRUARY") || p.Contains("MAR") || p.Contains("APR") || p.Contains("APRIL")) return "Feb-Apr";
+                if (p.Contains("MAY") || p.Contains("JUN") || p.Contains("JUNE")) return "May-Jun";
+            }
+
+            return "Aug-Oct"; // final fallback
+        }
+
+        private string ExtractDepartmentCode(DataTable sheet)
+        {
+            // First: trust the metadata CsvDataService extracted from header rows
+            string metaDept = sheet.ExtendedProperties["Department"]?.ToString();
+            if (!string.IsNullOrEmpty(metaDept) && metaDept != "General" && metaDept != "MISC")
+                return metaDept;
+
+            // Fallback: parse the sheet tab name (sheet names like "ME TD 2ND", "CSE 6th Sem", etc.)
+            string name = sheet.TableName.ToUpper();
+            if (name.Contains("PASSOUT") || name.Contains("PASS OUT") || name.Contains("PASS-OUT"))
+                return "PASSOUT";
+            if (name.Contains("MECHATRONICS"))
+                return "MECHATRONICS";
+            if (name.Contains("ME") || name.Contains("MECH") || name.Contains("T&D") || name.Contains("TOOL"))
+                return "ME";
+            if (name.Contains("EE") || name.Contains("ELECTRICAL"))
+                return "EE";
+            if (name.Contains("CSE") || name.Contains("CS") || name.Contains("COMPUTER"))
+                return "CSE";
+            if (name.Contains("MISC"))
+                return "MISC";
+
+            // Last resort: read from metaDept even if MISC
+            return metaDept ?? null;
+        }
+
+        private string GetDepartmentName(string code)
+        {
+            return Departments.FirstOrDefault(d => d.Code == code)?.Name ?? code;
+        }
+
+        private string FormatQuarter(string quarter)
+        {
+            return quarter switch
+            {
+                "Aug-Oct" => "🍂 Aug-Oct",
+                "Nov-Jan" => "❄️ Nov-Jan",
+                "Feb-Apr" => "🌸 Feb-Apr",
+                "May-Jun" => "☀️ May-Jun",
+                _ => quarter
+            };
+        }
+
+        // ==========================
+        // HELPER CLASSES
         // ==========================
 
         public class DepartmentInfo
@@ -740,6 +1011,29 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             public int Years { get; set; }
             public string Color { get; set; }
             public string Icon { get; set; }
+        }
+
+        public class CourseInfo : ObservableObject
+        {
+            public string SheetName { get; set; }
+            public string DepartmentCode { get; set; }
+            public int Year { get; set; }
+            public string Quarter { get; set; }
+            public string CourseName { get; set; }
+            public string YearDisplay { get; set; }
+            public string QuarterDisplay { get; set; }
+            public DataTable DataTable { get; set; }
+
+            public int TotalStudents { get; set; }
+            public int PaidStudents { get; set; }
+            public int PendingStudents { get; set; }
+            public decimal PendingAmount { get; set; }
+            public string LastUpdated { get; set; }
+            public string FileStatus { get; set; }
+            public string StatusColor { get; set; }
+            public bool HasPendingFees { get; set; }
+            public bool CanPromote { get; set; }
+            public Brush ColorBrush { get; set; }
         }
     }
 }

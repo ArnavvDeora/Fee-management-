@@ -403,7 +403,9 @@ namespace SchoolFeeSystem.Presentation.Services
         }
 
         /// <summary>
-        /// Format values for better display
+        /// Format values for better display.
+        /// Currency formatting is applied ONLY to columns that are clearly fee/amount columns.
+        /// Sr No., ID, and plain integer columns are shown as plain integers.
         /// </summary>
         private static string FormatValue(string value, string columnName = "")
         {
@@ -412,17 +414,31 @@ namespace SchoolFeeSystem.Presentation.Services
 
             // Special formatting for payment history
             if (columnName.ToLower().Contains("payment history"))
-            {
-                // Replace semicolons with line breaks for better readability
                 return value.Replace("; ", "\n");
-            }
 
-            // Format as currency if it's a number
-            if (decimal.TryParse(value, out decimal number))
-            {
+            // Never add ₹ to serial number / ID / category columns
+            string colLower = columnName.ToLower();
+            bool isIdColumn = colLower.Contains("sr no") || colLower.Contains("sr.no") ||
+                              colLower.Contains("serial") || colLower == "id" ||
+                              colLower.Contains("roll") || colLower.StartsWith("_");
+
+            if (isIdColumn)
+                return value; // return raw, no currency formatting
+
+            // Only format as currency if the column name suggests it is a money column
+            bool isCurrencyColumn = colLower.Contains("fee") || colLower.Contains("fees") ||
+                                    colLower.Contains("amount") || colLower.Contains("pending") ||
+                                    colLower.Contains("balance") || colLower.Contains("total") ||
+                                    colLower.Contains("fund") || colLower.Contains("insurance") ||
+                                    colLower.Contains("hostel") || colLower.Contains("charges") ||
+                                    colLower.Contains("fine") || colLower.Contains("security") ||
+                                    colLower.Contains("refundable");
+
+            if (isCurrencyColumn && decimal.TryParse(value, out decimal number))
                 return $"₹{number:N2}";
-            }
 
+            // For non-currency numeric columns (Sr No already handled above),
+            // just return the raw value so plain integers stay as plain integers.
             return value;
         }
 
@@ -439,6 +455,216 @@ namespace SchoolFeeSystem.Presentation.Services
                 }
             }
             return string.Empty;
+        }
+        // ================================================================
+        // ADD THIS METHOD TO PdfReportService.cs
+        // INSERT BEFORE THE LAST CLOSING BRACE (before line 444)
+        // ================================================================
+
+        /// <summary>
+        /// Generates a course report showing all students in a course with statistics
+        /// </summary>
+        public void GenerateCourseReport(DataTable courseData, string filePath, string courseName, string quarter)
+        {
+            QuestPDF.Settings.License = LicenseType.Community;
+
+            Document.Create(container =>
+            {
+                container.Page(page =>
+                {
+                    page.Size(PageSizes.A4.Landscape());  // Landscape for wider tables
+                    page.Margin(20);
+                    page.PageColor(Colors.White);
+                    page.DefaultTextStyle(x => x.FontSize(9).FontFamily("Arial"));
+
+                    // ============ HEADER ============
+                    page.Header().Column(column =>
+                    {
+                        column.Spacing(5);
+
+                        column.Item().AlignCenter().Text("Course Fee Report")
+                            .FontSize(16)
+                            .Bold()
+                            .FontColor(Colors.Blue.Darken2);
+
+                        column.Item().AlignCenter().Text(courseName)
+                            .FontSize(13)
+                            .Bold();
+
+                        column.Item().AlignCenter().Text(quarter)
+                            .FontSize(11)
+                            .Italic()
+                            .FontColor(Colors.Grey.Darken1);
+
+                        column.Item().PaddingTop(8).LineHorizontal(2).LineColor(Colors.Blue.Darken2);
+                    });
+
+                    // ============ CONTENT ============
+                    page.Content().PaddingTop(15).Column(column =>
+                    {
+                        // Calculate Statistics — only count rows with a real Name
+                        var nameColStat = courseData.Columns.Cast<DataColumn>()
+                            .FirstOrDefault(c => c.ColumnName.Equals("Name", StringComparison.OrdinalIgnoreCase));
+                        int totalStudents = courseData.Rows.Cast<DataRow>()
+                            .Count(r =>
+                            {
+                                if (nameColStat == null) return true;
+                                string n = r[nameColStat]?.ToString()?.Trim() ?? "";
+                                return !string.IsNullOrEmpty(n) &&
+                                       !n.Equals("Name", StringComparison.OrdinalIgnoreCase) &&
+                                       !n.StartsWith("Note", StringComparison.OrdinalIgnoreCase) &&
+                                       n.Length <= 60;
+                            });
+                        int paidCount = 0;
+                        int pendingCount = 0;
+                        decimal totalPending = 0;
+
+                        // Find pending column
+                        var pendingCol = courseData.Columns.Cast<DataColumn>()
+                            .FirstOrDefault(c => c.ColumnName.ToLower().Contains("pending") ||
+                                               c.ColumnName.ToLower().Contains("balance"));
+
+                        if (pendingCol != null)
+                        {
+                            foreach (DataRow row in courseData.Rows)
+                            {
+                                string rawValue = row[pendingCol]?.ToString()?.Trim();
+                                if (decimal.TryParse(rawValue?.Replace("₹", "").Replace(",", ""), out decimal pending))
+                                {
+                                    if (pending > 0)
+                                    {
+                                        pendingCount++;
+                                        totalPending += pending;
+                                    }
+                                    else
+                                    {
+                                        paidCount++;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Summary Stats
+                        column.Item().Row(row =>
+                        {
+                            row.RelativeItem().Background(Colors.Blue.Lighten4).Padding(10).Column(col =>
+                            {
+                                col.Item().Text("👥 Total Students").FontSize(10).Bold();
+                                col.Item().Text(totalStudents.ToString()).FontSize(18).Bold().FontColor(Colors.Blue.Darken2);
+                            });
+
+                            row.RelativeItem().Background(Colors.Green.Lighten4).Padding(10).Column(col =>
+                            {
+                                col.Item().Text("✅ Fully Paid").FontSize(10).Bold();
+                                col.Item().Text(paidCount.ToString()).FontSize(18).Bold().FontColor(Colors.Green.Darken2);
+                            });
+
+                            row.RelativeItem().Background(Colors.Orange.Lighten4).Padding(10).Column(col =>
+                            {
+                                col.Item().Text("⚠️ Pending Fees").FontSize(10).Bold();
+                                col.Item().Text(pendingCount.ToString()).FontSize(18).Bold().FontColor(Colors.Orange.Darken2);
+                            });
+
+                            row.RelativeItem().Background(Colors.Red.Lighten4).Padding(10).Column(col =>
+                            {
+                                col.Item().Text("💰 Total Pending").FontSize(10).Bold();
+                                col.Item().Text($"₹{totalPending:N2}").FontSize(18).Bold().FontColor(Colors.Red.Darken2);
+                            });
+                        });
+
+                        // Main Data Table
+                        column.Item().PaddingTop(15).Table(table =>
+                        {
+                            // Visible columns: skip internal _Section column
+                            var visibleCols = courseData.Columns.Cast<DataColumn>()
+                                .Where(c => !c.ColumnName.StartsWith("_"))
+                                .ToList();
+
+                            // Define columns
+                            table.ColumnsDefinition(columns =>
+                            {
+                                foreach (DataColumn col in visibleCols)
+                                {
+                                    if (col.ColumnName.ToLower().Contains("name"))
+                                        columns.RelativeColumn(2);
+                                    else
+                                        columns.RelativeColumn();
+                                }
+                            });
+
+                            // Header Row
+                            foreach (DataColumn col in visibleCols)
+                            {
+                                table.Cell().Element(HeaderCellStyle).Text(col.ColumnName).Bold();
+                            }
+
+                            // Data Rows — auto-number Sr No. as plain integer
+                            bool alternateRow = false;
+                            int srCounter = 0;
+
+                            // Find the Sr No column index (if present)
+                            int srNoColIdx = -1;
+                            for (int ci = 0; ci < visibleCols.Count; ci++)
+                            {
+                                string cn = visibleCols[ci].ColumnName.ToLower();
+                                if (cn.Contains("sr no") || cn.Contains("sr.no") || cn.Contains("serial"))
+                                { srNoColIdx = ci; break; }
+                            }
+
+                            foreach (DataRow dataRow in courseData.Rows)
+                            {
+                                srCounter++;
+                                for (int ci = 0; ci < visibleCols.Count; ci++)
+                                {
+                                    DataColumn col = visibleCols[ci];
+                                    string value;
+
+                                    // Replace Sr No. with clean auto-counter
+                                    if (ci == srNoColIdx)
+                                        value = srCounter.ToString();
+                                    else
+                                        value = dataRow[col]?.ToString() ?? "";
+
+                                    // Highlight pending fees in red
+                                    bool isPending = false;
+                                    if (col.ColumnName.ToLower().Contains("pending") ||
+                                        col.ColumnName.ToLower().Contains("balance"))
+                                    {
+                                        if (decimal.TryParse(value?.Replace("₹", "").Replace(",", ""),
+                                                System.Globalization.NumberStyles.Any,
+                                                System.Globalization.CultureInfo.InvariantCulture,
+                                                out decimal amt) && amt > 0)
+                                            isPending = true;
+                                    }
+
+                                    var cellStyle = alternateRow
+                                        ? (Func<IContainer, IContainer>)DataCellStyleAlt
+                                        : (Func<IContainer, IContainer>)DataCellStyle;
+
+                                    if (isPending)
+                                        table.Cell().Element(cellStyle)
+                                            .Text(FormatValue(value, col.ColumnName))
+                                            .FontColor(Colors.Red.Darken2).Bold();
+                                    else
+                                        table.Cell().Element(cellStyle)
+                                            .Text(FormatValue(value, col.ColumnName));
+                                }
+                                alternateRow = !alternateRow;
+                            }
+                        });
+                    });
+
+                    // ============ FOOTER ============
+                    page.Footer().AlignCenter().Text(x =>
+                    {
+                        x.Span("Generated on " + DateTime.Now.ToString("dd-MM-yyyy HH:mm") + " | Page ");
+                        x.CurrentPageNumber();
+                        x.Span(" / ");
+                        x.TotalPages();
+                    });
+                });
+            })
+            .GeneratePdf(filePath);
         }
     }
 }

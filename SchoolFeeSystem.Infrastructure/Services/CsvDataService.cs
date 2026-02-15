@@ -67,9 +67,15 @@ namespace SchoolFeeSystem.Presentation.Services
             {
                 var table = WorksheetToDataTable(worksheet);
 
-                // Detect and tag department
-                string department = DetectDepartment(table);
-                table.ExtendedProperties["Department"] = department;
+                // Extract full metadata (department, year, quarter) from header rows
+                var metadata = ExtractMetadataFromSheet(worksheet);
+
+                table.ExtendedProperties["Department"] = metadata.DepartmentCode;
+                table.ExtendedProperties["Year"] = metadata.Year;
+                table.ExtendedProperties["Quarter"] = metadata.Quarter;
+                table.ExtendedProperties["Period"] = metadata.Period;
+                table.ExtendedProperties["CourseInfo"] = metadata.CourseInfo;
+                table.ExtendedProperties["InstituteName"] = metadata.InstituteName;
                 table.ExtendedProperties["OriginalSheetName"] = worksheet.Name;
 
                 dataSet.Tables.Add(table);
@@ -125,57 +131,260 @@ namespace SchoolFeeSystem.Presentation.Services
             return "General"; // Default if no department detected
         }
 
+        // -----------------------------------------------------------------------
+        // MULTI-TABLE AWARE WORKSHEET LOADING
+        //
+        // Many sheets in this school's Excel format contain TWO sub-tables on
+        // the same sheet (e.g. "Regular Students" + "NEW ADMISSION LEET").
+        // Both share the same quarter/period but have different column sets.
+        //
+        // Strategy:
+        //   1. Find ALL header rows in the sheet (rows containing "Sr No." + "Name").
+        //   2. For each header-row block, extract only the student rows that belong
+        //      to that block (stop when the next header row / end of sheet is hit).
+        //   3. Merge all blocks into a single DataTable using a superset of all
+        //      columns, tagged with "_Section" so the UI can group them.
+        //   4. Only rows with a non-empty "Name" column are treated as students —
+        //      this eliminates gap rows, SUM rows, section-label rows, and NOTE rows.
+        // -----------------------------------------------------------------------
+
         private DataTable WorksheetToDataTable(IXLWorksheet worksheet)
         {
-            var table = new DataTable(worksheet.Name);
+            // Step 1: Locate ALL header rows in the sheet
+            var allRows = worksheet.RowsUsed().ToList();
+            var headerRowNums = FindAllHeaderRows(allRows);
 
-            // Find header row (usually row 1 or row with most non-empty cells)
-            int headerRow = FindHeaderRow(worksheet);
-
-            // Add columns
-            var headerCells = worksheet.Row(headerRow).CellsUsed().ToList();
-            foreach (var cell in headerCells)
+            if (headerRowNums.Count == 0)
             {
-                string colName = cell.GetString();
-                if (string.IsNullOrWhiteSpace(colName))
-                    colName = $"Column{cell.Address.ColumnNumber}";
-
-                table.Columns.Add(colName);
+                // Sheet has no recognisable header — return empty table
+                return new DataTable(worksheet.Name);
             }
 
-            // Add data rows
-            foreach (var row in worksheet.RowsUsed().Skip(headerRow))
-            {
-                if (row.RowNumber() == headerRow) continue;
+            // Step 2: Parse each sub-table block into (columns, dataRows) pairs
+            var blocks = new List<(List<(string Name, int ColAddr)> Cols, List<List<string>> Rows, string Section)>();
 
-                var dataRow = table.NewRow();
-                for (int i = 0; i < table.Columns.Count; i++)
+            for (int b = 0; b < headerRowNums.Count; b++)
+            {
+                int headerNum = headerRowNums[b];
+                int nextHeader = b + 1 < headerRowNums.Count ? headerRowNums[b + 1] : int.MaxValue;
+
+                // Derive a section label — look for a section title row just above
+                // the header (single non-formula, non-empty cell, not a metadata row).
+                string sectionLabel = DeriveSectionLabel(allRows, headerNum);
+
+                // Build column list for this block
+                var headerRow = allRows.First(r => r.RowNumber() == headerNum);
+                var blockCols = new List<(string Name, int ColAddr)>();
+                foreach (var cell in headerRow.CellsUsed())
                 {
-                    var cell = row.Cell(i + 1);
-                    dataRow[i] = cell.GetString();
+                    string colName = cell.GetString().Trim();
+                    if (string.IsNullOrWhiteSpace(colName))
+                        colName = $"Column{cell.Address.ColumnNumber}";
+                    blockCols.Add((colName, cell.Address.ColumnNumber));
                 }
-                table.Rows.Add(dataRow);
+
+                // Collect student rows for this block
+                var blockDataRows = new List<List<string>>();
+                foreach (var row in allRows)
+                {
+                    int rowNum = row.RowNumber();
+                    if (rowNum <= headerNum) continue; // skip header and above
+                    if (rowNum >= nextHeader) break;    // stop at next block's header
+
+                    // A valid student row MUST have a non-empty Name cell
+                    // (2nd column in the header = "Name", typically column B)
+                    int nameColAddr = blockCols.Count > 1 ? blockCols[1].ColAddr : -1;
+                    if (nameColAddr < 0) continue;
+
+                    string nameVal = row.Cell(nameColAddr).GetString().Trim();
+                    if (string.IsNullOrEmpty(nameVal)) continue; // gap, SUM, label rows
+
+                    // Skip repeated sub-header rows (Name cell literally says "Name")
+                    if (nameVal.Equals("Name", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    // Skip Note/disclaimer rows — the school puts these in column B (Name col)
+                    // They are long sentences and always start with "Note"
+                    if (nameVal.StartsWith("Note", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    // A real student's Sr No. (column A) must be a positive integer.
+                    // If it is empty or non-numeric the row is a footer/total/label — skip it.
+                    int srNoColAddr = blockCols.Count > 0 ? blockCols[0].ColAddr : -1;
+                    if (srNoColAddr >= 0)
+                    {
+                        string srNoVal = row.Cell(srNoColAddr).GetString().Trim();
+                        // Allow empty Sr No. only if Name is clearly a person (short, no punctuation)
+                        bool srIsNumber = int.TryParse(srNoVal, out _);
+                        bool nameIsSentence = nameVal.Length > 60 || nameVal.Contains(":-") ||
+                                             nameVal.Contains("Per Day") || nameVal.Contains("deposited");
+                        if (nameIsSentence) continue; // definitely not a student name
+                        if (!srIsNumber && !string.IsNullOrEmpty(srNoVal)) continue; // non-numeric Sr No.
+                    }
+
+                    // Collect cell values for all columns of this block
+                    var rowValues = new List<string>();
+                    foreach (var (_, colAddr) in blockCols)
+                    {
+                        var cell = row.Cell(colAddr);
+                        string cellValue;
+                        if (cell.HasFormula)
+                        {
+                            try { cellValue = cell.CachedValue.ToString()?.Trim() ?? ""; }
+                            catch { cellValue = ""; }
+                        }
+                        else
+                        {
+                            cellValue = cell.GetString().Trim();
+                        }
+                        rowValues.Add(cellValue);
+                    }
+                    blockDataRows.Add(rowValues);
+                }
+
+                if (blockDataRows.Count > 0 || blocks.Count == 0)
+                    blocks.Add((blockCols, blockDataRows, sectionLabel));
+            }
+
+            // Step 3: Build a unified DataTable with the superset of all columns.
+            // We add a hidden "_Section" column so the UI can optionally group rows.
+            var table = new DataTable(worksheet.Name);
+            table.Columns.Add("_Section"); // internal grouping tag, hidden in UI
+
+            // Collect superset of column names in encounter order
+            var allColNames = new List<string>();
+            foreach (var (cols, _, _) in blocks)
+            {
+                foreach (var (name, _) in cols)
+                {
+                    if (!allColNames.Contains(name, StringComparer.OrdinalIgnoreCase))
+                        allColNames.Add(name);
+                }
+            }
+
+            // Deduplicate and add to table
+            foreach (var colName in allColNames)
+            {
+                string finalName = colName;
+                int suffix = 2;
+                while (table.Columns.Contains(finalName))
+                    finalName = $"{colName}_{suffix++}";
+                table.Columns.Add(finalName);
+            }
+
+            // Step 4: Fill rows from each block
+            foreach (var (blockCols, blockRows, section) in blocks)
+            {
+                // Map this block's column names to DataTable column indices
+                var colIndexMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                for (int ci = 0; ci < blockCols.Count; ci++)
+                {
+                    string blockColName = blockCols[ci].Name;
+                    // Find matching DataTable column
+                    for (int di = 1; di < table.Columns.Count; di++) // skip _Section at 0
+                    {
+                        if (table.Columns[di].ColumnName.StartsWith(blockColName,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            colIndexMap[blockColName] = di;
+                            break;
+                        }
+                    }
+                }
+
+                foreach (var rowValues in blockRows)
+                {
+                    var dataRow = table.NewRow();
+                    dataRow["_Section"] = section;
+                    for (int ci = 0; ci < blockCols.Count && ci < rowValues.Count; ci++)
+                    {
+                        string blockColName = blockCols[ci].Name;
+                        if (colIndexMap.TryGetValue(blockColName, out int dtColIdx))
+                            dataRow[dtColIdx] = rowValues[ci];
+                    }
+                    table.Rows.Add(dataRow);
+                }
             }
 
             return table;
         }
 
-        private int FindHeaderRow(IXLWorksheet worksheet)
+        /// <summary>
+        /// Finds ALL row numbers in the worksheet that look like a student-data header
+        /// (must contain both "Sr No." and "Name" cells).
+        /// </summary>
+        private List<int> FindAllHeaderRows(List<IXLRow> allRows)
         {
-            int maxCells = 0;
-            int headerRow = 1;
-
-            foreach (var row in worksheet.RowsUsed().Take(10)) // Check first 10 rows
+            var result = new List<int>();
+            foreach (var row in allRows)
             {
-                int cellCount = row.CellsUsed().Count();
-                if (cellCount > maxCells)
-                {
-                    maxCells = cellCount;
-                    headerRow = row.RowNumber();
-                }
+                var cellTexts = row.CellsUsed()
+                                   .Select(c => c.GetString().Trim())
+                                   .ToList();
+
+                bool hasSrNo = cellTexts.Any(c =>
+                    c.Equals("Sr No.", StringComparison.OrdinalIgnoreCase) ||
+                    c.Equals("Sr No", StringComparison.OrdinalIgnoreCase) ||
+                    c.Equals("Sr.", StringComparison.OrdinalIgnoreCase));
+
+                bool hasName = cellTexts.Any(c =>
+                    c.Equals("Name", StringComparison.OrdinalIgnoreCase));
+
+                if (hasSrNo && hasName)
+                    result.Add(row.RowNumber());
             }
 
-            return headerRow;
+            // Fallback: if no header found, try the row with the most cells after row 3
+            if (result.Count == 0)
+            {
+                int maxCells = 0, bestRow = 5;
+                foreach (var row in allRows)
+                {
+                    if (row.RowNumber() <= 3) continue;
+                    int count = row.CellsUsed().Count();
+                    if (count <= 1) continue;
+                    if (count > maxCells) { maxCells = count; bestRow = row.RowNumber(); }
+                }
+                result.Add(bestRow);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Looks immediately above a header row for a section title label
+        /// (a single-cell, non-formula row that isn't a metadata row 1-3).
+        /// </summary>
+        private string DeriveSectionLabel(List<IXLRow> allRows, int headerRowNum)
+        {
+            // Search up to 4 rows above the header for a label row
+            for (int offset = 1; offset <= 4; offset++)
+            {
+                int targetRow = headerRowNum - offset;
+                if (targetRow <= 3) break;
+
+                var row = allRows.FirstOrDefault(r => r.RowNumber() == targetRow);
+                if (row == null) continue;
+
+                var usedCells = row.CellsUsed().ToList();
+                if (usedCells.Count != 1) continue; // only single-cell rows qualify
+
+                string val = usedCells[0].GetString().Trim();
+                if (string.IsNullOrEmpty(val)) continue;
+                if (val.StartsWith("=")) continue;                          // formula
+                if (val.StartsWith("Note", StringComparison.OrdinalIgnoreCase)) continue; // note
+                if (val.StartsWith("Sub:-", StringComparison.OrdinalIgnoreCase)) continue; // period text
+
+                return val; // e.g. "NEW ADMISSION 2024 LEET", "LEET", etc.
+            }
+
+            return "Regular"; // default label for the first (main) table
+        }
+
+        // FindHeaderRow kept as the single-result convenience wrapper used by ExtractMetadataFromSheet
+        private int FindHeaderRow(IXLWorksheet worksheet)
+        {
+            var allRows = worksheet.RowsUsed().ToList();
+            var allHeaders = FindAllHeaderRows(allRows);
+            return allHeaders.Count > 0 ? allHeaders[0] : 5;
         }
 
         // ===========================================
@@ -200,41 +409,9 @@ namespace SchoolFeeSystem.Presentation.Services
             return departments.OrderBy(d => d).ToList();
         }
 
-        public List<string> GetSheetsByDepartment(string department)
-        {
-            var sheets = new List<string>();
+        // GetSheetsByDepartment is defined below (returns List<DataTable>)
 
-            foreach (var kvp in _loadedFiles)
-            {
-                foreach (DataTable table in kvp.Value.Tables)
-                {
-                    if (table.ExtendedProperties["Department"]?.ToString() == department)
-                    {
-                        string displayName = $"{Path.GetFileNameWithoutExtension(kvp.Key)} - {table.TableName}";
-                        sheets.Add(displayName);
-                    }
-                }
-            }
-
-            return sheets;
-        }
-
-        public DataTable GetSheetByDepartment(string department, string sheetName)
-        {
-            foreach (var dataSet in _loadedFiles.Values)
-            {
-                foreach (DataTable table in dataSet.Tables)
-                {
-                    if (table.ExtendedProperties["Department"]?.ToString() == department &&
-                        table.TableName == sheetName)
-                    {
-                        return table;
-                    }
-                }
-            }
-
-            return null;
-        }
+        // GetSheetByFilter is defined below with (departmentCode, year, quarter) parameters
 
         // ===========================================
         // FINE CALCULATION SYSTEM
@@ -283,67 +460,7 @@ namespace SchoolFeeSystem.Presentation.Services
             return totalFine;
         }
 
-        public void RecalculateRowFees(string sheetName, DataRow row)
-        {
-            // Check if fee columns exist
-            if (!row.Table.Columns.Contains("Total Fee") ||
-                !row.Table.Columns.Contains("Fine Amount"))
-                return;
-
-            try
-            {
-                // Get payment date if available
-                DateTime? paymentDate = null;
-                if (row.Table.Columns.Contains("Payment Date") &&
-                    !string.IsNullOrEmpty(row["Payment Date"]?.ToString()))
-                {
-                    paymentDate = DateTime.Parse(row["Payment Date"].ToString());
-                }
-
-                // Get due date if available
-                DateTime? dueDate = null;
-                if (row.Table.Columns.Contains("Due Date") &&
-                    !string.IsNullOrEmpty(row["Due Date"]?.ToString()))
-                {
-                    dueDate = DateTime.Parse(row["Due Date"].ToString());
-                }
-
-                // Calculate fine if payment is late
-                if (paymentDate.HasValue && dueDate.HasValue && paymentDate > dueDate)
-                {
-                    int monthNumber = GetMonthNumber(dueDate.Value);
-                    decimal calculatedFine = CalculateFine(dueDate.Value, paymentDate.Value, monthNumber);
-                    row["Fine Amount"] = calculatedFine;
-                }
-                else if (!paymentDate.HasValue && dueDate.HasValue && DateTime.Now > dueDate)
-                {
-                    // Payment not yet made, calculate current fine
-                    int monthNumber = GetMonthNumber(dueDate.Value);
-                    decimal calculatedFine = CalculateFine(dueDate.Value, DateTime.Now, monthNumber);
-                    row["Fine Amount"] = calculatedFine;
-                }
-                else
-                {
-                    row["Fine Amount"] = 0m;
-                }
-
-                // Recalculate total amount
-                decimal baseFee = 0m;
-                if (row.Table.Columns.Contains("Base Fee") &&
-                    !string.IsNullOrEmpty(row["Base Fee"]?.ToString()))
-                {
-                    baseFee = decimal.Parse(row["Base Fee"].ToString());
-                }
-
-                decimal fineAmount = decimal.Parse(row["Fine Amount"].ToString());
-                row["Total Fee"] = baseFee + fineAmount;
-            }
-            catch (Exception ex)
-            {
-                // Log error but don't throw to prevent UI crashes
-                Console.WriteLine($"Error recalculating fees: {ex.Message}");
-            }
-        }
+        // RecalculateRowFees is defined below with full fine logic
 
         private int GetMonthNumber(DateTime dueDate)
         {
@@ -630,76 +747,7 @@ namespace SchoolFeeSystem.Presentation.Services
             return null;
         }
 
-        public void SaveFile()
-        {
-            foreach (var kvp in _filePaths)
-            {
-                if (!_loadedFiles.ContainsKey(kvp.Key))
-                    continue;
-
-                var filePath = kvp.Value;
-                var dataSet = _loadedFiles[kvp.Key];
-
-                using var workbook = new XLWorkbook();
-
-                foreach (DataTable table in dataSet.Tables)
-                {
-                    var worksheet = workbook.AddWorksheet(table.TableName);
-
-                    // Add headers
-                    for (int i = 0; i < table.Columns.Count; i++)
-                    {
-                        worksheet.Cell(1, i + 1).Value = table.Columns[i].ColumnName;
-                        worksheet.Cell(1, i + 1).Style.Font.Bold = true;
-                    }
-
-                    // Add data
-                    for (int row = 0; row < table.Rows.Count; row++)
-                    {
-                        for (int col = 0; col < table.Columns.Count; col++)
-                        {
-                            worksheet.Cell(row + 2, col + 1).Value = table.Rows[row][col]?.ToString();
-                        }
-                    }
-
-                    worksheet.Columns().AdjustToContents();
-                }
-
-                workbook.SaveAs(filePath);
-            }
-
-            // Save payment history separately
-            const string historyKey = "_PaymentHistory";
-            if (_loadedFiles.ContainsKey(historyKey))
-            {
-                string historyPath = Path.Combine(
-                    Path.GetDirectoryName(_filePaths.Values.FirstOrDefault() ?? ""),
-                    "PaymentHistory.xlsx");
-
-                using var workbook = new XLWorkbook();
-                var table = _loadedFiles[historyKey].Tables[0];
-                var worksheet = workbook.AddWorksheet("Payment History");
-
-                // Add headers
-                for (int i = 0; i < table.Columns.Count; i++)
-                {
-                    worksheet.Cell(1, i + 1).Value = table.Columns[i].ColumnName;
-                    worksheet.Cell(1, i + 1).Style.Font.Bold = true;
-                }
-
-                // Add data
-                for (int row = 0; row < table.Rows.Count; row++)
-                {
-                    for (int col = 0; col < table.Columns.Count; col++)
-                    {
-                        worksheet.Cell(row + 2, col + 1).Value = table.Rows[row][col]?.ToString();
-                    }
-                }
-
-                worksheet.Columns().AdjustToContents();
-                workbook.SaveAs(historyPath);
-            }
-        }
+        // SaveFile is defined below with full payment history support
 
 
         // ===========================================
@@ -1001,13 +1049,6 @@ namespace SchoolFeeSystem.Presentation.Services
                 }
             }
         }
-        // ========================================================================
-        // ADD THESE METHODS TO YOUR EXISTING CsvDataService.cs FILE
-        // These methods support the enhanced ClassView with department-based organization
-        // ========================================================================
-
-        // Add this inside the CsvDataService class:
-
         // ===========================================
         // DEPARTMENT & YEAR FILTERING
         // ===========================================
@@ -1016,55 +1057,7 @@ namespace SchoolFeeSystem.Presentation.Services
         /// Get a sheet by department code, year, and quarter
         /// Example: GetSheetByFilter("ME", 1, "Aug-Oct") returns "Mechanical-1st-AugOct" sheet
         /// </summary>
-        public DataTable GetSheetByFilter(string departmentCode, int year, string quarter)
-        {
-            // Build possible sheet name patterns
-            string quarterCode = quarter.Replace("-", "");
-
-            // Try different naming patterns that might exist in uploaded files
-            string[] possibleNames = new[]
-            {
-        $"{departmentCode}-{year}-{quarterCode}",
-        $"{departmentCode}-Year{year}-{quarterCode}",
-        $"{departmentCode} {year} {quarter}",
-        $"{departmentCode} Year {year} {quarter}",
-        $"{departmentCode} - {year}st Year - {quarter}",
-        $"{departmentCode} - {year}nd Year - {quarter}",
-        $"{departmentCode} - {year}rd Year - {quarter}",
-        $"{departmentCode} - {year}th Year - {quarter}",
-    };
-
-            foreach (var kvp in _loadedFiles)
-            {
-                foreach (DataTable table in kvp.Value.Tables)
-                {
-                    string tableName = table.TableName;
-                    string originalName = table.ExtendedProperties["OriginalSheetName"]?.ToString() ?? "";
-
-                    // Check if any pattern matches
-                    foreach (var pattern in possibleNames)
-                    {
-                        if (tableName.Contains(pattern, StringComparison.OrdinalIgnoreCase) ||
-                            originalName.Contains(pattern, StringComparison.OrdinalIgnoreCase))
-                        {
-                            return table;
-                        }
-                    }
-
-                    // Also check metadata if it exists
-                    if (table.ExtendedProperties["Department"]?.ToString() == departmentCode)
-                    {
-                        // Check if year and quarter match in the data
-                        if (TableMatchesYearAndQuarter(table, year, quarter))
-                        {
-                            return table;
-                        }
-                    }
-                }
-            }
-
-            return null;
-        }
+        // GetSheetByFilter(departmentCode, year, quarter) is defined below
 
         /// <summary>
         /// Check if a table contains data for a specific year and quarter
@@ -1098,195 +1091,15 @@ namespace SchoolFeeSystem.Presentation.Services
             return false;
         }
 
-        /// <summary>
-        /// Get available academic years for a department (for pass-outs)
-        /// </summary>
-        public List<int> GetAvailableAcademicYears(string departmentCode)
-        {
-            var years = new HashSet<int>();
+        // GetAvailableAcademicYears is defined below
 
-            foreach (var kvp in _loadedFiles)
-            {
-                foreach (DataTable table in kvp.Value.Tables)
-                {
-                    if (table.ExtendedProperties["Department"]?.ToString() == departmentCode)
-                    {
-                        // Extract year from sheet name or data
-                        int year = ExtractYearFromTable(table);
-                        if (year > 2000)
-                        {
-                            years.Add(year);
-                        }
-                    }
-                }
-            }
-
-            return years.OrderByDescending(y => y).ToList();
-        }
-
-        private int ExtractYearFromTable(DataTable table)
-        {
-            // Try to extract year from sheet name or data
-            string tableName = table.TableName;
-
-            // Look for 4-digit year patterns
-            var match = System.Text.RegularExpressions.Regex.Match(tableName, @"\b(20\d{2})\b");
-            if (match.Success && int.TryParse(match.Value, out int year))
-            {
-                return year;
-            }
-
-            // Check first few rows for year information
-            foreach (DataRow row in table.Rows.Cast<DataRow>().Take(5))
-            {
-                foreach (var item in row.ItemArray)
-                {
-                    if (item == null) continue;
-                    string value = item.ToString();
-
-                    match = System.Text.RegularExpressions.Regex.Match(value, @"\b(20\d{2})\b");
-                    if (match.Success && int.TryParse(match.Value, out year))
-                    {
-                        return year;
-                    }
-                }
-            }
-
-            return DateTime.Now.Year;
-        }
+        // ExtractYearFromTableName is defined below (used by GetAvailableAcademicYears)
 
         // ===========================================
         // YEAR PROGRESSION
         // ===========================================
 
-        /// <summary>
-        /// Promote all students from one year to the next
-        /// If isLastYear = true, moves students to pass-outs
-        /// </summary>
-        public void PromoteStudentsToNextYear(string departmentCode, int currentYear, bool isLastYear)
-        {
-            // Find all sheets for this department and year
-            var sheetsToPromote = new List<DataTable>();
-
-            foreach (var kvp in _loadedFiles)
-            {
-                foreach (DataTable table in kvp.Value.Tables)
-                {
-                    if (table.ExtendedProperties["Department"]?.ToString() == departmentCode)
-                    {
-                        if (TableMatchesYear(table, currentYear))
-                        {
-                            sheetsToPromote.Add(table);
-                        }
-                    }
-                }
-            }
-
-            if (sheetsToPromote.Count == 0)
-            {
-                throw new InvalidOperationException($"No data found for {departmentCode} Year {currentYear}");
-            }
-
-            // Create new sheets for promoted students
-            foreach (var sourceTable in sheetsToPromote)
-            {
-                string newSheetName;
-
-                if (isLastYear)
-                {
-                    // Move to pass-outs
-                    newSheetName = $"PASSOUT-{departmentCode}-{DateTime.Now.Year}";
-                }
-                else
-                {
-                    // Move to next year
-                    string oldName = sourceTable.TableName;
-                    newSheetName = oldName.Replace($"Year{currentYear}", $"Year{currentYear + 1}")
-                                          .Replace($"{currentYear}st", $"{currentYear + 1}st")
-                                          .Replace($"{currentYear}nd", $"{currentYear + 1}nd")
-                                          .Replace($"{currentYear}rd", $"{currentYear + 1}rd")
-                                          .Replace($"{currentYear}th", $"{currentYear + 1}th");
-                }
-
-                // Clone the table structure and data
-                var newTable = sourceTable.Copy();
-                newTable.TableName = newSheetName;
-
-                // Update metadata
-                newTable.ExtendedProperties["Department"] = isLastYear ? "PASSOUT" : departmentCode;
-                newTable.ExtendedProperties["Year"] = isLastYear ? "Graduate" : (currentYear + 1).ToString();
-                newTable.ExtendedProperties["OriginalSheetName"] = newSheetName;
-
-                // Reset fee-related columns for new academic year
-                ResetFeesForNewYear(newTable);
-
-                // Add to appropriate file
-                string fileKey = isLastYear ? "PassOuts.xlsx" : $"{departmentCode}_Year{currentYear + 1}.xlsx";
-
-                if (!_loadedFiles.ContainsKey(fileKey))
-                {
-                    _loadedFiles[fileKey] = new DataSet();
-                }
-
-                _loadedFiles[fileKey].Tables.Add(newTable);
-            }
-
-            // Optionally archive or remove old year data
-            // (You might want to keep it for historical purposes)
-        }
-
-        private bool TableMatchesYear(DataTable table, int year)
-        {
-            string tableName = table.TableName.ToLower();
-
-            return tableName.Contains($"{year}st") ||
-                   tableName.Contains($"{year}nd") ||
-                   tableName.Contains($"{year}rd") ||
-                   tableName.Contains($"{year}th") ||
-                   tableName.Contains($"year{year}") ||
-                   tableName.Contains($"year {year}");
-        }
-
-        private void ResetFeesForNewYear(DataTable table)
-        {
-            // Find fee-related columns
-            var feeColumns = table.Columns.Cast<DataColumn>()
-                .Where(c => c.ColumnName.ToLower().Contains("paid") ||
-                           c.ColumnName.ToLower().Contains("total") ||
-                           c.ColumnName.ToLower().Contains("balance"))
-                .ToList();
-
-            // Reset all fee columns to 0 or empty
-            foreach (DataRow row in table.Rows)
-            {
-                foreach (var col in feeColumns)
-                {
-                    if (col.DataType == typeof(decimal) || col.DataType == typeof(double))
-                    {
-                        row[col] = 0;
-                    }
-                    else
-                    {
-                        row[col] = "₹0.00";
-                    }
-                }
-            }
-
-            // Move "Previous Pending" to new column for tracking
-            var previousCol = table.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("previous"));
-
-            if (previousCol != null && !table.Columns.Contains("Carried Forward"))
-            {
-                var carriedForwardCol = table.Columns.Add("Carried Forward", typeof(string));
-
-                foreach (DataRow row in table.Rows)
-                {
-                    row[carriedForwardCol] = row[previousCol];
-                    row[previousCol] = "₹0.00";
-                }
-            }
-        }
+        // PromoteStudentsToNextYear is defined below
 
         // ===========================================
         // COURSE & QUARTER DETECTION FROM EXCEL
@@ -1331,55 +1144,99 @@ namespace SchoolFeeSystem.Presentation.Services
         {
             var metadata = new SheetMetadataExtended();
 
-            // Read first 3 rows to extract metadata
-            // Example format:
-            // Row 1: "CENTRAL INSTITUTE OF HAND TOOLS - SRI LANKA"
-            // Row 2: "Sub-Deposition of fee for the period: FEB 2026 to APRIL 2026"
-            // Row 3: "Diploma - Mechanical Engineering (Tool and Die) - 3RD Year - 18th Batch"
+            // Read first 5 rows — metadata can be spread across rows 1-5 in different sheets
+            var headerLines = new List<string>();
+            foreach (var row in worksheet.RowsUsed().Take(5))
+                headerLines.Add(row.CellsUsed().FirstOrDefault()?.GetString()?.Trim() ?? "");
 
-            if (worksheet.RowsUsed().Count() >= 3)
+            string row1 = headerLines.Count > 0 ? headerLines[0] : "";
+            string row2 = headerLines.Count > 1 ? headerLines[1] : "";
+            string row3 = headerLines.Count > 2 ? headerLines[2] : "";
+
+            metadata.InstituteName = row1;
+
+            // --- Period & Quarter extraction ---
+            // Try row 2 first, then row 3 if row 2 doesn't have period info.
+            // Pattern: matches both short (FEB, APR) AND full (FEBRUARY, APRIL) month names,
+            // with optional spaces/punctuation, e.g. "(FEB 2026 to APRIL 2026)"
+            string monthPattern =
+                @"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER" +
+                @"|JAN|FEB|MAR|APR|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{4}" +
+                @"\s+[Tt][Oo]\s+" +
+                @"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER" +
+                @"|JAN|FEB|MAR|APR|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{4}";
+
+            string periodSource = "";
+            foreach (string candidate in new[] { row2, row3, row1 })
             {
-                string row1 = worksheet.Row(1).CellsUsed().FirstOrDefault()?.GetString() ?? "";
-                string row2 = worksheet.Row(2).CellsUsed().FirstOrDefault()?.GetString() ?? "";
-                string row3 = worksheet.Row(3).CellsUsed().FirstOrDefault()?.GetString() ?? "";
-
-                // Extract institute name
-                metadata.InstituteName = row1.Trim();
-
-                // Extract period from row 2
-                var periodMatch = System.Text.RegularExpressions.Regex.Match(row2,
-                    @"(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{4}\s+to\s+(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{4}",
+                var m = System.Text.RegularExpressions.Regex.Match(
+                    candidate, monthPattern,
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-                if (periodMatch.Success)
+                if (m.Success)
                 {
-                    metadata.Period = periodMatch.Value;
-                    metadata.Quarter = DeterminQuarter(periodMatch.Value);
+                    periodSource = m.Value;
+                    metadata.Period = m.Value;
+                    metadata.Quarter = DeterminQuarter(m.Value);
+                    break;
                 }
+            }
 
-                // Extract course info from row 3
-                metadata.CourseInfo = row3.Trim();
+            // If regex still failed, try a simpler search of row 2 for any known month word
+            if (string.IsNullOrEmpty(metadata.Quarter) || metadata.Quarter == "Unknown")
+            {
+                string combined = (row2 + " " + row3).ToUpper();
+                metadata.Quarter = DeterminQuarter(combined);
+                if (metadata.Quarter != "Unknown")
+                    metadata.Period = combined.Trim();
+            }
 
-                // Extract department
-                if (row3.Contains("Mechanical", StringComparison.OrdinalIgnoreCase))
-                    metadata.DepartmentCode = "ME";
-                else if (row3.Contains("Mechatronics", StringComparison.OrdinalIgnoreCase))
-                    metadata.DepartmentCode = "MECHATRONICS";
-                else if (row3.Contains("Electrical", StringComparison.OrdinalIgnoreCase))
-                    metadata.DepartmentCode = "EE";
-                else if (row3.Contains("Computer", StringComparison.OrdinalIgnoreCase))
-                    metadata.DepartmentCode = "CSE";
-                else
-                    metadata.DepartmentCode = "MISC";
+            // --- Course info & Department extraction ---
+            metadata.CourseInfo = row3;
 
-                // Extract year
-                var yearMatch = System.Text.RegularExpressions.Regex.Match(row3, @"(\d+)(st|nd|rd|th)\s+Year",
+            // Row 3 always has the course description: "Diploma - ME (T&D) - 2nd Year - ..."
+            string courseText = row3.ToUpper();
+
+            if (courseText.Contains("PASSOUT") || courseText.Contains("PASS OUT") ||
+                courseText.Contains("PASS-OUT"))
+                metadata.DepartmentCode = "PASSOUT";
+            else if (courseText.Contains("MECHATRONICS"))
+                metadata.DepartmentCode = "MECHATRONICS";
+            else if (courseText.Contains("MECHANICAL") || courseText.Contains("M.E") ||
+                     courseText.Contains(" ME ") || courseText.Contains("(T&D)") ||
+                     courseText.Contains("TOOL AND DIE") || courseText.Contains("TOOL & DIE"))
+                metadata.DepartmentCode = "ME";
+            else if (courseText.Contains("ELECTRICAL"))
+                metadata.DepartmentCode = "EE";
+            else if (courseText.Contains("COMPUTER") || courseText.Contains("CSE") ||
+                     courseText.Contains("C.S.E"))
+                metadata.DepartmentCode = "CSE";
+            else
+                metadata.DepartmentCode = "MISC";
+
+            // --- Year extraction from course info ---
+            // Matches: "2nd Year", "3RD Year", "4th Year", "2ND SEM", "5th Semester", "6th Sem"
+            var yearMatch = System.Text.RegularExpressions.Regex.Match(
+                row3,
+                @"(\d+)\s*(?:st|nd|rd|th)\s+(?:Year|Sem(?:ester)?)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            if (yearMatch.Success)
+            {
+                int semNum = int.Parse(yearMatch.Groups[1].Value);
+                // Convert semester number to year: 1st/2nd sem = Year 1, 3rd/4th = Year 2, etc.
+                if (semNum <= 2) metadata.Year = "1";
+                else if (semNum <= 4) metadata.Year = "2";
+                else if (semNum <= 6) metadata.Year = "3";
+                else metadata.Year = "4";
+            }
+            else
+            {
+                // Try direct "Xnd Year" format
+                var directYear = System.Text.RegularExpressions.Regex.Match(
+                    row3, @"(\d+)(?:st|nd|rd|th)\s+Year",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-                if (yearMatch.Success)
-                {
-                    metadata.Year = yearMatch.Groups[1].Value;
-                }
+                if (directYear.Success)
+                    metadata.Year = directYear.Groups[1].Value;
             }
 
             return metadata;
@@ -1387,23 +1244,36 @@ namespace SchoolFeeSystem.Presentation.Services
 
         private string DeterminQuarter(string period)
         {
-            if (period.Contains("AUG", StringComparison.OrdinalIgnoreCase) ||
-                period.Contains("SEP", StringComparison.OrdinalIgnoreCase) ||
-                period.Contains("OCT", StringComparison.OrdinalIgnoreCase))
+            string p = period.ToUpper();
+
+            // Check for the START month of the period (first month in "X to Y")
+            // Using full names AND abbreviations since sheets use both.
+            // Aug-Oct quarter
+            if (p.Contains("AUG") || p.Contains("AUGUST") ||
+                p.Contains("SEP") || p.Contains("SEPTEMBER") ||
+                p.Contains("OCT") || p.Contains("OCTOBER"))
             {
                 return "Aug-Oct";
             }
-            else if (period.Contains("NOV", StringComparison.OrdinalIgnoreCase) ||
-                     period.Contains("DEC", StringComparison.OrdinalIgnoreCase) ||
-                     period.Contains("JAN", StringComparison.OrdinalIgnoreCase))
+            // Nov-Jan quarter
+            if (p.Contains("NOV") || p.Contains("NOVEMBER") ||
+                p.Contains("DEC") || p.Contains("DECEMBER") ||
+                p.Contains("JAN") || p.Contains("JANUARY"))
             {
                 return "Nov-Jan";
             }
-            else if (period.Contains("FEB", StringComparison.OrdinalIgnoreCase) ||
-                     period.Contains("MAR", StringComparison.OrdinalIgnoreCase) ||
-                     period.Contains("APR", StringComparison.OrdinalIgnoreCase))
+            // Feb-Apr quarter
+            if (p.Contains("FEB") || p.Contains("FEBRUARY") ||
+                p.Contains("MAR") || p.Contains("MARCH") ||
+                p.Contains("APR") || p.Contains("APRIL"))
             {
                 return "Feb-Apr";
+            }
+            // May-Jun quarter
+            if (p.Contains("MAY") ||
+                p.Contains("JUN") || p.Contains("JUNE"))
+            {
+                return "May-Jun";
             }
 
             return "Unknown";
@@ -1440,6 +1310,360 @@ namespace SchoolFeeSystem.Presentation.Services
             public string InstituteName { get; set; }
             public string Period { get; set; }
             public string CourseInfo { get; set; }
+        }
+        /// <summary>
+        /// Gets all available sheets from all loaded files
+        /// </summary>
+        public List<DataTable> GetAllSheets()
+        {
+            var allSheets = new List<DataTable>();
+
+            foreach (var dataSet in _loadedFiles.Values)
+            {
+                foreach (DataTable table in dataSet.Tables)
+                {
+                    allSheets.Add(table);
+                }
+            }
+
+            return allSheets;
+        }
+
+        /// <summary>
+        /// Gets sheets filtered by department code
+        /// </summary>
+        public List<DataTable> GetSheetsByDepartment(string departmentCode)
+        {
+            var sheets = new List<DataTable>();
+
+            foreach (var table in GetAllSheets())
+            {
+                string tableDept = ExtractDepartmentCodeFromTable(table);
+                if (tableDept == departmentCode)
+                {
+                    sheets.Add(table);
+                }
+            }
+
+            return sheets;
+        }
+
+        /// <summary>
+        /// Extract department code from table name
+        /// </summary>
+        private string ExtractDepartmentCodeFromTable(DataTable table)
+        {
+            string name = table.TableName.ToUpper();
+
+            if (name.Contains("MECHATRONICS")) return "MECHATRONICS";
+            if (name.Contains("ME")) return "ME";
+            if (name.Contains("EE")) return "EE";
+            if (name.Contains("CSE") || name.Contains("CS")) return "CSE";
+            if (name.Contains("MISC")) return "MISC";
+            if (name.Contains("PASSOUT")) return "PASSOUT";
+
+            return null;
+        }
+
+        /// <summary>
+        /// Gets sheet by filter criteria
+        /// </summary>
+        public DataTable GetSheetByFilter(string departmentCode, int year, string quarter)
+        {
+            foreach (var dataSet in _loadedFiles.Values)
+            {
+                foreach (DataTable table in dataSet.Tables)
+                {
+                    if (TableMatchesFilter(table, departmentCode, year, quarter))
+                    {
+                        return table;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Check if table matches filter criteria
+        /// </summary>
+        private bool TableMatchesFilter(DataTable table, string departmentCode, int year, string quarter)
+        {
+            string tableName = table.TableName.ToLower();
+            string deptCode = ExtractDepartmentCodeFromTable(table);
+
+            // Check department
+            if (deptCode != departmentCode) return false;
+
+            // Check year
+            if (!tableName.Contains($"-{year}-") &&
+                !tableName.Contains($"year{year}") &&
+                !tableName.Contains($"{year}year"))
+                return false;
+
+            // Check quarter
+            string normalizedQuarter = quarter.Replace("-", "").ToLower();
+            if (!tableName.Contains(normalizedQuarter))
+                return false;
+
+            return true;
+        }
+
+        /// <summary>
+        /// Get available academic years for a department
+        /// </summary>
+        public List<int> GetAvailableAcademicYears(string departmentCode)
+        {
+            var years = new HashSet<int>();
+
+            foreach (var table in GetSheetsByDepartment(departmentCode))
+            {
+                int year = ExtractYearFromTableName(table.TableName);
+                if (year > 0)
+                {
+                    years.Add(year);
+                }
+            }
+
+            return years.OrderBy(y => y).ToList();
+        }
+
+        /// <summary>
+        /// Extract year from table name
+        /// </summary>
+        private int ExtractYearFromTableName(string tableName)
+        {
+            string name = tableName.ToLower();
+
+            for (int i = 1; i <= 4; i++)
+            {
+                if (name.Contains($"-{i}-") ||
+                    name.Contains($"year{i}") ||
+                    name.Contains($"{i}year"))
+                {
+                    return i;
+                }
+            }
+
+            return 0;
+        }
+
+        /// <summary>
+        /// Promote students to next year
+        /// </summary>
+        public void PromoteStudentsToNextYear(string departmentCode, int currentYear, bool isLastYear)
+        {
+            try
+            {
+                // Get all sheets for current year
+                var currentYearSheets = GetSheetsByDepartment(departmentCode)
+                    .Where(t => ExtractYearFromTableName(t.TableName) == currentYear)
+                    .ToList();
+
+                if (!currentYearSheets.Any())
+                {
+                    throw new Exception($"No data found for {departmentCode} Year {currentYear}");
+                }
+
+                foreach (var sheet in currentYearSheets)
+                {
+                    // Create new sheet for next year
+                    int nextYear = isLastYear ? 0 : currentYear + 1;
+                    string targetDept = isLastYear ? "PASSOUT" : departmentCode;
+
+                    // Clone the sheet
+                    DataTable newSheet = sheet.Clone();
+                    newSheet.TableName = GenerateNewSheetName(sheet.TableName, nextYear, targetDept);
+
+                    // Copy data
+                    foreach (DataRow row in sheet.Rows)
+                    {
+                        DataRow newRow = newSheet.NewRow();
+                        newRow.ItemArray = row.ItemArray;
+                        newSheet.Rows.Add(newRow);
+                    }
+
+                    // Reset fee columns
+                    ResetFeesForNewYear(newSheet);
+
+                    // Add to appropriate file
+                    AddSheetToLoadedFiles(newSheet, targetDept);
+                }
+
+                SaveFile();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to promote students: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// Generate new sheet name for promoted students
+        /// </summary>
+        private string GenerateNewSheetName(string oldName, int newYear, string newDept)
+        {
+            // Extract quarter from old name
+            string quarter = "AugOct"; // default
+            string lowerName = oldName.ToLower();
+
+            if (lowerName.Contains("novjan")) quarter = "NovJan";
+            else if (lowerName.Contains("febapr")) quarter = "FebApr";
+            else if (lowerName.Contains("mayjun")) quarter = "MayJun";
+            else if (lowerName.Contains("augoct")) quarter = "AugOct";
+
+            if (newDept == "PASSOUT")
+            {
+                return $"PASSOUT-{DateTime.Now.Year}-{quarter}";
+            }
+            else
+            {
+                return $"{newDept}-{newYear}-{quarter}";
+            }
+        }
+
+        /// <summary>
+        /// Reset fees for new academic year
+        /// </summary>
+        private void ResetFeesForNewYear(DataTable table)
+        {
+            // Find fee-related columns
+            var feeColumns = table.Columns.Cast<DataColumn>()
+                .Where(c => c.ColumnName.ToLower().Contains("fee") ||
+                           c.ColumnName.ToLower().Contains("paid") ||
+                           c.ColumnName.ToLower().Contains("amount"))
+                .ToList();
+
+            // Find previous pending column
+            var previousPendingCol = table.Columns.Cast<DataColumn>()
+                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("previous") &&
+                                   c.ColumnName.ToLower().Contains("pending"));
+
+            // Find carried forward column (or create it)
+            var carriedForwardCol = table.Columns.Cast<DataColumn>()
+                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("carried") &&
+                                   c.ColumnName.ToLower().Contains("forward"));
+
+            if (carriedForwardCol == null && previousPendingCol != null)
+            {
+                carriedForwardCol = table.Columns.Add("Carried Forward", typeof(decimal));
+            }
+
+            foreach (DataRow row in table.Rows)
+            {
+                // Move previous pending to carried forward
+                if (previousPendingCol != null && carriedForwardCol != null)
+                {
+                    row[carriedForwardCol] = row[previousPendingCol];
+                }
+
+                // Reset all fee columns to 0
+                foreach (var col in feeColumns)
+                {
+                    if (col != carriedForwardCol)
+                    {
+                        row[col] = 0;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Add sheet to loaded files
+        /// </summary>
+        private void AddSheetToLoadedFiles(DataTable sheet, string departmentCode)
+        {
+            // Find appropriate file or create new one
+            string fileKey = $"{departmentCode}_Data.xlsx";
+
+            if (!_loadedFiles.ContainsKey(fileKey))
+            {
+                _loadedFiles[fileKey] = new DataSet();
+
+                // Set file path
+                string filePath = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                    "SchoolFeeData",
+                    fileKey);
+                _filePaths[fileKey] = filePath;
+            }
+
+            _loadedFiles[fileKey].Tables.Add(sheet);
+        }
+
+        /// <summary>
+        /// Recalculate fees for a specific row
+        /// </summary>
+        public void RecalculateRowFees(string sheetName, DataRow row)
+        {
+            // Find fee columns
+            var table = row.Table;
+
+            // Basic calculation logic
+            decimal totalFee = 0;
+            decimal totalPaid = 0;
+
+            foreach (DataColumn col in table.Columns)
+            {
+                string colName = col.ColumnName.ToLower();
+
+                if (colName.Contains("fee") && !colName.Contains("paid") && !colName.Contains("pending"))
+                {
+                    if (decimal.TryParse(row[col]?.ToString(), out decimal fee))
+                    {
+                        totalFee += fee;
+                    }
+                }
+                else if (colName.Contains("paid") && !colName.Contains("pending"))
+                {
+                    if (decimal.TryParse(row[col]?.ToString(), out decimal paid))
+                    {
+                        totalPaid += paid;
+                    }
+                }
+            }
+
+            // Update pending column
+            var pendingCol = table.Columns.Cast<DataColumn>()
+                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("pending") ||
+                                   c.ColumnName.ToLower().Contains("balance"));
+
+            if (pendingCol != null)
+            {
+                row[pendingCol] = Math.Max(0, totalFee - totalPaid);
+            }
+        }
+
+        /// <summary>
+        /// Save all changes to files
+        /// </summary>
+        public void SaveFile()
+        {
+            foreach (var kvp in _loadedFiles)
+            {
+                string fileKey = kvp.Key;
+                DataSet dataSet = kvp.Value;
+
+                // Get file path
+                string filePath = _filePaths.ContainsKey(fileKey)
+                    ? _filePaths[fileKey]
+                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                                  "SchoolFeeData", fileKey);
+
+                // Ensure directory exists
+                Directory.CreateDirectory(Path.GetDirectoryName(filePath));
+
+                // Save to Excel
+                using (var workbook = new XLWorkbook())
+                {
+                    foreach (DataTable table in dataSet.Tables)
+                    {
+                        workbook.Worksheets.Add(table);
+                    }
+
+                    workbook.SaveAs(filePath);
+                }
+            }
         }
     }
 }
