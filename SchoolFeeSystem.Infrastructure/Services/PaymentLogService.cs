@@ -1,61 +1,73 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
+using System.Text;
 
 namespace SchoolFeeSystem.Presentation.Services
 {
     /// <summary>
-    /// Service to log all payment transactions for reporting and audit purposes
+    /// Writes every fee payment, fine waiver, or adjustment to a central
+    /// CSV-backed payment log so Payment History can:
+    ///   • Show all transactions with a dedicated Student Name column.
+    ///   • Filter by student name or student ID instantly.
+    ///   • Populate the receipt preview from a single row.
+    ///
+    /// CSV SCHEMA  (columns in order):
+    ///   Payment ID | Student Name | Student ID | Guardian | Phone |
+    ///   Sheet / Class | Quarter | Payment Date | Amount |
+    ///   Payment Mode | Previous Balance | New Balance | Remarks | Recorded By
+    ///
+    /// BACKWARD COMPATIBILITY:
+    ///   Old rows written by earlier versions had no Student Name / Student ID
+    ///   columns.  GetPaymentHistory() detects row width and back-fills empty
+    ///   strings for those columns so the DataTable always has a uniform schema.
     /// </summary>
     public class PaymentLogService
     {
+        // ── Column order ── must stay in sync with _Headers and LogPayment ──
+        private static readonly string[] _Headers = new[]
+        {
+            "Payment ID",
+            "Student Name",     // NEW dedicated column — searchable in Payment History
+            "Student ID",       // NEW dedicated column — searchable in Payment History
+            "Guardian",
+            "Phone",
+            "Sheet / Class",
+            "Quarter",
+            "Payment Date",
+            "Amount",
+            "Payment Mode",
+            "Previous Balance",
+            "New Balance",
+            "Remarks",
+            "Recorded By"
+        };
+
+        private const int NewColumnCount = 14;
+
         private readonly string _logFilePath;
-        private readonly string _appDataPath;
 
-        public class PaymentLog
+        public PaymentLogService(string logFilePath)
         {
-            public string TransactionId { get; set; }
-            public DateTime PaymentDate { get; set; }
-            public string StudentName { get; set; }
-            public string SheetName { get; set; }
-            public string CourseName { get; set; }
-            public string Period { get; set; }
-            public decimal AmountPaid { get; set; }
-            public string PaymentMode { get; set; }
-            public decimal PreviousBalance { get; set; }
-            public decimal NewBalance { get; set; }
-            public string PhoneNumber { get; set; }
-            public string ProcessedBy { get; set; }
-            public string Remarks { get; set; }
+            _logFilePath = logFilePath;
+            EnsureFileExists();
         }
 
-        public PaymentLogService()
-        {
-            _appDataPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "SchoolFeeSystem"
-            );
-
-            if (!Directory.Exists(_appDataPath))
-                Directory.CreateDirectory(_appDataPath);
-
-            _logFilePath = Path.Combine(_appDataPath, "payment_logs.json");
-
-            // Create file if it doesn't exist
-            if (!File.Exists(_logFilePath))
-            {
-                File.WriteAllText(_logFilePath, "[]");
-            }
-        }
+        // ─────────────────────────────────────────────────────────────────────
+        // WRITE
+        // ─────────────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Log a payment transaction
+        /// Appends one payment / waiver line to the log CSV.
+        /// All caller sites in FeeCollectionViewModel pass studentName and
+        /// studentId directly so they appear in their own columns.
         /// </summary>
         public void LogPayment(
             string studentName,
+            string studentId,
             string sheetName,
             string courseName,
             string period,
@@ -63,212 +75,334 @@ namespace SchoolFeeSystem.Presentation.Services
             string paymentMode,
             decimal previousBalance,
             decimal newBalance,
-            string phoneNumber = "",
+            string phoneNumber,
+            string guardianName = "",
             string remarks = "")
         {
-            try
+            string paymentId = Guid.NewGuid().ToString();
+            string dateStr = DateTime.Now.ToString("dd/MM/yyyy h:mm:ss tt",
+                                                     CultureInfo.InvariantCulture);
+            string user = Environment.UserName;
+
+            var fields = new[]
             {
-                // Load existing logs
-                var logs = LoadLogs();
+                paymentId,
+                Sanitize(studentName),
+                Sanitize(studentId),
+                Sanitize(guardianName),
+                Sanitize(phoneNumber),
+                Sanitize(sheetName),
+                Sanitize(period),
+                dateStr,
+                amountPaid.ToString("F2", CultureInfo.InvariantCulture),
+                Sanitize(paymentMode),
+                previousBalance.ToString("F2", CultureInfo.InvariantCulture),
+                newBalance.ToString("F2", CultureInfo.InvariantCulture),
+                Sanitize(remarks),
+                Sanitize(user)
+            };
 
-                // Create new log entry
-                var newLog = new PaymentLog
-                {
-                    TransactionId = GenerateTransactionId(),
-                    PaymentDate = DateTime.Now,
-                    StudentName = studentName,
-                    SheetName = sheetName,
-                    CourseName = courseName,
-                    Period = period,
-                    AmountPaid = amountPaid,
-                    PaymentMode = paymentMode,
-                    PreviousBalance = previousBalance,
-                    NewBalance = newBalance,
-                    PhoneNumber = phoneNumber,
-                    ProcessedBy = Environment.UserName,
-                    Remarks = remarks
-                };
+            File.AppendAllText(_logFilePath,
+                string.Join(",", fields.Select(QuoteCsv)) + Environment.NewLine,
+                Encoding.UTF8);
+        }
 
-                // Add to logs
-                logs.Add(newLog);
+        // ─────────────────────────────────────────────────────────────────────
+        // READ
+        // ─────────────────────────────────────────────────────────────────────
 
-                // Save logs
-                SaveLogs(logs);
-            }
-            catch (Exception ex)
+        /// <summary>
+        /// Returns all payment rows as a DataTable with the full schema.
+        /// Old rows (fewer columns) are padded with empty strings so the
+        /// DataTable is always uniform — no crashes in Payment History.
+        /// Rows are returned newest-first.
+        /// </summary>
+        public DataTable GetPaymentHistory()
+        {
+            var table = CreateEmptyTable();
+
+            if (!File.Exists(_logFilePath))
+                return table;
+
+            var lines = File.ReadAllLines(_logFilePath, Encoding.UTF8);
+
+            // Skip header line(s)
+            int start = 0;
+            if (lines.Length > 0 && lines[0].TrimStart().StartsWith("Payment ID",
+                                         StringComparison.OrdinalIgnoreCase))
+                start = 1;
+
+            // Read newest-first
+            for (int i = lines.Length - 1; i >= start; i--)
             {
-                // Log to a backup file if main file fails
-                LogToBackup($"Error logging payment: {ex.Message}");
-            }
-        }
+                string line = lines[i].Trim();
+                if (string.IsNullOrEmpty(line)) continue;
 
-        /// <summary>
-        /// Get all payment logs
-        /// </summary>
-        public List<PaymentLog> GetAllLogs()
-        {
-            return LoadLogs();
-        }
+                var fields = ParseCsvLine(line);
 
-        /// <summary>
-        /// Get payment logs for a specific student
-        /// </summary>
-        public List<PaymentLog> GetLogsForStudent(string studentName)
-        {
-            var logs = LoadLogs();
-            return logs.Where(l => l.StudentName.Equals(studentName, StringComparison.OrdinalIgnoreCase)).ToList();
-        }
+                // Pad short rows (old schema) to new column count
+                while (fields.Length < NewColumnCount)
+                    fields = fields.Concat(new[] { "" }).ToArray();
 
-        /// <summary>
-        /// Get payment logs for a specific sheet/course
-        /// </summary>
-        public List<PaymentLog> GetLogsForSheet(string sheetName)
-        {
-            var logs = LoadLogs();
-            return logs.Where(l => l.SheetName.Equals(sheetName, StringComparison.OrdinalIgnoreCase)).ToList();
-        }
+                var row = table.NewRow();
+                for (int c = 0; c < NewColumnCount; c++)
+                    row[c] = fields[c];
 
-        /// <summary>
-        /// Get payment logs within a date range
-        /// </summary>
-        public List<PaymentLog> GetLogsByDateRange(DateTime startDate, DateTime endDate)
-        {
-            var logs = LoadLogs();
-            return logs.Where(l => l.PaymentDate >= startDate && l.PaymentDate <= endDate).ToList();
-        }
-
-        /// <summary>
-        /// Get payment logs by payment mode
-        /// </summary>
-        public List<PaymentLog> GetLogsByPaymentMode(string paymentMode)
-        {
-            var logs = LoadLogs();
-            return logs.Where(l => l.PaymentMode.Equals(paymentMode, StringComparison.OrdinalIgnoreCase)).ToList();
-        }
-
-        /// <summary>
-        /// Convert logs to DataTable for reports
-        /// </summary>
-        public DataTable GetLogsAsDataTable(List<PaymentLog> logs = null)
-        {
-            if (logs == null)
-                logs = LoadLogs();
-
-            var table = new DataTable("PaymentLogs");
-            table.Columns.Add("Transaction ID", typeof(string));
-            table.Columns.Add("Date & Time", typeof(string));
-            table.Columns.Add("Student Name", typeof(string));
-            table.Columns.Add("Course", typeof(string));
-            table.Columns.Add("Period", typeof(string));
-            table.Columns.Add("Amount Paid", typeof(decimal));
-            table.Columns.Add("Payment Mode", typeof(string));
-            table.Columns.Add("Previous Balance", typeof(decimal));
-            table.Columns.Add("New Balance", typeof(decimal));
-            table.Columns.Add("Phone", typeof(string));
-            table.Columns.Add("Processed By", typeof(string));
-            table.Columns.Add("Remarks", typeof(string));
-
-            foreach (var log in logs.OrderByDescending(l => l.PaymentDate))
-            {
-                table.Rows.Add(
-                    log.TransactionId,
-                    log.PaymentDate.ToString("dd-MM-yyyy HH:mm:ss"),
-                    log.StudentName,
-                    log.CourseName,
-                    log.Period,
-                    log.AmountPaid,
-                    log.PaymentMode,
-                    log.PreviousBalance,
-                    log.NewBalance,
-                    log.PhoneNumber,
-                    log.ProcessedBy,
-                    log.Remarks
-                );
+                table.Rows.Add(row);
             }
 
             return table;
         }
 
         /// <summary>
-        /// Clear all logs (use with caution)
+        /// Returns all payments for a specific student as a summary DataTable
+        /// (groups by Quarter, totals amount paid).
         /// </summary>
-        public void ClearAllLogs()
+        public DataTable GetStudentFinancialSummary(string studentName)
         {
-            SaveLogs(new List<PaymentLog>());
+            var all = GetPaymentHistory();
+            var summary = new DataTable("Summary");
+            summary.Columns.Add("Quarter");
+            summary.Columns.Add("Total Paid", typeof(decimal));
+            summary.Columns.Add("Transactions", typeof(int));
+            summary.Columns.Add("Last Payment");
+
+            var groups = all.AsEnumerable()
+                .Where(r => r["Student Name"].ToString()
+                              .Contains(studentName, StringComparison.OrdinalIgnoreCase)
+                          || r["Student ID"].ToString()
+                              .Contains(studentName, StringComparison.OrdinalIgnoreCase))
+                .GroupBy(r => r["Quarter"].ToString());
+
+            foreach (var g in groups)
+            {
+                decimal total = g.Sum(r =>
+                    decimal.TryParse(r["Amount"].ToString(), out decimal v) ? v : 0m);
+                string last = g.OrderByDescending(r => r["Payment Date"].ToString())
+                               .Select(r => r["Payment Date"].ToString())
+                               .FirstOrDefault() ?? "";
+
+                var sr = summary.NewRow();
+                sr["Quarter"] = g.Key;
+                sr["Total Paid"] = total;
+                sr["Transactions"] = g.Count();
+                sr["Last Payment"] = last;
+                summary.Rows.Add(sr);
+            }
+
+            return summary;
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // REPORTS API  (used by ReportsViewModel)
+        // ─────────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Returns all payment log rows whose Payment Date falls within
+        /// [startDate, endDate] (inclusive, date-only comparison).
+        /// </summary>
+        public List<PaymentLogEntry> GetLogsByDateRange(DateTime startDate, DateTime endDate)
+        {
+            var all = GetPaymentHistory();
+            var result = new List<PaymentLogEntry>();
+
+            foreach (DataRow row in all.Rows)
+            {
+                if (!DateTime.TryParse(row["Payment Date"]?.ToString(),
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.None, out DateTime pd))
+                {
+                    // Fall back to any-culture parse for older rows
+                    if (!DateTime.TryParse(row["Payment Date"]?.ToString(), out pd))
+                        continue;
+                }
+
+                if (pd.Date < startDate.Date || pd.Date > endDate.Date) continue;
+
+                decimal.TryParse(row["Amount"]?.ToString(),
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out decimal amt);
+
+                result.Add(new PaymentLogEntry
+                {
+                    PaymentId = row["Payment ID"]?.ToString() ?? "",
+                    StudentName = row["Student Name"]?.ToString() ?? "",
+                    StudentId = row["Student ID"]?.ToString() ?? "",
+                    Guardian = row["Guardian"]?.ToString() ?? "",
+                    Phone = row["Phone"]?.ToString() ?? "",
+                    SheetClass = row["Sheet / Class"]?.ToString() ?? "",
+                    Quarter = row["Quarter"]?.ToString() ?? "",
+                    PaymentDate = row["Payment Date"]?.ToString() ?? "",
+                    AmountPaid = amt,
+                    PaymentMode = row["Payment Mode"]?.ToString() ?? "",
+                    PreviousBalance = row["Previous Balance"]?.ToString() ?? "",
+                    NewBalance = row["New Balance"]?.ToString() ?? "",
+                    Remarks = row["Remarks"]?.ToString() ?? "",
+                    RecordedBy = row["Recorded By"]?.ToString() ?? ""
+                });
+            }
+
+            return result;
         }
 
         /// <summary>
-        /// Export logs to CSV
+        /// Converts a list of PaymentLogEntry objects to a DataTable with
+        /// the same column layout as GetPaymentHistory(), so the grid and
+        /// PDF report service receive a uniform schema.
         /// </summary>
-        public void ExportToCsv(string filePath, List<PaymentLog> logs = null)
+        public DataTable GetLogsAsDataTable(List<PaymentLogEntry> logs)
         {
-            if (logs == null)
-                logs = LoadLogs();
-
-            using (var writer = new StreamWriter(filePath))
+            var table = CreateEmptyTable();
+            foreach (var e in logs)
             {
-                // Write header
-                writer.WriteLine("Transaction ID,Date & Time,Student Name,Course,Period,Amount Paid,Payment Mode,Previous Balance,New Balance,Phone,Processed By,Remarks");
+                var row = table.NewRow();
+                row["Payment ID"] = e.PaymentId;
+                row["Student Name"] = e.StudentName;
+                row["Student ID"] = e.StudentId;
+                row["Guardian"] = e.Guardian;
+                row["Phone"] = e.Phone;
+                row["Sheet / Class"] = e.SheetClass;
+                row["Quarter"] = e.Quarter;
+                row["Payment Date"] = e.PaymentDate;
+                row["Amount"] = e.AmountPaid.ToString("F2",
+                                              System.Globalization.CultureInfo.InvariantCulture);
+                row["Payment Mode"] = e.PaymentMode;
+                row["Previous Balance"] = e.PreviousBalance;
+                row["New Balance"] = e.NewBalance;
+                row["Remarks"] = e.Remarks;
+                row["Recorded By"] = e.RecordedBy;
+                table.Rows.Add(row);
+            }
+            return table;
+        }
 
-                // Write data
-                foreach (var log in logs.OrderByDescending(l => l.PaymentDate))
+        /// <summary>
+        /// Writes a list of PaymentLogEntry objects to a new CSV file at
+        /// <paramref name="filePath"/> with a header row.
+        /// </summary>
+        public void ExportToCsv(string filePath, List<PaymentLogEntry> logs)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine(string.Join(",", _Headers.Select(QuoteCsv)));
+
+            foreach (var e in logs)
+            {
+                var fields = new[]
                 {
-                    writer.WriteLine($"\"{log.TransactionId}\",\"{log.PaymentDate:dd-MM-yyyy HH:mm:ss}\",\"{log.StudentName}\",\"{log.CourseName}\",\"{log.Period}\",{log.AmountPaid},\"{log.PaymentMode}\",{log.PreviousBalance},{log.NewBalance},\"{log.PhoneNumber}\",\"{log.ProcessedBy}\",\"{log.Remarks}\"");
+                    e.PaymentId,
+                    e.StudentName,
+                    e.StudentId,
+                    e.Guardian,
+                    e.Phone,
+                    e.SheetClass,
+                    e.Quarter,
+                    e.PaymentDate,
+                    e.AmountPaid.ToString("F2", System.Globalization.CultureInfo.InvariantCulture),
+                    e.PaymentMode,
+                    e.PreviousBalance,
+                    e.NewBalance,
+                    e.Remarks,
+                    e.RecordedBy
+                };
+                sb.AppendLine(string.Join(",", fields.Select(QuoteCsv)));
+            }
+
+            File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // HELPERS
+        // ─────────────────────────────────────────────────────────────────────
+
+        private DataTable CreateEmptyTable()
+        {
+            var t = new DataTable("PaymentHistory");
+            foreach (var h in _Headers)
+                t.Columns.Add(h, typeof(string));
+            return t;
+        }
+
+        private void EnsureFileExists()
+        {
+            string dir = Path.GetDirectoryName(_logFilePath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            if (!File.Exists(_logFilePath))
+                File.WriteAllText(_logFilePath,
+                    string.Join(",", _Headers.Select(QuoteCsv)) + Environment.NewLine,
+                    Encoding.UTF8);
+        }
+
+        private static string Sanitize(string s) =>
+            s?.Replace("\r", " ").Replace("\n", " ").Trim() ?? "";
+
+        private static string QuoteCsv(string s)
+        {
+            if (s == null) return "\"\"";
+            if (s.Contains(',') || s.Contains('"') || s.Contains('\n'))
+                return "\"" + s.Replace("\"", "\"\"") + "\"";
+            return s;
+        }
+
+        private static string[] ParseCsvLine(string line)
+        {
+            // Simple RFC-4180 parser
+            var fields = new System.Collections.Generic.List<string>();
+            var sb = new StringBuilder();
+            bool inQuotes = false;
+
+            for (int i = 0; i < line.Length; i++)
+            {
+                char c = line[i];
+                if (inQuotes)
+                {
+                    if (c == '"')
+                    {
+                        if (i + 1 < line.Length && line[i + 1] == '"')
+                        { sb.Append('"'); i++; }
+                        else inQuotes = false;
+                    }
+                    else sb.Append(c);
+                }
+                else
+                {
+                    if (c == '"') inQuotes = true;
+                    else if (c == ',') { fields.Add(sb.ToString()); sb.Clear(); }
+                    else sb.Append(c);
                 }
             }
+            fields.Add(sb.ToString());
+            return fields.ToArray();
         }
+    }
 
-        // ===== PRIVATE HELPER METHODS =====
+    // ─────────────────────────────────────────────────────────────────────────
+    // DATA TRANSFER OBJECT
+    // ─────────────────────────────────────────────────────────────────────────
 
-        private List<PaymentLog> LoadLogs()
-        {
-            try
-            {
-                if (!File.Exists(_logFilePath))
-                    return new List<PaymentLog>();
-
-                var json = File.ReadAllText(_logFilePath);
-                return JsonSerializer.Deserialize<List<PaymentLog>>(json) ?? new List<PaymentLog>();
-            }
-            catch
-            {
-                return new List<PaymentLog>();
-            }
-        }
-
-        private void SaveLogs(List<PaymentLog> logs)
-        {
-            try
-            {
-                var options = new JsonSerializerOptions
-                {
-                    WriteIndented = true
-                };
-                var json = JsonSerializer.Serialize(logs, options);
-                File.WriteAllText(_logFilePath, json);
-            }
-            catch (Exception ex)
-            {
-                LogToBackup($"Error saving logs: {ex.Message}");
-            }
-        }
-
-        private string GenerateTransactionId()
-        {
-            return $"TXN{DateTime.Now:yyyyMMddHHmmss}{new Random().Next(1000, 9999)}";
-        }
-
-        private void LogToBackup(string message)
-        {
-            try
-            {
-                var backupPath = Path.Combine(_appDataPath, "payment_logs_errors.txt");
-                File.AppendAllText(backupPath, $"[{DateTime.Now}] {message}\n");
-            }
-            catch
-            {
-                // If backup also fails, silently continue
-            }
-        }
+    /// <summary>
+    /// Strongly-typed representation of one row in the payment log CSV.
+    /// Used by GetLogsByDateRange / GetLogsAsDataTable / ExportToCsv so that
+    /// ReportsViewModel can work with real objects (e.g. sum AmountPaid)
+    /// without parsing raw DataRow strings.
+    /// </summary>
+    public class PaymentLogEntry
+    {
+        public string PaymentId { get; set; } = "";
+        public string StudentName { get; set; } = "";
+        public string StudentId { get; set; } = "";
+        public string Guardian { get; set; } = "";
+        public string Phone { get; set; } = "";
+        public string SheetClass { get; set; } = "";
+        public string Quarter { get; set; } = "";
+        public string PaymentDate { get; set; } = "";
+        public decimal AmountPaid { get; set; }
+        public string PaymentMode { get; set; } = "";
+        public string PreviousBalance { get; set; } = "";
+        public string NewBalance { get; set; } = "";
+        public string Remarks { get; set; } = "";
+        public string RecordedBy { get; set; } = "";
     }
 }

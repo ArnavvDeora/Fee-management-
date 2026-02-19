@@ -27,5 +27,8 @@ namespace SchoolFeeSystem.Core.Interfaces
         void AddHoliday(Holiday holiday);
         void DeleteHoliday(int id);
         List<Holiday> GetHolidays(int year);
+
+        // --- DEV ONLY ---
+        void ResetAllAttendanceAndAllowances(IProgress<string> progress = null);
     }
 }

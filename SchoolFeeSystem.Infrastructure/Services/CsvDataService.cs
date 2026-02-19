@@ -1349,20 +1349,88 @@ namespace SchoolFeeSystem.Presentation.Services
         }
 
         /// <summary>
-        /// Extract department code from table name
+        /// Extract department code — reads ExtendedProperties first, then tab name.
         /// </summary>
         private string ExtractDepartmentCodeFromTable(DataTable table)
         {
+            // Trust the metadata stored during load
+            string metaDept = table.ExtendedProperties["Department"]?.ToString();
+            if (!string.IsNullOrEmpty(metaDept) && metaDept != "General")
+                return metaDept;
+
+            // Fallback: parse tab name
             string name = table.TableName.ToUpper();
-
+            if (name.Contains("PASSOUT") || name.Contains("PASS OUT")) return "PASSOUT";
             if (name.Contains("MECHATRONICS")) return "MECHATRONICS";
-            if (name.Contains("ME")) return "ME";
-            if (name.Contains("EE")) return "EE";
-            if (name.Contains("CSE") || name.Contains("CS")) return "CSE";
-            if (name.Contains("MISC")) return "MISC";
-            if (name.Contains("PASSOUT")) return "PASSOUT";
-
+            if (name.Contains("ME") || name.Contains("T&D") || name.Contains("MECH")) return "ME";
+            if (name.Contains("EE") || name.Contains("ELECTRICAL")) return "EE";
+            if (name.Contains("CSE") || name.Contains("CS") || name.Contains("COMPUTER")) return "CSE";
             return null;
+        }
+
+        /// <summary>
+        /// Promote students to next year — uses ExtendedProperties year metadata.
+        /// </summary>
+        public void PromoteStudentsToNextYear(string departmentCode, int currentYear, bool isLastYear)
+        {
+            try
+            {
+                // Get sheets whose ExtendedProperties Year matches currentYear
+                var currentYearSheets = GetSheetsByDepartment(departmentCode)
+                    .Where(t => ExtractYearFromTable(t) == currentYear)
+                    .ToList();
+
+                if (!currentYearSheets.Any())
+                {
+                    // Friendly message listing what years were actually found
+                    var foundYears = GetSheetsByDepartment(departmentCode)
+                        .Select(t => ExtractYearFromTable(t))
+                        .Where(y => y > 0)
+                        .Distinct()
+                        .OrderBy(y => y)
+                        .ToList();
+                    string found = foundYears.Any()
+                        ? "Found years: " + string.Join(", ", foundYears)
+                        : "No sheets found for this department.";
+                    throw new Exception(
+                        $"No data found for {departmentCode} Year {currentYear}. {found}");
+                }
+
+                foreach (var sheet in currentYearSheets)
+                {
+                    int nextYear = isLastYear ? 0 : currentYear + 1;
+                    string targetDept = isLastYear ? "PASSOUT" : departmentCode;
+
+                    // Clone the sheet structure
+                    DataTable newSheet = sheet.Clone();
+                    newSheet.TableName = GenerateNewSheetName(sheet.TableName, nextYear, targetDept);
+
+                    // Copy student data rows
+                    foreach (DataRow row in sheet.Rows)
+                    {
+                        DataRow newRow = newSheet.NewRow();
+                        newRow.ItemArray = (object[])row.ItemArray.Clone();
+                        newSheet.Rows.Add(newRow);
+                    }
+
+                    // Reset fee columns; carry forward pending fees
+                    ResetFeesForNewYear(newSheet);
+
+                    // Update metadata ExtendedProperties for the new sheet
+                    newSheet.ExtendedProperties["Department"] = targetDept;
+                    newSheet.ExtendedProperties["Year"] = nextYear.ToString();
+                    newSheet.ExtendedProperties["Quarter"] = sheet.ExtendedProperties["Quarter"]?.ToString() ?? "";
+                    newSheet.ExtendedProperties["Period"] = sheet.ExtendedProperties["Period"]?.ToString() ?? "";
+
+                    AddSheetToLoadedFiles(newSheet, targetDept);
+                }
+
+                SaveFile();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to promote students: {ex.Message}", ex);
+            }
         }
 
         /// <summary>
@@ -1410,92 +1478,61 @@ namespace SchoolFeeSystem.Presentation.Services
         }
 
         /// <summary>
-        /// Get available academic years for a department
+        /// Get available academic years for a department — reads from ExtendedProperties.
         /// </summary>
         public List<int> GetAvailableAcademicYears(string departmentCode)
         {
             var years = new HashSet<int>();
-
             foreach (var table in GetSheetsByDepartment(departmentCode))
             {
-                int year = ExtractYearFromTableName(table.TableName);
+                int year = ExtractYearFromTable(table);
                 if (year > 0)
-                {
                     years.Add(year);
-                }
             }
-
             return years.OrderBy(y => y).ToList();
         }
 
         /// <summary>
-        /// Extract year from table name
+        /// Extract year from a DataTable — first reads the metadata stored by LoadFileEnhanced,
+        /// then falls back to parsing the sheet tab name.
         /// </summary>
         private int ExtractYearFromTableName(string tableName)
         {
-            string name = tableName.ToLower();
-
-            for (int i = 1; i <= 4; i++)
+            // Try to find the table and read its ExtendedProperties first
+            foreach (var ds in _loadedFiles.Values)
             {
-                if (name.Contains($"-{i}-") ||
-                    name.Contains($"year{i}") ||
-                    name.Contains($"{i}year"))
+                if (ds.Tables.Contains(tableName))
                 {
-                    return i;
+                    var tbl = ds.Tables[tableName];
+                    if (tbl.ExtendedProperties.ContainsKey("Year") &&
+                        int.TryParse(tbl.ExtendedProperties["Year"]?.ToString(), out int metaYear)
+                        && metaYear > 0)
+                        return metaYear;
                 }
             }
 
+            // Fallback: parse from tab name (e.g. "ME-2-FebApr", "MECHATRONICS-3-AugOct")
+            string name = tableName.ToLower();
+            for (int i = 1; i <= 6; i++)
+            {
+                if (name.Contains($"-{i}-") || name.Contains($"year{i}") ||
+                    name.Contains($"{i}year") || name.Contains($"{i}st") ||
+                    name.Contains($"{i}nd") || name.Contains($"{i}rd") ||
+                    name.Contains($"{i}th"))
+                    return i;
+            }
             return 0;
         }
 
         /// <summary>
-        /// Promote students to next year
+        /// Extract year directly from a DataTable object (uses ExtendedProperties).
         /// </summary>
-        public void PromoteStudentsToNextYear(string departmentCode, int currentYear, bool isLastYear)
+        private int ExtractYearFromTable(DataTable table)
         {
-            try
-            {
-                // Get all sheets for current year
-                var currentYearSheets = GetSheetsByDepartment(departmentCode)
-                    .Where(t => ExtractYearFromTableName(t.TableName) == currentYear)
-                    .ToList();
-
-                if (!currentYearSheets.Any())
-                {
-                    throw new Exception($"No data found for {departmentCode} Year {currentYear}");
-                }
-
-                foreach (var sheet in currentYearSheets)
-                {
-                    // Create new sheet for next year
-                    int nextYear = isLastYear ? 0 : currentYear + 1;
-                    string targetDept = isLastYear ? "PASSOUT" : departmentCode;
-
-                    // Clone the sheet
-                    DataTable newSheet = sheet.Clone();
-                    newSheet.TableName = GenerateNewSheetName(sheet.TableName, nextYear, targetDept);
-
-                    // Copy data
-                    foreach (DataRow row in sheet.Rows)
-                    {
-                        DataRow newRow = newSheet.NewRow();
-                        newRow.ItemArray = row.ItemArray;
-                        newSheet.Rows.Add(newRow);
-                    }
-
-                    // Reset fee columns
-                    ResetFeesForNewYear(newSheet);
-
-                    // Add to appropriate file
-                    AddSheetToLoadedFiles(newSheet, targetDept);
-                }
-
-                SaveFile();
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"Failed to promote students: {ex.Message}", ex);
-            }
+            if (table.ExtendedProperties.ContainsKey("Year") &&
+                int.TryParse(table.ExtendedProperties["Year"]?.ToString(), out int yr) && yr > 0)
+                return yr;
+            return ExtractYearFromTableName(table.TableName);
         }
 
         /// <summary>
@@ -1571,7 +1608,7 @@ namespace SchoolFeeSystem.Presentation.Services
         /// <summary>
         /// Add sheet to loaded files
         /// </summary>
-        private void AddSheetToLoadedFiles(DataTable sheet, string departmentCode)
+        public void AddSheetToLoadedFiles(DataTable sheet, string departmentCode)
         {
             // Find appropriate file or create new one
             string fileKey = $"{departmentCode}_Data.xlsx";

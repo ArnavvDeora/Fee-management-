@@ -15,9 +15,11 @@ namespace SchoolFeeSystem.Infrastructure.Services
         private readonly AppDbContext _context;
 
         // Constants
-        private const int STANDARD_START_HOUR = 9;  // 9:00 AM
-        private const int STANDARD_END_HOUR = 17;   // 5:00 PM
-        private const int LATE_PENALTY_BLOCK = 30;   // Round up to 30-minute blocks
+        private const int STANDARD_START_HOUR = 9;    // 9:00 AM
+        private const int STANDARD_END_HOUR = 17;     // 5:30 PM (hour part)
+        private const int STANDARD_END_MINUTE = 30;   // 5:30 PM (minute part)
+        private const int GRACE_PERIOD_MINUTES = 15;  // 15-minute grace period for late arrivals
+        private const int LATE_PENALTY_BLOCK = 30;    // Round up to 30-minute blocks
 
         // Departments eligible for PAID overtime (get cash, not allowance time)
         private static readonly string[] OT_PAID_DEPARTMENTS = {
@@ -35,6 +37,10 @@ namespace SchoolFeeSystem.Infrastructure.Services
         /// <summary>
         /// Calculate overtime and late penalties for an attendance record
         /// Called after attendance import or manual entry
+        ///
+        /// FIX 1: OT is banked BEFORE penalty offset (so same-day OT can cover penalties)
+        /// FIX 2: Gate Pass is consumed FIRST before personal OT bank
+        /// FIX 3: Single allowance object reused to avoid stale-object overwrites
         /// </summary>
         public void CalculateOvertimeAndPenalties(AttendanceRecord record)
         {
@@ -50,15 +56,23 @@ namespace SchoolFeeSystem.Infrastructure.Services
             var employee = _context.Employees.Find(record.EmployeeId);
             if (employee == null) return;
 
+            bool isOTPaid = IsOTPaidDepartment(employee.Department);
+
             // ===== STEP 1: Calculate Late Minutes =====
             var standardStart = new TimeSpan(STANDARD_START_HOUR, 0, 0);
             if (inTime > standardStart)
             {
                 record.LateMinutes = (int)(inTime - standardStart).TotalMinutes;
 
-                // Round up to 30-minute penalty blocks
-                // Example: 15 mins late = 30 min penalty, 45 mins late = 60 min penalty
-                record.LatePenaltyMinutes = (int)Math.Ceiling(record.LateMinutes / (double)LATE_PENALTY_BLOCK) * LATE_PENALTY_BLOCK;
+                if (record.LateMinutes <= GRACE_PERIOD_MINUTES)
+                {
+                    record.LatePenaltyMinutes = 0;
+                }
+                else
+                {
+                    int penalisableMinutes = record.LateMinutes - GRACE_PERIOD_MINUTES;
+                    record.LatePenaltyMinutes = (int)Math.Ceiling(penalisableMinutes / (double)LATE_PENALTY_BLOCK) * LATE_PENALTY_BLOCK;
+                }
             }
             else
             {
@@ -66,45 +80,70 @@ namespace SchoolFeeSystem.Infrastructure.Services
                 record.LatePenaltyMinutes = 0;
             }
 
-            // ===== STEP 2: Calculate Overtime Minutes (after 5:00 PM) =====
-            var standardEnd = new TimeSpan(STANDARD_END_HOUR, 0, 0);
-            if (outTime > standardEnd)
-            {
-                record.OvertimeMinutes = (int)(outTime - standardEnd).TotalMinutes;
-            }
-            else
-            {
-                record.OvertimeMinutes = 0;
-            }
+            // ===== STEP 2: Calculate Overtime Minutes (after 5:30 PM) =====
+            var standardEnd = new TimeSpan(STANDARD_END_HOUR, STANDARD_END_MINUTE, 0);
+            record.OvertimeMinutes = outTime > standardEnd
+                ? (int)(outTime - standardEnd).TotalMinutes
+                : 0;
 
-            // ===== STEP 3: Handle Late Penalty vs Allowance Time =====
-            // Only for NON-OT departments (they have allowance time bank)
-            if (record.LatePenaltyMinutes > 0 && !IsOTPaidDepartment(employee.Department))
-            {
-                // Try to use allowance time to offset late penalty
-                var allowance = GetOrCreateAllowance(record.EmployeeId);
-
-                int availableAllowance = allowance.AvailableMinutes;
-                int penaltyToOffset = Math.Min(record.LatePenaltyMinutes, availableAllowance);
-
-                if (penaltyToOffset > 0)
-                {
-                    // Use allowance time to cover the late penalty
-                    record.AllowanceTimeUsed = penaltyToOffset;
-                    allowance.UsedAllowanceMinutes += penaltyToOffset;
-                    allowance.LastUpdated = DateTime.Now;
-                    _context.OvertimeAllowances.Update(allowance);
-                }
-            }
-
-            // ===== STEP 4: Add Overtime to Allowance Bank =====
-            // Only for NON-OT departments (they get allowance time, not cash)
-            if (record.OvertimeMinutes > 0 && !IsOTPaidDepartment(employee.Department))
+            // ===== STEP 3: Bank TODAY's OT FIRST =====
+            // OT must be banked before penalty offset so same-day OT can cover penalties.
+            // AsNoTracking in GetOrCreateAllowance ensures we always read fresh from DB.
+            if (record.OvertimeMinutes > 0 && !isOTPaid)
             {
                 var allowance = GetOrCreateAllowance(record.EmployeeId);
                 allowance.TotalAllowanceMinutes += record.OvertimeMinutes;
                 allowance.LastUpdated = DateTime.Now;
+
+                // Detach any existing tracked instance before attaching updated one
+                var tracked = _context.ChangeTracker.Entries<OvertimeAllowance>()
+                    .FirstOrDefault(e => e.Entity.EmployeeId == record.EmployeeId);
+                if (tracked != null)
+                    tracked.State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+
                 _context.OvertimeAllowances.Update(allowance);
+                _context.SaveChanges();
+            }
+
+            // ===== STEP 4: Offset Penalty — Gate Pass FIRST, then OT Bank =====
+            if (record.LatePenaltyMinutes > 0 && !isOTPaid)
+            {
+                int remainingPenalty = record.LatePenaltyMinutes;
+                int totalOffsetUsed = 0;
+
+                // 4a: Gate Pass first (company rule — always consumed before personal OT bank)
+                var gatePassService = new CompanyGatePassService(_context);
+                int gatePassUsed = gatePassService.TryUseGatePass(
+                    record.EmployeeId, remainingPenalty, "Late penalty offset", record.Date);
+
+                remainingPenalty -= gatePassUsed;
+                totalOffsetUsed += gatePassUsed;
+
+                // 4b: Personal OT allowance bank for whatever penalty remains
+                if (remainingPenalty > 0)
+                {
+                    // Fresh read from DB after Step 3 saved
+                    var allowance = GetOrCreateAllowance(record.EmployeeId);
+                    int bankUsed = Math.Min(remainingPenalty, allowance.AvailableMinutes);
+
+                    if (bankUsed > 0)
+                    {
+                        allowance.UsedAllowanceMinutes += bankUsed;
+                        allowance.LastUpdated = DateTime.Now;
+
+                        // Detach stale tracked instance before update
+                        var tracked = _context.ChangeTracker.Entries<OvertimeAllowance>()
+                            .FirstOrDefault(e => e.Entity.EmployeeId == record.EmployeeId);
+                        if (tracked != null)
+                            tracked.State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+
+                        _context.OvertimeAllowances.Update(allowance);
+                        totalOffsetUsed += bankUsed;
+                    }
+                }
+
+                record.AllowanceTimeUsed = totalOffsetUsed;
+                _context.SaveChanges();
             }
 
             _context.SaveChanges();
@@ -175,11 +214,15 @@ namespace SchoolFeeSystem.Infrastructure.Services
         }
 
         /// <summary>
-        /// Get or create overtime allowance record
+        /// Get or create overtime allowance record.
+        /// Uses AsNoTracking + explicit re-attach to avoid EF returning
+        /// stale cached objects across multiple SaveChanges calls in one import.
         /// </summary>
         private OvertimeAllowance GetOrCreateAllowance(int employeeId)
         {
+            // AsNoTracking forces a real DB read every time — no EF cache
             var allowance = _context.OvertimeAllowances
+                .AsNoTracking()
                 .FirstOrDefault(a => a.EmployeeId == employeeId);
 
             if (allowance == null)
@@ -193,6 +236,11 @@ namespace SchoolFeeSystem.Infrastructure.Services
                 };
                 _context.OvertimeAllowances.Add(allowance);
                 _context.SaveChanges();
+
+                // Re-read after save to get the DB-assigned Id
+                allowance = _context.OvertimeAllowances
+                    .AsNoTracking()
+                    .FirstOrDefault(a => a.EmployeeId == employeeId);
             }
 
             return allowance;

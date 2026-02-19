@@ -53,9 +53,19 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<IAttendanceService, AttendanceService>();
             services.AddScoped<ILeaveService, LeaveService>();
             services.AddScoped<OvertimeCalculationService>();
+            services.AddSingleton<FineCalculationService>();
 
-            // Payment Logging Service (for transaction audit trail)
-            services.AddSingleton<PaymentLogService>();
+            // Payment Logging Service — must use a factory because the constructor
+            // requires a string (logFilePath); bare AddSingleton<PaymentLogService>()
+            // causes "Unable to resolve service for type 'System.String'" at startup.
+            services.AddSingleton<PaymentLogService>(_ =>
+            {
+                string logDir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "SchoolFeeSystem");
+                string logPath = System.IO.Path.Combine(logDir, "payment_log.csv");
+                return new PaymentLogService(logPath);
+            });
 
             // Core Presentation Services
             services.AddSingleton<CsvDataService>();
@@ -78,30 +88,35 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<PayrollDashboardViewModel>();
             services.AddTransient<PayrollDashboardView>();
 
-            // ✅ FIX 1: Use teammate's PaymentHistoryViewModel (takes CsvDataService only).
-            // StudentPaymentHistoryViewModel is NOT registered here — it required
-            // PdfReportService.GeneratePaymentReceipt which did not exist (CS1061).
             services.AddTransient<PaymentHistoryViewModel>();
             services.AddTransient<PaymentHistoryView>();
-            //services.AddTransient<StudentPaymentHistoryView>();
 
-            // ✅ FIX 2: FineManagementViewModel/View were missing from DI entirely.
-            // DashboardViewModel.ShowFineManagement() calls GetRequiredService<FineManagementView>()
-            // so both must be registered or it crashes at runtime.
             services.AddTransient<FineManagementViewModel>();
             services.AddTransient<FineManagementView>();
 
             // Core Features
             services.AddTransient<StudentViewModel>();
-            services.AddTransient<StudentView>(); // ✅ FIX 3: Was commented out, caused CS0246
+            services.AddTransient<StudentView>();
             services.AddTransient<FeeViewModel>();
             services.AddTransient<FeeView>();
 
-            // FeeCollectionViewModel requires manual factory (non-standard constructor)
+            // AcademicCycleService — registered BEFORE the ViewModels that depend on it
+            services.AddSingleton<AcademicCycleService>(sp =>
+                new AcademicCycleService(
+                    sp.GetRequiredService<CsvDataService>(),
+                    sp.GetRequiredService<PaymentLogService>()
+                ));
+
+            // ✅ FIX CS7036: Added missing 4th argument — FineCalculationService.
+            // FeeCollectionViewModel constructor signature is:
+            //   (CsvDataService, PaymentLogService, AcademicCycleService, FineCalculationService)
+            // The old registration only passed 3 args, causing CS7036 at line 110.
             services.AddTransient<FeeCollectionViewModel>(sp =>
                 new FeeCollectionViewModel(
                     sp.GetRequiredService<CsvDataService>(),
-                    sp.GetRequiredService<PaymentLogService>()
+                    sp.GetRequiredService<PaymentLogService>(),
+                    sp.GetRequiredService<AcademicCycleService>(),
+                    sp.GetRequiredService<FineCalculationService>()  // ← was missing
                 ));
             services.AddTransient<FeeCollectionView>();
 
@@ -114,7 +129,13 @@ namespace SchoolFeeSystem.Presentation
                 ));
             services.AddTransient<ReportsView>();
 
-            services.AddTransient<ClassViewModel>();
+            // ClassViewModel now accepts optional AcademicCycleService
+            services.AddTransient<ClassViewModel>(sp =>
+                new ClassViewModel(
+                    sp.GetRequiredService<CsvDataService>(),
+                    sp.GetRequiredService<PdfReportService>(),
+                    sp.GetRequiredService<AcademicCycleService>()
+                ));
             services.AddTransient<ClassView>();
             services.AddTransient<HelpViewModel>();
             services.AddTransient<HelpView>();

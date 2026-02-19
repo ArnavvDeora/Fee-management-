@@ -4,7 +4,7 @@
              xmlns:converters="clr-namespace:SchoolFeeSystem.Presentation.Converters">
 
     <UserControl.Resources>
-        <converters:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
+        <converters:BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
 
         <Style x:Key="BackButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="#1976D2"/>
@@ -639,9 +639,12 @@
 
             <!-- Main Editable DataGrid -->
             <DataGrid Grid.Row="2"
+                      x:Name="StudentDataGrid"
                       ItemsSource="{Binding CsvTableView}"
                       SelectedItem="{Binding SelectedRow}"
                       AutoGenerateColumns="True"
+                      AutoGeneratingColumn="StudentDataGrid_AutoGeneratingColumn"
+                      LoadingRow="StudentDataGrid_LoadingRow"
                       CanUserAddRows="False"
                       CanUserDeleteRows="False"
                       CanUserResizeRows="True"
@@ -658,10 +661,37 @@
                       BorderThickness="0"
                       FontSize="13"
                       RowHeight="36"
-                      HeadersVisibility="Column"
-                      EnableRowVirtualization="True"
-                      VirtualizingPanel.IsVirtualizing="True"
-                      VirtualizingPanel.VirtualizationMode="Recycling">
+                      HeadersVisibility="All"
+                      RowHeaderWidth="48">
+
+                <!-- Row header: styled gutter that shows the serial number set by LoadingRow -->
+                <DataGrid.RowHeaderStyle>
+                    <Style TargetType="DataGridRowHeader">
+                        <Setter Property="Background" Value="#1976D2"/>
+                        <Setter Property="Foreground" Value="White"/>
+                        <Setter Property="FontWeight" Value="Bold"/>
+                        <Setter Property="FontSize" Value="12"/>
+                        <Setter Property="Width" Value="48"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                        <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                        <Setter Property="BorderBrush" Value="#1565C0"/>
+                        <Setter Property="Padding" Value="4,0"/>
+                        <!-- ContentTemplate renders the Row.Header value (set in LoadingRow) -->
+                        <Setter Property="ContentTemplate">
+                            <Setter.Value>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}"
+                                               Foreground="White"
+                                               FontWeight="Bold"
+                                               FontSize="12"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </DataTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </DataGrid.RowHeaderStyle>
 
                 <DataGrid.ColumnHeaderStyle>
                     <Style TargetType="DataGridColumnHeader">

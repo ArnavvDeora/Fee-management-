@@ -14,62 +14,46 @@ namespace SchoolFeeSystem.Presentation.ViewModels
     public partial class FineManagementViewModel : ObservableObject
     {
         private readonly CsvDataService _csvService;
+        private readonly FineCalculationService _fineService;
 
-        // Fine report data
-        [ObservableProperty]
-        private DataView fineReportView;
+        // ── Fine report grid ──────────────────────────────────────────────────
+        [ObservableProperty] private DataView fineReportView;
 
-        // Summary statistics
-        [ObservableProperty]
-        private string totalFinesAmount;
+        // ── Summary cards ─────────────────────────────────────────────────────
+        [ObservableProperty] private string totalFinesAmount = "Rs 0.00";
+        [ObservableProperty] private string pendingFinesAmount = "Rs 0.00";
+        [ObservableProperty] private string paidFinesAmount = "Rs 0.00";
+        [ObservableProperty] private int totalStudentsWithFines;
+        [ObservableProperty] private int pendingFinesCount;
 
-        [ObservableProperty]
-        private string pendingFinesAmount;
-
-        [ObservableProperty]
-        private string paidFinesAmount;
-
-        [ObservableProperty]
-        private int totalStudentsWithFines;
-
-        [ObservableProperty]
-        private int pendingFinesCount;
-
-        // Filter options
-        [ObservableProperty]
-        private string studentSearchText;
-
-        [ObservableProperty]
-        private string departmentFilter;
+        // ── Filters ───────────────────────────────────────────────────────────
+        [ObservableProperty] private string studentSearchText;
+        [ObservableProperty] private string departmentFilter = "All";
 
         public ObservableCollection<string> Departments { get; } = new();
-
         public ObservableCollection<string> FineStatusOptions { get; } = new()
-        {
-            "All",
-            "Pending",
-            "Paid"
-        };
+        { "All", "Fine Applicable", "No Fine" };
 
+        [ObservableProperty] private string selectedFineStatus = "All";
+
+        // ── Fine calculator ───────────────────────────────────────────────────
+        // Admin picks a quarter start date and the calculator uses TODAY as asOfDate
+        // so the result matches exactly what Fee Collection shows each student.
         [ObservableProperty]
-        private string selectedFineStatus = "All";
+        private DateTime quarterStartDate =
+            new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
 
-        // Fine calculation helper
-        [ObservableProperty]
-        private DateTime? selectedDueDate;
+        [ObservableProperty] private DateTime? customAsOfDate;  // optional override
+        [ObservableProperty] private string calculatedFine = "";
+        [ObservableProperty] private string fineBreakdownText = "";
 
-        [ObservableProperty]
-        private DateTime? selectedPaymentDate;
-
-        [ObservableProperty]
-        private int monthNumber = 1;
-
-        [ObservableProperty]
-        private string calculatedFine;
-
-        public FineManagementViewModel(CsvDataService csvService)
+        // ─────────────────────────────────────────────────────────────────────
+        public FineManagementViewModel(CsvDataService csvService,
+                                       FineCalculationService fineService)
         {
             _csvService = csvService;
+            _fineService = fineService;
+
             LoadDepartments();
             LoadFineReport();
         }
@@ -78,91 +62,73 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             Departments.Clear();
             Departments.Add("All");
-
-            foreach (var dept in _csvService.GetDepartments())
-            {
-                Departments.Add(dept);
-            }
-
-            DepartmentFilter = "All";
+            foreach (var d in _csvService.GetDepartments())
+                Departments.Add(d);
         }
 
         private void LoadFineReport()
         {
-            var fineReport = _csvService.GetFineReport();
-            FineReportView = fineReport.DefaultView;
-            UpdateStatistics(fineReport);
+            var report = _fineService.BuildFineReport(_csvService);
+            FineReportView = null;
+            FineReportView = new System.Data.DataView(report);
+            UpdateStatistics(report);
         }
 
-        private void UpdateStatistics(DataTable fineReport)
+        private void UpdateStatistics(DataTable report)
         {
-            decimal totalFines = 0m;
-            decimal pendingFines = 0m;
-            decimal paidFines = 0m;
+            decimal total = 0m, pending = 0m, paid = 0m;
             int pendingCount = 0;
 
-            foreach (DataRow row in fineReport.Rows)
+            foreach (DataRow row in report.Rows)
             {
-                decimal fineAmount = decimal.Parse(row["Fine Amount"].ToString());
-                string status = row["Status"].ToString();
+                decimal fine = Convert.ToDecimal(row["Fine Amount"]);
+                decimal waived = 0m;
+                if (report.Columns.Contains("Waived Amount"))
+                    waived = Convert.ToDecimal(row["Waived Amount"]);
 
-                totalFines += fineAmount;
-
-                if (status == "Pending")
-                {
-                    pendingFines += fineAmount;
-                    pendingCount++;
-                }
+                string status = row["Status"]?.ToString() ?? "";
+                total += fine + waived;           // gross fine before waiver
+                if (status == "Fine Applicable")
+                { pending += fine; pendingCount++; }
                 else
-                {
-                    paidFines += fineAmount;
-                }
+                { paid += fine + waived; }        // "No Fine" rows include waived credit
             }
 
-            TotalFinesAmount = $"₹{totalFines:N2}";
-            PendingFinesAmount = $"₹{pendingFines:N2}";
-            PaidFinesAmount = $"₹{paidFines:N2}";
-            TotalStudentsWithFines = fineReport.Rows.Count;
+            TotalFinesAmount = $"Rs {total:N2}";
+            PendingFinesAmount = $"Rs {pending:N2}";
+            PaidFinesAmount = $"Rs {paid:N2}";
+            TotalStudentsWithFines = report.Rows.Count;
             PendingFinesCount = pendingCount;
         }
 
+        // ── Filters ───────────────────────────────────────────────────────────
         [RelayCommand]
         public void ApplyFilters()
         {
-            var allFines = _csvService.GetFineReport();
-            var filtered = allFines.Clone();
+            var all = _fineService.BuildFineReport(_csvService);
+            var filtered = all.Clone();
 
-            foreach (DataRow row in allFines.Rows)
+            foreach (DataRow row in all.Rows)
             {
-                bool matches = true;
-
-                // Student search filter
+                bool ok = true;
                 if (!string.IsNullOrWhiteSpace(StudentSearchText))
                 {
-                    string studentId = row["Student ID"]?.ToString() ?? "";
-                    string studentName = row["Student Name"]?.ToString() ?? "";
-
-                    matches = studentId.Contains(StudentSearchText, StringComparison.OrdinalIgnoreCase) ||
-                             studentName.Contains(StudentSearchText, StringComparison.OrdinalIgnoreCase);
+                    string id = row["Student ID"]?.ToString() ?? "";
+                    string name = row["Student Name"]?.ToString() ?? "";
+                    ok = id.Contains(StudentSearchText, StringComparison.OrdinalIgnoreCase)
+                      || name.Contains(StudentSearchText, StringComparison.OrdinalIgnoreCase);
                 }
+                if (ok && DepartmentFilter != "All")
+                    ok = (row["Sheet / Class"]?.ToString() ?? "")
+                           .Contains(DepartmentFilter, StringComparison.OrdinalIgnoreCase);
+                if (ok && SelectedFineStatus != "All")
+                    ok = row["Status"]?.ToString() == SelectedFineStatus;
 
-                // Department filter
-                if (matches && DepartmentFilter != "All")
-                {
-                    matches = row["Department"]?.ToString() == DepartmentFilter;
-                }
-
-                // Status filter
-                if (matches && SelectedFineStatus != "All")
-                {
-                    matches = row["Status"]?.ToString() == SelectedFineStatus;
-                }
-
-                if (matches)
-                    filtered.ImportRow(row);
+                if (ok) filtered.ImportRow(row);
             }
 
-            FineReportView = filtered.DefaultView;
+            FineReportView = null;
+            FineReportView = new System.Data.DataView(filtered);
             UpdateStatistics(filtered);
         }
 
@@ -175,197 +141,107 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             LoadFineReport();
         }
 
+        // ── Fine Calculator ───────────────────────────────────────────────────
+        // Uses the EXACT same FineCalculationService as FeeCollectionViewModel.
+        // Results are guaranteed to match what appears in the student's fee card.
         [RelayCommand]
-        public void CalculateFineEstimate()
+        public void CalculateFine()
         {
-            if (!SelectedDueDate.HasValue)
-            {
-                MessageBox.Show(
-                    "Please select a due date first.",
-                    "Due Date Required",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-                return;
-            }
+            DateTime asOf = CustomAsOfDate?.Date ?? DateTime.Now.Date;
+            var bd = _fineService.GetBreakdown(QuarterStartDate.Date, asOf);
 
-            DateTime compareDate = SelectedPaymentDate ?? DateTime.Now;
-            decimal fine = _csvService.CalculateFine(SelectedDueDate.Value, compareDate, MonthNumber);
-
-            CalculatedFine = $"₹{fine:N2}";
-
-            int daysLate = Math.Max(0, (compareDate - SelectedDueDate.Value).Days);
+            CalculatedFine = $"Rs {bd.TotalFine:N2}";
+            FineBreakdownText = bd.Summary;
 
             MessageBox.Show(
-                $"Fine Calculation Result:\n\n" +
-                $"Due Date: {SelectedDueDate.Value:dd/MM/yyyy}\n" +
-                $"Payment/Current Date: {compareDate:dd/MM/yyyy}\n" +
-                $"Days Late: {daysLate}\n" +
-                $"Month Number: {MonthNumber}\n\n" +
-                $"Calculated Fine: ₹{fine:N2}\n\n" +
-                GetFineBreakdown(MonthNumber, daysLate),
-                "Fine Calculation",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+                $"Fine Calculation\n\n" +
+                $"Quarter Start Date : {QuarterStartDate:dd-MM-yyyy}\n" +
+                $"Calculated As Of   : {asOf:dd-MM-yyyy}\n" +
+                $"Grace Period Ends  : {bd.GraceEndDate:dd-MM-yyyy}\n\n" +
+                $"--- Breakdown ---\n" +
+                bd.Summary,
+                "Fine Result", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
-        private string GetFineBreakdown(int month, int daysLate)
-        {
-            if (daysLate <= 0)
-                return "No fine - payment is on time.";
-
-            switch (month)
-            {
-                case 1:
-                    if (daysLate > 15)
-                        return "Breakdown:\n• First month late (>15 days): ₹150";
-                    else
-                        return "Breakdown:\n• Within grace period (≤15 days): ₹0";
-
-                case 2:
-                    int secondMonthDays = Math.Min(daysLate - 15, 30);
-                    decimal secondMonthFine = Math.Min(secondMonthDays * 20m, 600m);
-                    return $"Breakdown:\n" +
-                           $"• First month fine: ₹150\n" +
-                           $"• Second month ({secondMonthDays} days × ₹20): ₹{secondMonthFine:N2}\n" +
-                           $"• Total: ₹{150 + secondMonthFine:N2}";
-
-                case 3:
-                    return $"Breakdown:\n" +
-                           $"• First month fine: ₹150\n" +
-                           $"• Second month fine: ₹600 (max)\n" +
-                           $"• Third month base fine: ₹750\n" +
-                           $"• Total: ₹1,500";
-
-                default:
-                    decimal additionalMonths = (month - 3) * 750m;
-                    return $"Breakdown:\n" +
-                           $"• Accumulated (1st + 2nd month): ₹750\n" +
-                           $"• Third month base: ₹750\n" +
-                           $"• Additional months ({month - 3} × ₹750): ₹{additionalMonths:N2}\n" +
-                           $"• Total: ₹{1500 + additionalMonths:N2}";
-            }
-        }
-
+        // ── Export ────────────────────────────────────────────────────────────
         [RelayCommand]
         public void ExportFineReport()
         {
             try
             {
-                var saveDialog = new Microsoft.Win32.SaveFileDialog
+                var dlg = new Microsoft.Win32.SaveFileDialog
                 {
                     Filter = "Excel Files (*.xlsx)|*.xlsx",
                     FileName = $"FineReport_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx"
                 };
+                if (dlg.ShowDialog() != true) return;
 
-                if (saveDialog.ShowDialog() == true)
+                var wb = new ClosedXML.Excel.XLWorkbook();
+                var fineSheet = wb.AddWorksheet("Fine Report");
+                var table = FineReportView.ToTable();
+
+                for (int i = 0; i < table.Columns.Count; i++)
                 {
-                    var workbook = new ClosedXML.Excel.XLWorkbook();
-
-                    // Export fine report
-                    var fineSheet = workbook.AddWorksheet("Fine Report");
-                    var fineTable = FineReportView.ToTable();
-
-                    // Add headers with styling
-                    for (int i = 0; i < fineTable.Columns.Count; i++)
-                    {
-                        var cell = fineSheet.Cell(1, i + 1);
-                        cell.Value = fineTable.Columns[i].ColumnName;
-                        cell.Style.Font.Bold = true;
-                        cell.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#FF9800");
-                        cell.Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
-                    }
-
-                    // Add data with conditional formatting
-                    for (int row = 0; row < fineTable.Rows.Count; row++)
-                    {
-                        for (int col = 0; col < fineTable.Columns.Count; col++)
-                        {
-                            var cell = fineSheet.Cell(row + 2, col + 1);
-                            cell.Value = fineTable.Rows[row][col]?.ToString();
-
-                            // Highlight pending fines
-                            if (fineTable.Columns[col].ColumnName == "Status" &&
-                                cell.Value.ToString() == "Pending")
-                            {
-                                cell.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#FFEBEE");
-                            }
-                        }
-                    }
-
-                    // Add summary sheet
-                    var summarySheet = workbook.AddWorksheet("Summary");
-                    summarySheet.Cell(1, 1).Value = "Fine Summary Report";
-                    summarySheet.Cell(1, 1).Style.Font.Bold = true;
-                    summarySheet.Cell(1, 1).Style.Font.FontSize = 16;
-
-                    summarySheet.Cell(3, 1).Value = "Total Fines Amount:";
-                    summarySheet.Cell(3, 2).Value = TotalFinesAmount;
-                    summarySheet.Cell(4, 1).Value = "Pending Fines Amount:";
-                    summarySheet.Cell(4, 2).Value = PendingFinesAmount;
-                    summarySheet.Cell(5, 1).Value = "Paid Fines Amount:";
-                    summarySheet.Cell(5, 2).Value = PaidFinesAmount;
-                    summarySheet.Cell(6, 1).Value = "Total Students with Fines:";
-                    summarySheet.Cell(6, 2).Value = TotalStudentsWithFines;
-                    summarySheet.Cell(7, 1).Value = "Pending Fines Count:";
-                    summarySheet.Cell(7, 2).Value = PendingFinesCount;
-
-                    summarySheet.Column(1).Width = 30;
-                    summarySheet.Column(2).Width = 20;
-
-                    fineSheet.Columns().AdjustToContents();
-                    workbook.SaveAs(saveDialog.FileName);
-
-                    MessageBox.Show(
-                        $"✅ Fine report exported successfully!\n\nFile saved to:\n{saveDialog.FileName}",
-                        "Export Successful",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
+                    var cell = fineSheet.Cell(1, i + 1);
+                    cell.Value = table.Columns[i].ColumnName;
+                    cell.Style.Font.Bold = true;
+                    cell.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#FF9800");
+                    cell.Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
                 }
+                for (int r = 0; r < table.Rows.Count; r++)
+                {
+                    for (int c = 0; c < table.Columns.Count; c++)
+                    {
+                        var cell = fineSheet.Cell(r + 2, c + 1);
+                        cell.Value = table.Rows[r][c]?.ToString();
+                        if (table.Columns[c].ColumnName == "Status" &&
+                            cell.Value.ToString() == "Fine Applicable")
+                            cell.Style.Fill.BackgroundColor =
+                                ClosedXML.Excel.XLColor.FromHtml("#FFEBEE");
+                    }
+                }
+
+                var sum = wb.AddWorksheet("Summary");
+                sum.Cell(1, 1).Value = "Fine Summary Report";
+                sum.Cell(1, 1).Style.Font.Bold = true;
+                sum.Cell(1, 1).Style.Font.FontSize = 16;
+                sum.Cell(3, 1).Value = "Total Fines:"; sum.Cell(3, 2).Value = TotalFinesAmount;
+                sum.Cell(4, 1).Value = "Pending Fines:"; sum.Cell(4, 2).Value = PendingFinesAmount;
+                sum.Cell(5, 1).Value = "Paid Fines:"; sum.Cell(5, 2).Value = PaidFinesAmount;
+                sum.Cell(6, 1).Value = "Students w/ Fines:"; sum.Cell(6, 2).Value = TotalStudentsWithFines;
+                sum.Cell(7, 1).Value = "Pending Count:"; sum.Cell(7, 2).Value = PendingFinesCount;
+                sum.Column(1).Width = 30;
+                sum.Column(2).Width = 20;
+
+                fineSheet.Columns().AdjustToContents();
+                wb.SaveAs(dlg.FileName);
+
+                MessageBox.Show($"Fine report exported!\n\n{dlg.FileName}",
+                    "Exported", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(
-                    $"❌ Failed to export fine report:\n\n{ex.Message}",
-                    "Export Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
+                MessageBox.Show($"Export failed:\n\n{ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         [RelayCommand]
         public void SendFineReminders()
         {
-            var pendingFines = _csvService.GetFineReport()
+            var pending = _fineService.BuildFineReport(_csvService)
                 .AsEnumerable()
-                .Where(r => r["Status"].ToString() == "Pending")
+                .Where(r => r["Status"].ToString() == "Fine Applicable")
                 .ToList();
 
-            if (pendingFines.Count == 0)
-            {
-                MessageBox.Show(
-                    "No pending fines found!",
-                    "No Reminders",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-                return;
-            }
+            if (pending.Count == 0)
+            { MessageBox.Show("No students with applicable fines.", "No Reminders", MessageBoxButton.OK, MessageBoxImage.Information); return; }
 
-            var result = MessageBox.Show(
-                $"This will send reminders to {pendingFines.Count} students with pending fines.\n\n" +
-                $"Do you want to proceed?",
-                "Confirm Send Reminders",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
-
-            if (result == MessageBoxResult.Yes)
+            if (MessageBox.Show($"Send reminders to {pending.Count} student(s) with pending fines?",
+                "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
             {
-                // Here you would integrate with email/SMS service
-                MessageBox.Show(
-                    $"✅ Fine reminders queued for {pendingFines.Count} students!\n\n" +
-                    $"Notifications will be sent via email/SMS.",
-                    "Reminders Sent",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
+                MessageBox.Show($"Reminders queued for {pending.Count} students.",
+                    "Sent", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
 
@@ -373,18 +249,14 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         public void RefreshData()
         {
             LoadFineReport();
-            MessageBox.Show(
-                "Fine report refreshed successfully!",
-                "Refreshed",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            // Silent refresh — no MessageBox — so callers can trigger this
+            // programmatically (e.g. after a waiver in FeeCollection) without
+            // interrupting the user with a popup.
         }
 
         [RelayCommand]
-        public void GoBack()
-        {
-            var dashboard = App.Current.Services.GetRequiredService<DashboardView>();
-            Application.Current.MainWindow.Content = dashboard;
-        }
+        public void GoBack() =>
+            Application.Current.MainWindow.Content =
+                App.Current.Services.GetRequiredService<DashboardView>();
     }
 }

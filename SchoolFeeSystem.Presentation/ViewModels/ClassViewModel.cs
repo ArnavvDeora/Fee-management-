@@ -1,5 +1,6 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ClosedXML.Excel;
 using Microsoft.Extensions.DependencyInjection;
 using SchoolFeeSystem.Presentation.Services;
 using SchoolFeeSystem.Presentation.Views;
@@ -16,6 +17,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
     {
         private readonly CsvDataService _csvService;
         private readonly PdfReportService _pdfReportService;
+        private readonly AcademicCycleService _cycleService;
         private DataTable _originalData;
         private string _currentSheetName;
 
@@ -116,28 +118,30 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         // CONSTRUCTOR
         // ==========================
 
-        public ClassViewModel(CsvDataService csvService, PdfReportService pdfReportService)
+        public ClassViewModel(CsvDataService csvService, PdfReportService pdfReportService,
+            AcademicCycleService cycleService = null)
         {
             _csvService = csvService;
             _pdfReportService = pdfReportService;
+            _cycleService = cycleService;
+
+            // On every app open, check if any loaded sheet has crossed a quarter
+            // boundary. Silently transition them; results shown in FeeCollection.
+            cycleService?.RunCycleCheck();
 
             InitializeDepartments();
             InitializeFilters();
 
-            // Watch for filter changes
             PropertyChanged += (s, e) =>
             {
                 if (e.PropertyName == nameof(SelectedYearFilter) ||
                     e.PropertyName == nameof(SelectedQuarterFilter) ||
                     e.PropertyName == nameof(SelectedStatusFilter) ||
                     e.PropertyName == nameof(GlobalSearchText))
-                {
                     ApplyFilters();
-                }
+
                 if (e.PropertyName == nameof(SearchText))
-                {
                     ApplyDataViewSearch();
-                }
             };
         }
 
@@ -632,8 +636,105 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [RelayCommand]
         public void ExportCurrentSheet()
         {
-            MessageBox.Show("Export to Excel coming soon!", "Info",
-                MessageBoxButton.OK, MessageBoxImage.Information);
+            if (_originalData == null || _originalData.Rows.Count == 0)
+            {
+                MessageBox.Show("No data to export.", "Export", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            try
+            {
+                // Build a safe filename from the view title
+                string safeName = string.Concat(CurrentViewTitle
+                    .Split(System.IO.Path.GetInvalidFileNameChars()))
+                    .Replace(" ", "_").Replace("•", "").Replace("🌸", "").Replace("🍂", "").Replace("❄️", "").Replace("☀️", "");
+                string fileName = $"{safeName}_{DateTime.Now:yyyyMMdd_HHmm}.xlsx";
+                string folder = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                    "SchoolFeeExports");
+                System.IO.Directory.CreateDirectory(folder);
+                string filePath = System.IO.Path.Combine(folder, fileName);
+
+                using (var workbook = new ClosedXML.Excel.XLWorkbook())
+                {
+                    var ws = workbook.Worksheets.Add("Students");
+
+                    // --- Visible columns only (skip _Section and Sr No. raw column) ---
+                    var visibleCols = _originalData.Columns.Cast<System.Data.DataColumn>()
+                        .Where(c => !c.ColumnName.StartsWith("_") &&
+                                    !c.ColumnName.Equals("Sr No.", StringComparison.OrdinalIgnoreCase) &&
+                                    !c.ColumnName.Equals("Sr No", StringComparison.OrdinalIgnoreCase) &&
+                                    !c.ColumnName.Equals("Sr.", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+
+                    // --- Header row (row 1) ---
+                    // Column A = Sr No.
+                    ws.Cell(1, 1).Value = "Sr No.";
+                    for (int ci = 0; ci < visibleCols.Count; ci++)
+                        ws.Cell(1, ci + 2).Value = visibleCols[ci].ColumnName;
+
+                    // Style header
+                    var headerRange = ws.Range(1, 1, 1, visibleCols.Count + 1);
+                    headerRange.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#1976D2");
+                    headerRange.Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
+                    headerRange.Style.Font.Bold = true;
+                    headerRange.Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+
+                    // --- Data rows ---
+                    // Only include real student rows (non-empty Name)
+                    var nameCol = _originalData.Columns.Cast<System.Data.DataColumn>()
+                        .FirstOrDefault(c => c.ColumnName.Equals("Name", StringComparison.OrdinalIgnoreCase));
+
+                    int excelRow = 2;
+                    int srNo = 1;
+                    foreach (System.Data.DataRow row in _originalData.Rows)
+                    {
+                        // Apply same student-row filter as everywhere else
+                        if (nameCol != null)
+                        {
+                            string nm = row[nameCol]?.ToString()?.Trim() ?? "";
+                            if (string.IsNullOrEmpty(nm) || nm.Length > 60 ||
+                                nm.StartsWith("Note", StringComparison.OrdinalIgnoreCase) ||
+                                nm.Equals("Name", StringComparison.OrdinalIgnoreCase)) continue;
+                        }
+
+                        ws.Cell(excelRow, 1).Value = srNo++;
+                        for (int ci = 0; ci < visibleCols.Count; ci++)
+                        {
+                            string val = row[visibleCols[ci]]?.ToString() ?? "";
+                            // Write numeric values as numbers so Excel can sum them
+                            if (decimal.TryParse(val, System.Globalization.NumberStyles.Any,
+                                    System.Globalization.CultureInfo.InvariantCulture, out decimal num))
+                                ws.Cell(excelRow, ci + 2).Value = num;
+                            else
+                                ws.Cell(excelRow, ci + 2).Value = val;
+                        }
+
+                        // Alternate row colour
+                        if (excelRow % 2 == 0)
+                            ws.Row(excelRow).Style.Fill.BackgroundColor =
+                                ClosedXML.Excel.XLColor.FromHtml("#F5F5F5");
+
+                        excelRow++;
+                    }
+
+                    // Auto-fit columns
+                    ws.Columns().AdjustToContents();
+
+                    workbook.SaveAs(filePath);
+                }
+
+                MessageBox.Show($"Exported successfully!\n\n{filePath}",
+                    "Export Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                { FileName = filePath, UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Export failed: {ex.Message}", "Export Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         [RelayCommand]

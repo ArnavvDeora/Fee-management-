@@ -186,5 +186,66 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             editWindow.DataContext = editVM;
             if (editWindow.ShowDialog() == true) LoadAttendance();
         }
+
+        // =========================================================
+        // ⚠️ DEV ONLY — RESET ALL ATTENDANCE & ALLOWANCE DATA
+        // Hide this button before handing over to the company.
+        // =========================================================
+        [RelayCommand]
+        public async Task ResetAllData()
+        {
+            var confirm = MessageBox.Show(
+                "⚠️ WARNING: This will permanently delete ALL attendance records\n" +
+                "and reset ALL overtime allowance balances to zero.\n\n" +
+                "This CANNOT be undone!\n\nAre you absolutely sure?",
+                "DEV RESET — Are you sure?",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (confirm != MessageBoxResult.Yes) return;
+
+            // Second confirmation
+            var confirm2 = MessageBox.Show(
+                "Last chance! Click Yes to wipe all data.",
+                "Final Confirmation",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (confirm2 != MessageBoxResult.Yes) return;
+
+            try
+            {
+                IsImporting = true;
+                StatusMessage = "Resetting all data...";
+
+                var progress = new Progress<string>(msg =>
+                {
+                    ImportProgress = msg;
+                    StatusMessage = msg;
+                });
+
+                await Task.Run(() => _attendanceService.ResetAllAttendanceAndAllowances(progress));
+
+                StatusMessage = "✅ Reset complete. Re-import your attendance files now.";
+                MessageBox.Show(
+                    "All attendance records and allowance balances have been cleared.\n\nYou can now re-import attendance files fresh.",
+                    "Reset Complete",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+
+                LoadAttendance();
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"❌ Reset failed: {ex.Message}";
+                MessageBox.Show($"Reset failed:\n\n{ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                IsImporting = false;
+                ImportProgress = "";
+            }
+        }
     }
 }

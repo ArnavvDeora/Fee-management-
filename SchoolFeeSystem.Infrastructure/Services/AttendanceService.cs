@@ -631,38 +631,27 @@ namespace SchoolFeeSystem.Infrastructure.Services
                         string punches = (row.ItemArray.Length > 5 && row[5] != null)
                             ? row[5].ToString()?.Trim() : "";
 
+                        // FIX 1: Skip Weekly Off days entirely — they are not holidays,
+                        // not absent, just non-working days. Don't save them.
+                        if (status == "WO" || status == "OFF")
+                            continue;
+
                         string finalStatus = "Present";
 
-                        if (status == "WO" || status == "OFF")
-                        {
-                            finalStatus = "Holiday";
-                        }
-                        else if (status == "A")
+                        if (status == "A")
                         {
                             finalStatus = "Absent";
                         }
                         else if (status == "MIS")
                         {
-                            finalStatus = "MIS";   // keep MIS
+                            finalStatus = "MIS";
                         }
-
 
                         string inTime = "00:00";
                         string outTime = "00:00";
 
-                        if (!string.IsNullOrEmpty(totalInTime) && totalInTime != "00:00")
-                            inTime = totalInTime;
-
-                        if (!string.IsNullOrEmpty(totalOutTime) && totalOutTime != "00:00")
-                            outTime = totalOutTime;
-                        // BUSINESS RULE:
-                        // MIS = forgot OUT punch → auto mark 5:00 PM
-                        if (status == "MIS" && inTime != "00:00")
-                        {
-                            outTime = "17:00";
-                        }
-
-
+                        // FIX 2: Extract from punches column FIRST (most accurate source)
+                        // The punches column has the real(I) and (O) times
                         if (!string.IsNullOrEmpty(punches))
                         {
                             var inMatch = Regex.Match(punches, @"(\d{2}:\d{2})\(I\)");
@@ -674,6 +663,22 @@ namespace SchoolFeeSystem.Infrastructure.Services
                                 outTime = outMatch.Groups[1].Value;
                         }
 
+                        // Fall back to totalInTime/totalOutTime columns if punches had nothing
+                        if (inTime == "00:00" && !string.IsNullOrEmpty(totalInTime) && totalInTime != "00:00")
+                            inTime = totalInTime;
+
+                        if (outTime == "00:00" && !string.IsNullOrEmpty(totalOutTime) && totalOutTime != "00:00")
+                            outTime = totalOutTime;
+
+                        // FIX 3: Apply MIS rule AFTER punch extraction so it only fires
+                        // when there is genuinely no (O) punch — not overwritten by punch regex
+                        // MIS = forgot OUT punch → auto mark 5:30 PM
+                        if (status == "MIS" && inTime != "00:00" && outTime == "00:00")
+                        {
+                            outTime = "17:30";
+                        }
+
+                        // Mark as Present if we have a valid in-time
                         if (inTime != "00:00")
                             finalStatus = "Present";
 
@@ -807,6 +812,32 @@ namespace SchoolFeeSystem.Infrastructure.Services
             if (month > 0) query = query.Where(a => a.Date.Month == month && a.Date.Year == year);
             return query.OrderByDescending(a => a.Date).ToList();
         }
+        // =========================================================
+        // ⚠️ DEV ONLY - RESET ALL ATTENDANCE & ALLOWANCE DATA
+        // This method is for internal use only. Hide the button before giving to company.
+        // =========================================================
+        public void ResetAllAttendanceAndAllowances(IProgress<string> progress = null)
+        {
+            progress?.Report("Deleting all attendance records...");
+            var allRecords = _context.AttendanceRecords.ToList();
+            _context.AttendanceRecords.RemoveRange(allRecords);
+            _context.SaveChanges();
+            progress?.Report($"Deleted {allRecords.Count} attendance records.");
+
+            progress?.Report("Resetting all overtime allowance banks...");
+            var allAllowances = _context.OvertimeAllowances.ToList();
+            foreach (var a in allAllowances)
+            {
+                a.TotalAllowanceMinutes = 0;
+                a.UsedAllowanceMinutes = 0;
+                a.LastUpdated = DateTime.Now;
+            }
+            _context.SaveChanges();
+            progress?.Report($"Reset {allAllowances.Count} allowance banks.");
+
+            progress?.Report("✅ Reset complete. You can now re-import attendance files.");
+        }
+
         public void MarkAttendance(AttendanceRecord record) => AddOrUpdateAttendanceBatch(new List<AttendanceRecord> { record });
         public void BulkMarkAttendance(List<AttendanceRecord> records) => AddOrUpdateAttendanceBatch(records);
         public void AddHoliday(Holiday holiday) { if (!_context.Holidays.Any(h => h.Date == holiday.Date)) { _context.Holidays.Add(holiday); _context.SaveChanges(); } }

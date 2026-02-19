@@ -134,7 +134,7 @@
                     </Button>
                 </StackPanel>
 
-                <!-- Import Button -->
+                <!-- Import Button + DEV Reset Button -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Button Command="{Binding ImportExcelAsyncCommand}" 
                             Background="#27AE60" Foreground="White" BorderThickness="0" 
@@ -157,6 +157,34 @@
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="📥" Margin="0,0,10,0"/>
                             <TextBlock Text="Import Biometric Excel" FontWeight="Bold"/>
+                        </StackPanel>
+                    </Button>
+
+                    <!-- ⚠️ DEV ONLY: Change Visibility to Visible when you need to reset data -->
+                    <!-- Change back to Collapsed before giving to company -->
+                    <Button Command="{Binding ResetAllDataCommand}"
+                            Visibility="Visible"
+                            Background="#C0392B" Foreground="White" BorderThickness="0"
+                            Height="45" Padding="20,0" Margin="10,0,0,0"
+                            ToolTip="DEV ONLY - Wipes all attendance and allowance data">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="6"/>
+                            </Style>
+                        </Button.Resources>
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsImporting}" Value="True">
+                                        <Setter Property="IsEnabled" Value="False"/>
+                                        <Setter Property="Opacity" Value="0.5"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚠️" Margin="0,0,10,0"/>
+                            <TextBlock Text="Reset All Data" FontWeight="Bold"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>
