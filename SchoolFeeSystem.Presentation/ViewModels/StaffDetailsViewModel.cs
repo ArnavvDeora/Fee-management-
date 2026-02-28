@@ -106,27 +106,50 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [RelayCommand]
         public void ApplyIncrement()
         {
-            if (IncrementAmount > 0)
-            {
-                try
-                {
-                    SelectedEmployee.BaseSalary += IncrementAmount;
-                    _payrollService.UpdateEmployee(SelectedEmployee);
-
-                    MessageBox.Show($"Salary increased by ₹{IncrementAmount}. New Salary: ₹{SelectedEmployee.BaseSalary}");
-
-                    IncrementAmount = 0;
-                    IsIncrementVisible = false;
-                    OnPropertyChanged(nameof(SelectedEmployee));
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error applying increment: {ex.Message}");
-                }
-            }
-            else
+            if (IncrementAmount <= 0)
             {
                 MessageBox.Show("Please enter a valid amount greater than 0.");
+                return;
+            }
+
+            decimal oldSalary = SelectedEmployee.BaseSalary;
+
+            try
+            {
+                SelectedEmployee.BaseSalary += IncrementAmount;
+
+                // SaveSalaryConfiguration does TWO things in one call:
+                //   1. _context.Employees.Update(employee) + SaveChanges()  → persists new BaseSalary to DB
+                //   2. Inserts a SalaryRevision row                         → payroll history & audit trail
+                //
+                // GenerateDetailedSalary() reads emp.BaseSalary directly from the Employees table,
+                // so all future payroll calculations automatically pick up the new salary.
+                _payrollService.SaveSalaryConfiguration(
+                    SelectedEmployee,
+                    $"Increment ₹{IncrementAmount:N0} applied. " +
+                    $"Previous: ₹{oldSalary:N0} → New: ₹{SelectedEmployee.BaseSalary:N0}");
+
+                MessageBox.Show(
+                    $"✅ Salary Increment Applied!\n\n" +
+                    $"Employee  : {SelectedEmployee.FullName}\n" +
+                    $"Old Salary: ₹{oldSalary:N2}\n" +
+                    $"Increment : +₹{IncrementAmount:N2}\n" +
+                    $"New Salary: ₹{SelectedEmployee.BaseSalary:N2}\n\n" +
+                    $"Change saved to database. All future payroll runs will use ₹{SelectedEmployee.BaseSalary:N2}.",
+                    "Increment Applied",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+
+                IncrementAmount = 0;
+                IsIncrementVisible = false;
+                OnPropertyChanged(nameof(SelectedEmployee));
+            }
+            catch (Exception ex)
+            {
+                // Roll back the in-memory change so the UI doesn't show a wrong value
+                SelectedEmployee.BaseSalary = oldSalary;
+                OnPropertyChanged(nameof(SelectedEmployee));
+                MessageBox.Show($"Error applying increment:\n{ex.Message}");
             }
         }
 

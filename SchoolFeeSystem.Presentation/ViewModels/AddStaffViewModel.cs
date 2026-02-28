@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using ExcelDataReader;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Win32;
+using SchoolFeeSystem; // Access to App class
 using SchoolFeeSystem.Core.Entities;
 using SchoolFeeSystem.Core.Interfaces;
 using SchoolFeeSystem.Presentation.Views;
@@ -13,7 +14,6 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Media.Imaging;
-using SchoolFeeSystem; // Access to App class
 
 namespace SchoolFeeSystem.Presentation.ViewModels
 {
@@ -38,7 +38,15 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty] private string _aadharNumber;
         [ObservableProperty] private string _panNumber;
 
-        // [NEW] Attendance ID (Biometric)
+        // SS Code = HR payroll identifier from SS_Master (e.g. SS/CIHT/24103)
+        // Leave blank here — it gets auto-filled when you do "Import SS Master" in Staff Directory
+        [ObservableProperty] private string _ssCode;
+
+        // ESI No = from SS_Master column H
+        [ObservableProperty] private string _esiNumber;
+
+        // Biometric ID = attendance device code (e.g. 101, CIHT007)
+        // Leave blank — auto-filled on first attendance import
         [ObservableProperty] private string _biometricId;
 
         // --- 3. Official Details ---
@@ -130,8 +138,13 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 Email = Email,
                 AadharNumber = AadharNumber,
                 PanNumber = PanNumber,
+                SsCode = SsCode,
+                EsiNumber = EsiNumber,
 
-                // [NEW] Save the Biometric ID input by user
+                // [NOTE] BiometricId is the ATTENDANCE DEVICE code (101, CIHT007 etc.)
+                // It is different from SsCode (HR payroll code).
+                // Leave blank here — it gets auto-populated the first time you import
+                // an attendance file for this employee.
                 BiometricId = BiometricId,
 
                 Designation = Designation,

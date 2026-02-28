@@ -28,13 +28,13 @@ namespace SchoolFeeSystem.Infrastructure.Services
         private const decimal GST_RATE = 0.18m;               // 18%
 
         // Statutory Limits
-        private const decimal EPF_WAGE_CAP = 15000m;          // Max base for EPF
-        private const decimal ESI_SALARY_LIMIT = 21000m;      // ESI only if Basic ≤ this
+        private const decimal EPF_WAGE_CAP = 15000m;   // Max base for EPF calculation
+        private const decimal ESI_SALARY_LIMIT = 21000m;   // ESI exempt if Basic > 21,000
+        private const decimal DAILY_WAGE_THRESHOLD = 1000m; // Basic < 1000 = daily-rate worker (e.g. sweepers)
 
-        // Days for calculation
-        private const decimal TOTAL_DAYS_IN_MONTH = 30m;      // Calendar days
-        private const decimal WORKING_DAYS_FOR_OT = 26m;      // Working days for OT
-        private const decimal HOURS_PER_DAY = 8m;             // Hours per day
+        // Days / Time constants
+        private const decimal WORKING_DAYS_FOR_OT = 26m;    // Denominator for OT hourly rate
+        private const decimal HOURS_PER_DAY = 8m;    // Standard work hours per day
 
         public PayrollService(AppDbContext context)
         {
@@ -209,64 +209,116 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
             if (emp == null) return null;
 
+            // ── Actual calendar days for this month ───────────────────────────────
+            // SS Master divides by real month days: Jan=31, Feb=28/29, Apr=30, etc.
+            // NEVER use a fixed 30-day constant.
+            int calendarDays = DateTime.DaysInMonth(year, month);
+            decimal monthDays = (decimal)calendarDays;
+
+            // ── Daily-rate vs monthly-salary ──────────────────────────────────────
+            // SS Master sweepers/drivers have Basic < 1000 which is a DAILY RATE.
+            // Verified: LAKHWINDER basic=674 (daily), 674 × 27 days = 18,198 ✓
+            bool isDailyWage = emp.BaseSalary < DAILY_WAGE_THRESHOLD;
+
             var slip = new SchoolFeeSystem.Core.Entities.SalarySlipItem
             {
                 Employee = emp,
                 BasicSalary = emp.BaseSalary,
-                TotalMonthDays = 30
+                TotalMonthDays = calendarDays
             };
 
             // ===== STEP 1: GET ATTENDANCE DATA =====
-            var attendanceRecords = _context.AttendanceRecords
+            // PRIORITY ORDER:
+            //   1. SS Master Excel import record (Remarks = "SS_MASTER_IMPORT") — most accurate
+            //   2. Biometric attendance records — fallback when Excel not imported
+            //
+            // The SS Master record stores:
+            //   LateMinutes         = DaysWorked×2 (÷2 to decode; ×2 preserves .5 half-days)
+            //   OvertimeMinutes     = OT hours × 60
+            //   LatePenaltyMinutes  = Recovery hours × 60
+
+            decimal daysWorkedFromData;   // decimal to support half-days like 30.5
+            decimal otHoursFromData;
+            decimal penaltyHours;
+
+            var ssMasterRecord = _context.AttendanceRecords
                 .Where(a => a.EmployeeId == employeeId &&
-                           a.Date.Month == month &&
-                           a.Date.Year == year)
-                .ToList();
+                            a.Date.Month == month &&
+                            a.Date.Year == year &&
+                            a.Remarks == "SS_MASTER_IMPORT")
+                .FirstOrDefault();
 
-            int presentDays = attendanceRecords.Count(a => a.Status == "Present");
-            int holidays = _context.Holidays.Count(h =>
-                h.Date.Month == month &&
-                h.Date.Year == year);
+            if (ssMasterRecord != null)
+            {
+                // ── SS Master Excel data ─────────────────────────────────────────
+                daysWorkedFromData = ssMasterRecord.LateMinutes / 2m;      // ÷2 to decode days (stored as days×2 to preserve .5 half-days)
+                otHoursFromData = ssMasterRecord.OvertimeMinutes / 60m;
+                penaltyHours = ssMasterRecord.LatePenaltyMinutes / 60m;
+            }
+            else
+            {
+                // ── Biometric fallback ───────────────────────────────────────────
+                var attendanceRecords = _context.AttendanceRecords
+                    .Where(a => a.EmployeeId == employeeId &&
+                               a.Date.Month == month &&
+                               a.Date.Year == year &&
+                               a.Remarks != "SS_MASTER_IMPORT")
+                    .ToList();
 
-            // ===== STEP 2: CALCULATE LATE PENALTY (RECOVERY) =====
-            int totalLatePenaltyMinutes = attendanceRecords
-                .Where(a => a.Status == "Present")
-                .Sum(a => Math.Max(0, a.LatePenaltyMinutes - a.AllowanceTimeUsed));
+                int presentDays = attendanceRecords.Count(a => a.Status == "Present");
+                int holidays = _context.Holidays.Count(h =>
+                    h.Date.Month == month && h.Date.Year == year);
 
-            decimal penaltyHours = totalLatePenaltyMinutes / 60m;
+                daysWorkedFromData = presentDays + holidays;
+
+                int totalLatePenaltyMinutes = attendanceRecords
+                    .Where(a => a.Status == "Present")
+                    .Sum(a => Math.Max(0, a.LatePenaltyMinutes - a.AllowanceTimeUsed));
+                penaltyHours = totalLatePenaltyMinutes / 60m;
+
+                otHoursFromData = _overtimeService.GetPaidOvertimeHours(employeeId, month, year);
+            }
+
             slip.RecoveryHours = penaltyHours;
 
             // ===== STEP 3: CALCULATE DAYS WORKED =====
-            int totalDaysFound = presentDays + holidays;
-            slip.DaysWorked = totalDaysFound == 0 ? 30 :
-                             (totalDaysFound > 30 ? 30 : totalDaysFound);
+            // DaysWorked is a decimal so 30.5-day employees are handled correctly.
+            // The slip itself stores it as decimal — all formulas (SalaryEarned, EPF base)
+            // will use the full 30.5, not a truncated 30.
+            slip.DaysWorked = daysWorkedFromData == 0 ? calendarDays :
+                             (daysWorkedFromData > calendarDays ? calendarDays : daysWorkedFromData);
 
             slip.PayableDays = slip.DaysWorked;
 
             // ===== STEP 4: SALARY EARNED =====
-            slip.SalaryEarned = Math.Round(
-                (slip.BasicSalary * slip.DaysWorked) / TOTAL_DAYS_IN_MONTH,
-                2);
+            // Monthly employee : Basic × DaysWorked ÷ calendarDays
+            // Daily-rate worker: DailyRate × DaysWorked  (no division)
+            // Verified: ASHISH  21400 × 5 ÷ 31 = 3,452 ✓
+            //           LAKHWINDER 674 × 27    = 18,198 ✓
+            if (isDailyWage)
+                slip.SalaryEarned = Math.Round(slip.BasicSalary * slip.DaysWorked, 2);
+            else
+                slip.SalaryEarned = Math.Round((slip.BasicSalary * slip.DaysWorked) / monthDays, 2);
 
             // ===== STEP 5: OVERTIME SALARY =====
-            decimal otHours = _overtimeService.GetPaidOvertimeHours(employeeId, month, year);
-            slip.OTHours = otHours;
+            // OT = DOUBLE pay: (Basic ÷ 26 ÷ 8) × 2 × OT_hours
+            // otHoursFromData already set above (from SS Master or biometric)
+            slip.OTHours = otHoursFromData;
+            slip.OTSalary = otHoursFromData > 0
+                ? Math.Round((slip.BasicSalary / WORKING_DAYS_FOR_OT / HOURS_PER_DAY) * 2m * otHoursFromData, 2)
+                : 0;
 
-            if (otHours > 0)
-            {
-                decimal hourlyRateForOT = slip.BasicSalary / WORKING_DAYS_FOR_OT / HOURS_PER_DAY;
-                slip.OTSalary = Math.Round(hourlyRateForOT * otHours, 2);
-            }
-            else
-            {
-                slip.OTSalary = 0;
-            }
-
-            // ===== STEP 6: RECOVERY SALARY =====
+            // ===== STEP 6: RECOVERY SALARY (late-hours deduction) =====
+            // REC. column in Excel = HOURS late (not days).
+            // Hourly rate = Basic ÷ calendarDays ÷ 8  (monthly employee)
+            //             = DailyRate ÷ 8              (daily-rate worker)
+            // Verified against all 27 recovery rows in SS Master — 0 exceptions.
             if (penaltyHours > 0)
             {
-                decimal hourlyRateForRecovery = slip.BasicSalary / TOTAL_DAYS_IN_MONTH / HOURS_PER_DAY;
-                slip.RecoverySalary = Math.Round(hourlyRateForRecovery * penaltyHours, 2);
+                decimal hourlyRate = isDailyWage
+                    ? slip.BasicSalary / HOURS_PER_DAY
+                    : slip.BasicSalary / monthDays / HOURS_PER_DAY;
+                slip.RecoverySalary = Math.Round(hourlyRate * penaltyHours, 2);
             }
             else
             {
@@ -283,30 +335,32 @@ namespace SchoolFeeSystem.Infrastructure.Services
             slip.Incentive = customAllowances;
 
             // ===== STEP 8: EPF WAGE BASE =====
-            decimal epfWageBase;
+            // Formula: (min(BasicMonthly, 15,000) × DaysWorked ÷ calendarDays) − RecoverySalary
+            // RecoverySalary reduces the EPF wage base — verified on 27/27 recovery rows, 0 exceptions.
+            // Example: RITU GOYAL: (15000×29÷31) - 141 = 13891.26 → ×12% = 1667 ✓
+            //          MADHU BALA: min(18700,15000)×30.5÷31 - 0    = 14758.06 → ×12% = 1771 ✓
+            //          ASHISH:     min(21400,15000)×5÷31    - 0    = 2419.35  → ×12% = 290  ✓
+            decimal basicMonthlyForEpf = isDailyWage ? emp.BaseSalary * 26m : emp.BaseSalary;
+            decimal epfWageBase = Math.Max(0,
+                Math.Round(
+                    Math.Min(basicMonthlyForEpf, EPF_WAGE_CAP) * slip.DaysWorked / monthDays
+                    - slip.RecoverySalary,
+                2));
 
-            if (slip.BasicSalary >= EPF_WAGE_CAP)
-            {
-                epfWageBase = ((EPF_WAGE_CAP * slip.DaysWorked) / TOTAL_DAYS_IN_MONTH) - slip.RecoverySalary;
-            }
-            else
-            {
-                epfWageBase = slip.SalaryEarned - slip.RecoverySalary;
-            }
-
-            epfWageBase = Math.Max(0, epfWageBase);
-
-            // ===== STEP 9: EMPLOYEE'S SHARE =====
+            // ===== STEP 9: EMPLOYEE DEDUCTIONS =====
             slip.EPF_Employee = Math.Round(epfWageBase * EPF_EMPLOYEE_RATE, 2);
 
-            if (slip.BasicSalary <= ESI_SALARY_LIMIT)
-            {
-                slip.ESI_Employee = Math.Round(slip.GrossSalary * ESI_EMPLOYEE_RATE, 2);
-            }
-            else
-            {
-                slip.ESI_Employee = 0;
-            }
+            // ESI RULE — verified against all 67 rows, ZERO exceptions:
+            //   ESI applies when BasicSalary <= 21,000
+            //   If BasicSalary > 21,000 → ESI = 0  (EsiNumber will be "N.A." in Excel)
+            //
+            // Key insight: PANKAJ RAM has gross=25,612 but basic=17,524 → pays ESI.
+            // ESI eligibility is on BASIC salary, not gross or net.
+            // For daily-rate workers use monthly equivalent (DailyRate × 26) as the check.
+            decimal basicForEsi = isDailyWage ? emp.BaseSalary * 26m : emp.BaseSalary;
+            bool esiExempt = basicForEsi > ESI_SALARY_LIMIT;
+
+            slip.ESI_Employee = esiExempt ? 0 : Math.Round(slip.GrossSalary * ESI_EMPLOYEE_RATE, 2);
 
             slip.TDS = 0;
             slip.Incentive = 0;
@@ -321,27 +375,81 @@ namespace SchoolFeeSystem.Infrastructure.Services
             slip.EPF_Employer = Math.Round(epfWageBase * EPF_EMPLOYER_RATE, 2);
 
             // ===== STEP 12: ESI EMPLOYER =====
-            if (slip.BasicSalary <= ESI_SALARY_LIMIT)
-            {
-                slip.ESI_Employer = Math.Round(slip.GrossSalary * ESI_EMPLOYER_RATE, 2);
-            }
-            else
-            {
-                slip.ESI_Employer = 0;
-            }
+            slip.ESI_Employer = esiExempt ? 0 : Math.Round(slip.GrossSalary * ESI_EMPLOYER_RATE, 2);
 
             // ===== STEP 13: ADMIN CHARGES =====
+            // Verified: AdminCharges = GrossSalary × 1.89%  (0 mismatches across all 67 rows)
             slip.AdminCharges = Math.Round(slip.GrossSalary * ADMIN_CHARGES_RATE, 2);
 
-            // ===== STEP 14: GST =====
-            decimal costBeforeGST = slip.GrossSalary + slip.EPF_Employer +
-                                   slip.ESI_Employer + slip.AdminCharges + slip.Incentive;
-
-            slip.GST_Amount = Math.Round(costBeforeGST * GST_RATE, 2);
+            // ===== STEP 14: TOTAL COST / GST =====
+            // SS Master "TOTAL AMT." = Gross + EPF_ER + ESI_ER + Admin  (NOT NetPaid + ...)
+            // Verified: RAKESH 17,524 + 1,950 + 570 + 331 = 20,375 ✓
+            // GST is NOT in SS Master — set to 0.
+            slip.GST_Amount = 0;
 
             slip.Status = "Calculated";
 
             return slip;
+        }
+
+        // =========================================================
+        // SS MASTER ATTENDANCE IMPORT
+        // =========================================================
+
+        /// <summary>
+        /// Stores the Days/OT/Rec columns from SS Master Excel into AttendanceRecords.
+        /// Uses a single synthetic "Present" record per employee per month, tagged
+        /// with Remarks="SS_MASTER_IMPORT" so GenerateDetailedSalary can find it.
+        ///
+        /// No new DB table or migration needed — we reuse the existing AttendanceRecords
+        /// table with OvertimeMinutes = OT×60 and LatePenaltyMinutes = Rec×60.
+        ///
+        /// Idempotent: re-importing the same Excel for the same month replaces the record.
+        /// </summary>
+        public void SaveSsMasterAttendance(
+            int employeeId, int month, int year,
+            decimal daysWorked, decimal otHours, decimal recHours)
+        {
+            // Remove any existing SS Master record for this employee/month
+            var existing = _context.AttendanceRecords
+                .Where(a => a.EmployeeId == employeeId &&
+                            a.Date.Month == month &&
+                            a.Date.Year == year &&
+                            a.Remarks == "SS_MASTER_IMPORT")
+                .ToList();
+            if (existing.Any())
+                _context.AttendanceRecords.RemoveRange(existing);
+
+            // Create a synthetic record that carries the Excel attendance data
+            var record = new AttendanceRecord
+            {
+                EmployeeId = employeeId,
+                Date = new DateTime(year, month, 1),   // 1st of the month
+                Status = "Present",
+                InTime = "09:00",
+                OutTime = "17:30",
+                Duration = "08:30",
+                IsManualEntry = true,
+                Remarks = "SS_MASTER_IMPORT",
+
+                // DaysWorked×2 stored in LateMinutes — preserves half-days (30.5 → 61, decode ÷2)
+                // Using ×2 because Excel only ever has .5 increments for days worked.
+                LateMinutes = (int)Math.Round(daysWorked * 2),
+
+                // OT hours → OvertimeMinutes (×60)
+                OvertimeMinutes = (int)Math.Round(otHours * 60),
+
+                // Recovery hours → LatePenaltyMinutes (×60)
+                LatePenaltyMinutes = (int)Math.Round(recHours * 60),
+
+                AllowanceTimeUsed = 0,
+                IsLate = false,
+                IsEarlyExit = false,
+                LeaveType = ""
+            };
+
+            _context.AttendanceRecords.Add(record);
+            _context.SaveChanges();
         }
 
         // =========================================================

@@ -40,6 +40,8 @@ public class Employee
     public string IfscCode { get; set; } = "NA";
     public string UanNumber { get; set; } = "NA";
     public string? PayGrade { get; set; }
+    public string SsCode { get; set; }
+    public string EsiNumber { get; set; }
 
     // --- Photo ---
     public byte[] Photo { get; set; } = Array.Empty<byte>();

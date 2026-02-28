@@ -19,6 +19,12 @@ namespace SchoolFeeSystem.Core.Interfaces
         // ✅ NEW: Hard delete employee and all related data
         bool DeleteEmployeePermanently(int employeeId);
 
+        // ✅ NEW: Save attendance from SS Master Excel import
+        // Stores DaysWorked, OT hours and Recovery hours directly from the spreadsheet.
+        // GenerateDetailedSalary() will use this data to reproduce the exact Excel result.
+        void SaveSsMasterAttendance(int employeeId, int month, int year,
+            decimal daysWorked, decimal otHours, decimal recHours);
+
         // --- Salary Configuration ---
         List<SalaryComponent> GetSalaryComponents();
         void SaveSalaryComponent(SalaryComponent component);

@@ -7,7 +7,13 @@
              mc:Ignorable="d" d:DesignHeight="900" d:DesignWidth="1100" Background="#F8F9FA">
 
     <UserControl.Resources>
+        <!--
+            ByteArrayToImageConverter  → converts byte[] photo data to BitmapImage
+            BooleanToVisibilityConverter → converts bool to Visibility (used for show/hide panels)
+            Both live in SchoolFeeSystem.Presentation.Converters
+        -->
         <converters:ByteArrayToImageConverter x:Key="ByteToImageConverter"/>
+        <converters:BooleanToVisibilityConverter x:Key="BoolToVisConverter"/>
 
         <Style TargetType="TextBox">
             <Setter Property="Padding" Value="10"/>
@@ -61,7 +67,7 @@
                         </Ellipse>
 
                         <Button Command="{Binding BrowsePhotoCommand}" 
-                                Visibility="{Binding IsEditMode, Converter={StaticResource ByteToImageConverter}}"
+                                Visibility="{Binding IsEditMode, Converter={StaticResource BoolToVisConverter}}"
                                 ToolTip="Click to Change Photo"
                                 Cursor="Hand" BorderThickness="0">
                             <Button.Template>
@@ -320,7 +326,7 @@
                     </Border>
 
                     <Border Background="White" CornerRadius="10" Padding="20" BorderBrush="#F39C12" BorderThickness="2"
-                            Visibility="{Binding IsIncrementVisible, Converter={StaticResource ByteToImageConverter}}">
+                            Visibility="{Binding IsIncrementVisible, Converter={StaticResource BoolToVisConverter}}">
                         <StackPanel>
                             <TextBlock Text="Apply Salary Increment" FontWeight="Bold" Foreground="#F39C12" FontSize="16" Margin="0,0,0,10"/>
                             <TextBlock Text="Enter amount to add (₹):" Foreground="#7F8C8D" Margin="0,0,0,5"/>
@@ -377,7 +383,7 @@
                 CornerRadius="5" 
                 Padding="15"
                 Margin="0,0,0,0"
-                Visibility="{Binding IsDeleteConfirmVisible, Converter={StaticResource ByteToImageConverter}}">
+                Visibility="{Binding IsDeleteConfirmVisible, Converter={StaticResource BoolToVisConverter}}">
                                 <StackPanel>
                                     <TextBlock Text="Are you absolutely sure?" 
                            FontWeight="Bold" 

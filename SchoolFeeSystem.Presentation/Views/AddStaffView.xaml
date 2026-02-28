@@ -113,6 +113,7 @@
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
 
                                     <StackPanel Grid.Row="0" Grid.Column="0">
@@ -135,6 +136,29 @@
                                     <StackPanel Grid.Row="1" Grid.Column="2">
                                         <TextBlock Text="PAN No" FontWeight="SemiBold"/>
                                         <TextBox Text="{Binding PanNumber}" Padding="8" Margin="0,5,0,15"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="1" Grid.Column="4">
+                                        <TextBlock Text="Staff Type" FontWeight="SemiBold"/>
+                                        <ComboBox ItemsSource="{Binding StaffTypes}" SelectedItem="{Binding StaffType}"
+                                                  Padding="8" Margin="0,5,0,15"/>
+                                    </StackPanel>
+
+                                    <!-- Row 2: SS Code + Biometric ID  -->
+                                    <StackPanel Grid.Row="2" Grid.Column="0">
+                                        <TextBlock FontWeight="SemiBold">
+                                            <Run Text="SS Code " Foreground="#8E44AD"/>
+                                            <Run Text="(HR Payroll ID)" Foreground="#95A5A6" FontSize="10"/>
+                                        </TextBlock>
+                                        <TextBox Text="{Binding SsCode}" Padding="8" Margin="0,5,0,15"
+                                                 ToolTip="e.g. SS/CIHT/24103. Auto-filled when you use Import SS Master in Staff Directory."/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="2" Grid.Column="2">
+                                        <TextBlock FontWeight="SemiBold">
+                                            <Run Text="Biometric ID " Foreground="#16A085"/>
+                                            <Run Text="(Attendance Device)" Foreground="#95A5A6" FontSize="10"/>
+                                        </TextBlock>
+                                        <TextBox Text="{Binding BiometricId}" Padding="8" Margin="0,5,0,15"
+                                                 ToolTip="The code shown on the biometric attendance machine, e.g. 101, CIHT007. Auto-updated on first attendance import."/>
                                     </StackPanel>
                                 </Grid>
 
@@ -237,6 +261,18 @@
                                 <TextBlock Text="13. Bank A/C | 14. IFSC | 15. UAN | 16. Date of Joining" FontFamily="Consolas"/>
                                 <TextBlock Text="17. Marital Status" FontFamily="Consolas"/>
                                 <TextBlock Text="* Row 1 should be headers. Data starts from Row 2." FontSize="11" Foreground="Red" Margin="0,5,0,0"/>
+                                <Border Background="#E8F5E9" CornerRadius="4" Padding="10" Margin="0,10,0,0">
+                                    <StackPanel>
+                                        <TextBlock FontWeight="Bold" Foreground="#27AE60" Margin="0,0,0,4">
+                                            <Run Text="💡 Tip: "/>
+                                            <Run Text="For SS Master import, use the "/>
+                                            <Run Text="Import SS Master" FontWeight="Bold"/>
+                                            <Run Text=" button in Staff Directory instead."/>
+                                        </TextBlock>
+                                        <TextBlock Text="It auto-fills SS Code, Department, Salary, Bank details and ESI/UAN for all 64 employees at once."
+                                                   Foreground="#2E7D32" FontSize="12" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                         </Border>
                     </StackPanel>
