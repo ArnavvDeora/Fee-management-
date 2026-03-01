@@ -1,9 +1,11 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DocumentFormat.OpenXml.Bibliography;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Win32;
 using SchoolFeeSystem.Core.Entities;
 using SchoolFeeSystem.Core.Interfaces;
+using SchoolFeeSystem.Presentation;
 using SchoolFeeSystem.Presentation.Views;
 using System;
 using System.Collections.Generic;
@@ -11,7 +13,6 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
-using SchoolFeeSystem.Presentation;
 
 namespace SchoolFeeSystem.Presentation.ViewModels
 {
@@ -21,6 +22,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         private readonly IPayrollService _payrollService;
 
         private List<Employee> _allEmployees = new();
+        private List<AttendanceRecord> _allAttendanceRecords = new(); // master list for filtering
 
         [ObservableProperty] private string _searchText;
         [ObservableProperty] private ObservableCollection<Employee> _employees;
@@ -30,6 +32,13 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty] private string _statusMessage = "Ready";
         [ObservableProperty] private bool _isImporting = false;
         [ObservableProperty] private string _importProgress = "";
+
+        // ── Department filter ────────────────────────────────────────────────
+        [ObservableProperty] private ObservableCollection<string> _departments = new();
+        [ObservableProperty] private string _selectedDepartment = "All Departments";
+
+        // Auto-refresh grid when department selection changes
+        partial void OnSelectedDepartmentChanged(string value) => ApplyDepartmentFilter();
 
         // ===================================================================
         // MANUALLY IMPLEMENTED COMMANDS (Source generator not working)
@@ -59,6 +68,21 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 Employees = new ObservableCollection<Employee>(list);
                 SelectedEmployee = Employees[0];
             }
+            LoadDepartments();
+        }
+
+        private void LoadDepartments()
+        {
+            var deptList = _allEmployees
+                .Select(e => e.Department ?? "Unknown")
+                .Where(d => !string.IsNullOrWhiteSpace(d))
+                .Distinct()
+                .OrderBy(d => d)
+                .ToList();
+
+            deptList.Insert(0, "All Departments");
+            Departments = new ObservableCollection<string>(deptList);
+            SelectedDepartment = "All Departments";
         }
 
         [RelayCommand]
@@ -89,7 +113,33 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             if (SelectedEmployee == null) return;
             var data = _attendanceService.GetRecords(SelectedEmployee.Id, SelectedMonth.Month, SelectedMonth.Year);
-            AttendanceRecords = new ObservableCollection<AttendanceRecord>(data);
+            _allAttendanceRecords = data.ToList();
+            ApplyDepartmentFilter();
+        }
+
+        // ── Department filter ────────────────────────────────────────────────
+        private void ApplyDepartmentFilter()
+        {
+            if (_allAttendanceRecords == null) return;
+
+            if (string.IsNullOrEmpty(SelectedDepartment) || SelectedDepartment == "All Departments")
+            {
+                AttendanceRecords = new ObservableCollection<AttendanceRecord>(_allAttendanceRecords);
+            }
+            else
+            {
+                var filtered = _allAttendanceRecords
+                    .Where(r => r.Employee?.Department != null &&
+                                r.Employee.Department.Equals(SelectedDepartment, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                AttendanceRecords = new ObservableCollection<AttendanceRecord>(filtered);
+            }
+        }
+
+        [RelayCommand]
+        public void ClearDepartmentFilter()
+        {
+            SelectedDepartment = "All Departments"; // triggers OnSelectedDepartmentChanged → ApplyDepartmentFilter
         }
 
         // =========================================================

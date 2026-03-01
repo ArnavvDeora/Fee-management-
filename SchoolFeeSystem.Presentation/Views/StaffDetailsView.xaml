@@ -267,6 +267,47 @@
                                     <TextBlock Text="PAN Number" Foreground="#95A5A6" FontWeight="SemiBold"/>
                                     <TextBox Text="{Binding SelectedEmployee.PanNumber}"/>
                                 </StackPanel>
+
+                                <!-- ★ SS Code — editable in Edit Mode; highlighted when empty -->
+                                <StackPanel Grid.Row="2" Grid.Column="2">
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,3">
+                                        <TextBlock Text="SS Code" Foreground="#95A5A6" FontWeight="SemiBold"/>
+                                        <Border Background="#FFF3CD" CornerRadius="4" Padding="5,1" Margin="6,0,0,0">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <MultiDataTrigger>
+                                                            <MultiDataTrigger.Conditions>
+                                                                <Condition Binding="{Binding SelectedEmployee.SsCode}" Value=""/>
+                                                                <Condition Binding="{Binding IsEditMode}" Value="False"/>
+                                                            </MultiDataTrigger.Conditions>
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </MultiDataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock Text="Not Set" Foreground="#856404" FontSize="10" FontWeight="SemiBold"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <TextBox Text="{Binding SelectedEmployee.SsCode, UpdateSourceTrigger=PropertyChanged}"
+                                             FontWeight="Bold" Foreground="#8E44AD">
+                                        <TextBox.Style>
+                                            <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                                <Style.Triggers>
+                                                    <MultiDataTrigger>
+                                                        <MultiDataTrigger.Conditions>
+                                                            <Condition Binding="{Binding SelectedEmployee.SsCode}" Value=""/>
+                                                            <Condition Binding="{Binding IsEditMode}" Value="True"/>
+                                                        </MultiDataTrigger.Conditions>
+                                                        <Setter Property="BorderBrush" Value="#F39C12"/>
+                                                        <Setter Property="BorderThickness" Value="2"/>
+                                                    </MultiDataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBox.Style>
+                                    </TextBox>
+                                </StackPanel>
                             </Grid>
                         </StackPanel>
                     </Border>

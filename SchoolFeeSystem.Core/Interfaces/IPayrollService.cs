@@ -52,5 +52,20 @@ namespace SchoolFeeSystem.Core.Interfaces
         List<SalaryRecord> GetRecentPaidSalaries(int count);
         List<Employee> GetRecentEmployees(int count);
         OvertimeAllowance GetOvertimeAllowance(int id);
+
+        // ── Flagged Biometric Entries (Unmatched Biometrics tab) ──────────────
+
+        /// <summary>
+        /// Returns all unresolved FlaggedBiometricEntries (IsResolved = false),
+        /// newest first. Shown in the "Unmatched Biometrics" tab in Staff Directory.
+        /// </summary>
+        List<FlaggedBiometricEntry> GetUnresolvedFlaggedBiometrics();
+
+        /// <summary>
+        /// Marks a flagged entry as resolved.
+        /// Pass linkedEmployeeId when the admin links it to an employee.
+        /// Pass null to dismiss it (ex-employee / not in this org).
+        /// </summary>
+        void ResolveFlaggedBiometric(int flaggedEntryId, int? linkedEmployeeId);
     }
 }

@@ -32,6 +32,8 @@ namespace SchoolFeeSystem.Infrastructure.Data
         public DbSet<LeaveRequest> LeaveRequests { get; set; }
         public DbSet<Salary> Salaries { get; set; }
         public DbSet<CompanyGatePass> CompanyGatePasses { get; set; }
+        public DbSet<FlaggedBiometricEntry> FlaggedBiometricEntries { get; set; }
+
 
         // ====================================================
         // CONSTRUCTOR - NO DB ACCESS, MIGRATION ONLY

@@ -28,6 +28,48 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty] private string _searchText = "";
         [ObservableProperty] private string _importStatusMessage = "";
 
+        // ── Flagged / unmatched biometric entries ─────────────────────────────
+        private List<FlaggedBiometricEntry> _allFlaggedEntries = new(); // master list for filtering
+        [ObservableProperty] private ObservableCollection<FlaggedBiometricEntry> _flaggedStaff = new();
+        [ObservableProperty] private int _flaggedCount = 0;
+        [ObservableProperty] private string _flaggedTabHeader = "Unmatched Biometrics";
+
+        // ── Unmatched tab search ───────────────────────────────────────────────
+        [ObservableProperty] private string _unmatchedSearchText = "";
+        partial void OnUnmatchedSearchTextChanged(string value) => ApplyUnmatchedFilter();
+
+        // ── Link-dialog state ─────────────────────────────────────────────────
+        [ObservableProperty] private bool _isLinkDialogOpen = false;
+        [ObservableProperty] private FlaggedBiometricEntry _selectedFlaggedEntry;
+        [ObservableProperty] private ObservableCollection<Employee> _linkEmployeeList = new();
+        [ObservableProperty] private Employee _selectedLinkTarget;
+        [ObservableProperty] private string _linkSearchText = "";
+
+        // ── Add-from-Unmatched dialog state ───────────────────────────────────
+        /// <summary>True while the "Add New Employee" panel is open for an unmatched entry.</summary>
+        [ObservableProperty] private bool _isAddFromUnmatchedOpen = false;
+
+        /// <summary>The flagged entry that triggered the Add panel.</summary>
+        [ObservableProperty] private FlaggedBiometricEntry _addSourceEntry;
+
+        // Quick-add form fields
+        [ObservableProperty] private string _newFirstName = "";
+        [ObservableProperty] private string _newLastName = "";
+        [ObservableProperty] private string _newFatherName = "NA";
+        [ObservableProperty] private string _newDesignation = "";
+        [ObservableProperty] private string _newDepartment = "";
+        [ObservableProperty] private string _newStaffType = "Non-Teaching";
+        [ObservableProperty] private decimal _newBaseSalary = 0;
+        [ObservableProperty] private string _newPhoneNumber = "0000000000";
+        [ObservableProperty] private DateTime _newJoiningDate = DateTime.Now;
+        [ObservableProperty] private string _newGender = "Male";
+        [ObservableProperty] private string _newCategory = "General";
+
+        // Dropdown sources exposed to XAML ComboBoxes
+        public List<string> StaffTypeOptions { get; } = new() { "Teaching", "Non-Teaching", "Admin", "Support" };
+        public List<string> GenderOptions { get; } = new() { "Male", "Female", "Other" };
+        public List<string> CategoryOptions { get; } = new() { "General", "OBC", "SC", "ST", "BC", "Other" };
+
         public StaffDirectoryViewModel(IPayrollService payrollService)
         {
             _payrollService = payrollService;
@@ -38,6 +80,40 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             _allEmployees = _payrollService.GetAllEmployees();
             ApplyFilter();
+            LoadFlaggedEntries();
+        }
+
+        private void LoadFlaggedEntries()
+        {
+            _allFlaggedEntries = _payrollService.GetUnresolvedFlaggedBiometrics();
+            FlaggedCount = _allFlaggedEntries.Count;
+            FlaggedTabHeader = FlaggedCount > 0
+                ? $"⚠️ Unmatched ({FlaggedCount})"
+                : "Unmatched Biometrics";
+            ApplyUnmatchedFilter(); // applies current search text (or shows all)
+        }
+
+        private void ApplyUnmatchedFilter()
+        {
+            var q = UnmatchedSearchText?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(q))
+            {
+                FlaggedStaff = new ObservableCollection<FlaggedBiometricEntry>(_allFlaggedEntries);
+                return;
+            }
+            FlaggedStaff = new ObservableCollection<FlaggedBiometricEntry>(
+                _allFlaggedEntries.Where(f =>
+                    (f.BiometricId?.Contains(q, StringComparison.OrdinalIgnoreCase) == true) ||
+                    (f.BiometricName?.Contains(q, StringComparison.OrdinalIgnoreCase) == true)));
+        }
+
+        [RelayCommand]
+        public void SearchUnmatched() => ApplyUnmatchedFilter();
+
+        [RelayCommand]
+        public void ClearUnmatchedSearch()
+        {
+            UnmatchedSearchText = "";  // triggers OnUnmatchedSearchTextChanged → ApplyUnmatchedFilter
         }
 
         private void ApplyFilter()
@@ -307,23 +383,38 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                             {
                                 // ── CREATE new employee ───────────────────────────
                                 var names = fullName.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+                                // FIX: Make email unique so it doesn't conflict with existing "na@na.local" rows
+                                string newEmpEmail = string.IsNullOrWhiteSpace(ssCode)
+                                    ? $"na_{Guid.NewGuid():N}@na.local"
+                                    : $"na_{ssCode.ToLower()}@na.local";
                                 var newEmp = new Employee
                                 {
                                     FirstName = names[0],
                                     LastName = names.Length > 1 ? names[1] : "",
-                                    FatherName = fatherName,
-                                    Designation = desig,
-                                    Department = section,
+                                    FatherName = string.IsNullOrWhiteSpace(fatherName) ? "NA" : fatherName,
+                                    Designation = string.IsNullOrWhiteSpace(desig) ? "Unknown" : desig,
+                                    Department = string.IsNullOrWhiteSpace(section) ? "General" : section,
                                     SsCode = ssCode,
-                                    UanNumber = uan,
-                                    EsiNumber = esi,
-                                    BankAccountNo = bankAcc,
-                                    IfscCode = ifsc,
+                                    UanNumber = string.IsNullOrWhiteSpace(uan) ? "NA" : uan,
+                                    EsiNumber = string.IsNullOrWhiteSpace(esi) ? "NA" : esi,
+                                    BankAccountNo = string.IsNullOrWhiteSpace(bankAcc) ? "NA" : bankAcc,
+                                    IfscCode = string.IsNullOrWhiteSpace(ifsc) ? "NA" : ifsc,
                                     BaseSalary = salary,
                                     StaffType = GuessStaffType(desig),
                                     JoiningDate = DateTime.Now,
                                     IsActive = true,
-                                    Photo = Array.Empty<byte>()
+                                    Photo = Array.Empty<byte>(),
+                                    // FIX: Required fields that were missing — caused DbUpdateException
+                                    Gender = "Male",
+                                    Category = "General",
+                                    DateOfBirth = new DateTime(1990, 1, 1),
+                                    MaritalStatus = "Unknown",
+                                    Qualification = "NA",
+                                    AadharNumber = "NA",
+                                    PanNumber = "NA",
+                                    Address = "NA",
+                                    Email = newEmpEmail,
+                                    PhoneNumber = "0000000000",
                                 };
                                 _payrollService.AddEmployee(newEmp);
                                 existingEmployees.Add(newEmp);
@@ -388,12 +479,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             return 0;
         }
 
-        // ── Helpers ──
+        // ── Helpers ──────────────────────────────────────────────────────────
 
         private static string NormalizeName(string name)
         {
             if (string.IsNullOrEmpty(name)) return "";
-            // Remove titles like Mr. Mrs. Ms. Dr. and extra spaces
             name = System.Text.RegularExpressions.Regex.Replace(name, @"\b(Mr|Mrs|Ms|Dr|Prof)\b\.?\s*", "",
                        System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
             return string.Join(" ", name.Split(' ', StringSplitOptions.RemoveEmptyEntries)).ToUpperInvariant();
@@ -410,6 +500,341 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 d.Contains("OFFICER") || d.Contains("CLERK") || d.Contains("ADMIN"))
                 return "Admin";
             return "Non-Teaching";
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // UNMATCHED BIOMETRICS — LINK / DISMISS
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Opens the inline link panel for the chosen flagged entry.
+        /// Pre-loads all employees into the searchable dropdown.
+        /// Closes the Add panel if it was open.
+        /// </summary>
+        [RelayCommand]
+        public void OpenLinkDialog(FlaggedBiometricEntry entry)
+        {
+            if (entry == null) return;
+
+            // Close add panel if open
+            IsAddFromUnmatchedOpen = false;
+            AddSourceEntry = null;
+
+            SelectedFlaggedEntry = entry;
+            SelectedLinkTarget = null;
+            LinkSearchText = "";
+
+            var all = _payrollService.GetAllEmployees().OrderBy(e => e.FullName).ToList();
+            LinkEmployeeList = new ObservableCollection<Employee>(all);
+
+            IsLinkDialogOpen = true;
+        }
+
+        /// <summary>Live-filters the employee dropdown as admin types.</summary>
+        [RelayCommand]
+        public void FilterLinkEmployees()
+        {
+            var all = _payrollService.GetAllEmployees().OrderBy(e => e.FullName).ToList();
+
+            if (string.IsNullOrWhiteSpace(LinkSearchText))
+            {
+                LinkEmployeeList = new ObservableCollection<Employee>(all);
+                return;
+            }
+
+            string q = LinkSearchText.Trim();
+            LinkEmployeeList = new ObservableCollection<Employee>(
+                all.Where(e =>
+                    (e.FullName?.Contains(q, StringComparison.OrdinalIgnoreCase) == true) ||
+                    (e.BiometricId?.Contains(q, StringComparison.OrdinalIgnoreCase) == true) ||
+                    (e.SsCode?.Contains(q, StringComparison.OrdinalIgnoreCase) == true) ||
+                    (e.Designation?.Contains(q, StringComparison.OrdinalIgnoreCase) == true)));
+        }
+
+        /// <summary>
+        /// Writes the BioID to the chosen employee and marks the entry resolved.
+        /// From this point forward, attendance imports match by BioID and the
+        /// entry never appears in the Unmatched tab again.
+        ///
+        /// Special case — duplicate names (e.g. two "Harjit Singh"):
+        ///   If the chosen employee already has a DIFFERENT BioID stored, this means
+        ///   two real people share the same name but have different codes.
+        ///   The admin is warned and guided: the employee's stored BioID will be
+        ///   replaced with the new one, and the old BioID will appear in Unmatched
+        ///   on the next import so it can be assigned to a new employee record.
+        /// </summary>
+        [RelayCommand]
+        public void ConfirmLink()
+        {
+            if (SelectedFlaggedEntry == null || SelectedLinkTarget == null)
+            {
+                MessageBox.Show("Please select an employee from the list before confirming.",
+                    "No Employee Selected", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var emp = SelectedLinkTarget;
+            var entry = SelectedFlaggedEntry;
+
+            // Warn if overwriting an existing different BioID
+            if (!string.IsNullOrWhiteSpace(emp.BiometricId) &&
+                !emp.BiometricId.Equals(entry.BiometricId, StringComparison.OrdinalIgnoreCase))
+            {
+                var confirm = MessageBox.Show(
+                    $"⚠️  '{emp.FullName}' already has Biometric ID '{emp.BiometricId}'.\n\n" +
+                    $"This means TWO different people share the same name but have different codes:\n" +
+                    $"  • Current employee record  →  BioID '{emp.BiometricId}'\n" +
+                    $"  • This unmatched entry     →  BioID '{entry.BiometricId}'\n\n" +
+                    $"If you click YES:\n" +
+                    $"  ✔ This employee's BioID will be updated to '{entry.BiometricId}'\n" +
+                    $"  ✔ BioID '{emp.BiometricId}' will appear in Unmatched on the next import\n" +
+                    $"  ✔ You can then use 'Add as New Employee' to create a separate record for BioID '{emp.BiometricId}'\n\n" +
+                    $"If you click NO, use 'Add as New Employee' instead to create a brand-new record for BioID '{entry.BiometricId}'.",
+                    "Two people with the same name — which action?",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+                if (confirm != MessageBoxResult.Yes) return;
+            }
+
+            try
+            {
+                // 1. Write BioID to the employee record
+                emp.BiometricId = entry.BiometricId;
+                _payrollService.UpdateEmployee(emp);
+
+                // 2. Mark the flagged entry as resolved in DB
+                _payrollService.ResolveFlaggedBiometric(entry.Id, emp.Id);
+
+                IsLinkDialogOpen = false;
+                SelectedFlaggedEntry = null;
+                SelectedLinkTarget = null;
+
+                MessageBox.Show(
+                    $"✅  Linked successfully!\n\n" +
+                    $"Biometric ID  '{entry.BiometricId}'\n" +
+                    $"➜  Assigned to  '{emp.FullName}'\n\n" +
+                    $"All future attendance imports will automatically recognise this person.",
+                    "Link Successful", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                RefreshData();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error saving link: {ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        [RelayCommand]
+        public void CancelLink()
+        {
+            IsLinkDialogOpen = false;
+            SelectedFlaggedEntry = null;
+            SelectedLinkTarget = null;
+        }
+
+        /// <summary>
+        /// Permanently dismisses a flagged entry — use for ex-employees,
+        /// trainees, or anyone who is deliberately NOT in the SS Master.
+        /// </summary>
+        [RelayCommand]
+        public void DismissFlagged(FlaggedBiometricEntry entry)
+        {
+            if (entry == null) return;
+
+            var result = MessageBox.Show(
+                $"Dismiss '{entry.BiometricName}'  (BioID: {entry.BiometricId})?\n\n" +
+                $"This person will no longer appear in the Unmatched list.\n" +
+                $"Use this for ex-employees, trainees, or contract staff not on payroll.",
+                "Dismiss Entry?", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+            if (result != MessageBoxResult.Yes) return;
+
+            _payrollService.ResolveFlaggedBiometric(entry.Id, null); // null = dismissed, not linked
+            RefreshData();
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // ★ NEW — ADD FROM UNMATCHED
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Opens the quick-add form pre-populated with data from the flagged entry.
+        /// The Biometric ID is already known from the attendance file, so it is
+        /// pre-filled and locked — no manual linking step needed after saving.
+        /// Closes the Link panel if it was open.
+        /// </summary>
+        [RelayCommand]
+        public void OpenAddFromUnmatched(FlaggedBiometricEntry entry)
+        {
+            if (entry == null) return;
+
+            // Close link panel if open
+            IsLinkDialogOpen = false;
+            SelectedFlaggedEntry = null;
+            SelectedLinkTarget = null;
+
+            AddSourceEntry = entry;
+
+            // Pre-fill name from biometric file — strip title prefixes then split
+            string rawName = System.Text.RegularExpressions.Regex.Replace(
+                entry.BiometricName ?? "",
+                @"^(Mr\.?|Mrs\.?|Ms\.?|Dr\.?)\s*",
+                "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+
+            var parts = rawName.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+            NewFirstName = parts.Length > 0 ? parts[0] : rawName;
+            NewLastName = parts.Length > 1 ? parts[1] : "";
+
+            // Reset everything else to clean defaults
+            NewFatherName = "NA";
+            NewDesignation = "";
+            NewDepartment = "";
+            NewStaffType = "Non-Teaching";
+            NewBaseSalary = 0;
+            NewPhoneNumber = "0000000000";
+            NewJoiningDate = DateTime.Now;
+            NewGender = "Male";
+            NewCategory = "General";
+
+            IsAddFromUnmatchedOpen = true;
+        }
+
+        /// <summary>Closes the add panel without saving anything.</summary>
+        [RelayCommand]
+        public void CancelAddFromUnmatched()
+        {
+            IsAddFromUnmatchedOpen = false;
+            AddSourceEntry = null;
+        }
+
+        /// <summary>
+        /// Validates the quick-add form, creates the Employee in the DB with the
+        /// BiometricId already set, resolves the flagged entry, then refreshes.
+        /// The admin can complete remaining details via Staff Details later.
+        /// </summary>
+        [RelayCommand]
+        public void ConfirmAddFromUnmatched()
+        {
+            // ── Validation ───────────────────────────────────────────────────
+            if (string.IsNullOrWhiteSpace(NewFirstName))
+            {
+                MessageBox.Show("First Name is required.", "Validation Error",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(NewDesignation))
+            {
+                MessageBox.Show("Designation is required.", "Validation Error",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(NewDepartment))
+            {
+                MessageBox.Show("Department is required.", "Validation Error",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            if (NewBaseSalary < 0)
+            {
+                MessageBox.Show("Base Salary cannot be negative.", "Validation Error",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                // ── FIX: Guard against duplicate BiometricId BEFORE hitting the DB unique constraint ──
+                string bioIdToAssign = AddSourceEntry?.BiometricId;
+                if (!string.IsNullOrWhiteSpace(bioIdToAssign))
+                {
+                    var duplicate = _payrollService.GetAllEmployees()
+                        .FirstOrDefault(e => e.BiometricId != null &&
+                            e.BiometricId.Equals(bioIdToAssign, StringComparison.OrdinalIgnoreCase));
+                    if (duplicate != null)
+                    {
+                        MessageBox.Show(
+                            $"An employee with Biometric ID '{bioIdToAssign}' already exists:\n\n" +
+                            $"Name: {duplicate.FullName}\n\n" +
+                            $"Use 'Link to Employee' to connect this attendance entry to the existing record.",
+                            "Duplicate Biometric ID", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+                }
+
+                // ── FIX: Make Email unique per employee to avoid unique-index violations ──
+                string uniqueEmail = string.IsNullOrWhiteSpace(bioIdToAssign)
+                    ? $"na_{Guid.NewGuid():N}@na.local"
+                    : $"na_{bioIdToAssign.ToLower()}@na.local";
+
+                var newEmp = new Employee
+                {
+                    FirstName = NewFirstName.Trim(),
+                    LastName = NewLastName?.Trim() ?? "",
+                    FatherName = string.IsNullOrWhiteSpace(NewFatherName) ? "NA" : NewFatherName.Trim(),
+                    Gender = NewGender ?? "Male",
+                    Category = NewCategory ?? "General",
+                    Designation = NewDesignation.Trim(),
+                    Department = NewDepartment.Trim(),
+                    StaffType = NewStaffType ?? "Non-Teaching",
+                    BaseSalary = NewBaseSalary,
+                    PhoneNumber = string.IsNullOrWhiteSpace(NewPhoneNumber) ? "0000000000" : NewPhoneNumber.Trim(),
+                    JoiningDate = NewJoiningDate,
+                    BiometricId = bioIdToAssign,
+
+                    // Required defaults — admin can complete these later via Staff Details
+                    DateOfBirth = new DateTime(1990, 1, 1),
+                    MaritalStatus = "Unknown",
+                    Qualification = "NA",
+                    AadharNumber = "NA",
+                    PanNumber = "NA",
+                    Address = "NA",
+                    Email = uniqueEmail,
+                    BankAccountNo = "NA",
+                    IfscCode = "NA",
+                    UanNumber = "NA",
+                    EsiNumber = "NA",
+                    SsCode = "",
+                    Photo = Array.Empty<byte>(),
+                    IsActive = true
+                };
+
+                _payrollService.AddEmployee(newEmp);
+
+                // Resolve the flagged entry so it disappears from the Unmatched tab
+                if (AddSourceEntry != null)
+                    _payrollService.ResolveFlaggedBiometric(AddSourceEntry.Id, newEmp.Id);
+
+                string empName = newEmp.FullName;
+                string bioId = bioIdToAssign ?? "";
+
+                // Clear state before showing the success dialog
+                IsAddFromUnmatchedOpen = false;
+                AddSourceEntry = null;
+
+                MessageBox.Show(
+                    $"✅  Employee added successfully!\n\n" +
+                    $"Name        : {empName}\n" +
+                    $"Biometric ID: {bioId}\n" +
+                    $"Department  : {newEmp.Department}\n\n" +
+                    $"They have been removed from the Unmatched list and future\n" +
+                    $"attendance imports will match them automatically.\n\n" +
+                    $"You can fill in the remaining details (Aadhar, bank info, etc.)\n" +
+                    $"via Staff Directory → View Details.",
+                    "Employee Added", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                RefreshData();
+            }
+            catch (Exception ex)
+            {
+                // Unwrap EF Core DbUpdateException to show the real constraint/SQL detail
+                var inner = ex;
+                while (inner.InnerException != null) inner = inner.InnerException;
+                string detail = inner == ex ? ex.Message : $"{ex.Message}\n\nCause: {inner.Message}";
+                MessageBox.Show($"Error adding employee:\n{detail}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 }

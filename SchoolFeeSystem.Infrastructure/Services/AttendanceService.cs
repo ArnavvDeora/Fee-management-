@@ -156,6 +156,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
             }
 
             var employeesCache = _context.Employees.ToList();
+            var skippedEmployees = new List<(string BioId, string Name, string Format)>(); // Flagged for DB
             int employeesProcessed = 0;
             int recordsProcessed = 0;
 
@@ -192,36 +193,15 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
                     progress?.Report($"Processing {empName} (ID: {bioId})...");
 
-                    // Find or create employee
-                    var emp = employeesCache.FirstOrDefault(e => e.BiometricId == bioId);
+                    // ── SS MASTER GUARD ───────────────────────────────────────
+                    // Only process employees that already exist in the SS Master.
+                    // Never create new employees from the attendance file alone.
+                    var emp = FindInSsMaster(employeesCache, bioId, empName, skippedEmployees, "WORK_DURATION_REPORT");
                     if (emp == null)
                     {
-                        emp = employeesCache.FirstOrDefault(e =>
-                            e.FullName.Equals(empName, StringComparison.OrdinalIgnoreCase));
-
-                        if (emp != null)
-                        {
-                            emp.BiometricId = bioId;
-                            _context.Employees.Update(emp);
-                        }
-                    }
-
-                    if (emp == null)
-                    {
-                        string[] parts = empName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                        emp = new Employee
-                        {
-                            FirstName = parts.Length > 0 ? parts[0] : empName,
-                            LastName = parts.Length > 1 ? string.Join(" ", parts.Skip(1)) : "",
-                            BiometricId = bioId,
-                            Designation = "Staff"
-                        };
-
-                        _context.Employees.Add(emp);
-                        _context.SaveChanges();
-                        employeesCache.Add(emp);
-
-                        progress?.Report($"✨ Created new employee: {empName} (BioID: {bioId})");
+                        progress?.Report($"⚠️  Skipped (not in SS Master): {empName} (BioID: {bioId})");
+                        r += 8;
+                        continue;
                     }
 
                     employeesProcessed++;
@@ -291,6 +271,39 @@ namespace SchoolFeeSystem.Infrastructure.Services
                         recordsProcessed++;
                     }
 
+                    // FIX: If this employee had ZERO present days recorded (fully absent month),
+                    // save a sentinel "ZERO_ATTENDANCE" record so GenerateDetailedSalary knows
+                    // that attendance was checked and the result is genuinely 0 days — not missing data.
+                    // Without this, an employee with no records gets calendarDays by mistake.
+                    bool hasAnyRecordForThisEmp = batch.Any(b => b.EmployeeId == emp.Id &&
+                        b.Date.Month == month && b.Date.Year == year);
+                    if (!hasAnyRecordForThisEmp)
+                    {
+                        // Remove any old sentinel for this employee/month first (idempotent re-import)
+                        var oldZero = _context.AttendanceRecords
+                            .Where(a => a.EmployeeId == emp.Id &&
+                                        a.Date.Month == month && a.Date.Year == year &&
+                                        a.Remarks == "ZERO_ATTENDANCE")
+                            .ToList();
+                        if (oldZero.Any()) _context.AttendanceRecords.RemoveRange(oldZero);
+
+                        batch.Add(new AttendanceRecord
+                        {
+                            EmployeeId = emp.Id,
+                            Date = new DateTime(year, month, 1),
+                            Status = "Absent",
+                            InTime = "00:00",
+                            OutTime = "00:00",
+                            Duration = "00:00",
+                            IsManualEntry = false,
+                            Remarks = "ZERO_ATTENDANCE",   // sentinel: 0 days worked confirmed
+                            LateMinutes = 0,
+                            OvertimeMinutes = 0,
+                            LatePenaltyMinutes = 0
+                        });
+                        progress?.Report($"ℹ️  {empName}: 0 present days this month (fully absent).");
+                    }
+
                     // Progress update
                     if (employeesProcessed % 10 == 0)
                     {
@@ -324,7 +337,20 @@ namespace SchoolFeeSystem.Infrastructure.Services
             }
 
             _context.SaveChanges();
-            progress?.Report($"✅ Import completed! {employeesProcessed} employees, {recordsProcessed} attendance records.");
+
+            // ── SUMMARY ───────────────────────────────────────────────────────
+            string summary = $"✅ Import completed! " +
+                $"{employeesProcessed} employees processed, {recordsProcessed} attendance records saved.";
+            // Save flagged entries to DB so admin can link them in Staff Directory
+            PersistFlaggedEntries(skippedEmployees);
+
+            if (skippedEmployees.Any())
+            {
+                summary += $"\n\n⚠️  {skippedEmployees.Count} person(s) from the file could not be matched.\n";
+                summary += $"   ➡ Open Staff Directory → 'Unmatched Biometrics' tab to link them.\n";
+                summary += string.Join("\n", skippedEmployees.Select(s => $"  • {s.Name} (BioID: {s.BioId})"));
+            }
+            progress?.Report(summary);
         }
         private IExcelDataReader GetReaderForFile(string filePath, FileStream stream)
         {
@@ -381,6 +407,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
                 throw new Exception("'Attendance ID' header not found in CSV.");
 
             var employeesCache = _context.Employees.ToList();
+            var skippedEmployees = new List<(string BioId, string Name, string Format)>(); // Flagged for DB
             int employeesProcessed = 0;
             int recordsProcessed = 0;
 
@@ -404,35 +431,13 @@ namespace SchoolFeeSystem.Infrastructure.Services
                 // Clean employee name (remove parentheses with numbers)
                 string cleanName = Regex.Replace(rawName, @"\s*\(\d+\)", "").Trim();
 
-                // Find or create employee
-                var emp = employeesCache.FirstOrDefault(e => e.BiometricId == bioId);
+                // ── SS MASTER GUARD ───────────────────────────────────────
+                // Only process employees already in the SS Master.
+                var emp = FindInSsMaster(employeesCache, bioId, cleanName, skippedEmployees, "DETAILED_REPORT");
                 if (emp == null)
                 {
-                    emp = employeesCache.FirstOrDefault(e => e.FullName.Equals(cleanName, StringComparison.OrdinalIgnoreCase));
-                    if (emp != null)
-                    {
-                        emp.BiometricId = bioId;
-                        _context.Employees.Update(emp);
-                    }
-                }
-
-                // Create new employee if not found
-                if (emp == null)
-                {
-                    string[] parts = cleanName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                    emp = new Employee
-                    {
-                        FirstName = parts.Length > 0 ? parts[0] : cleanName,
-                        LastName = parts.Length > 1 ? string.Join(" ", parts.Skip(1)) : "",
-                        BiometricId = bioId,
-                        Designation = inRow[2]?.ToString()?.Trim() ?? "Staff"
-                    };
-
-                    _context.Employees.Add(emp);
-                    _context.SaveChanges(); // Save immediately to get the ID
-                    employeesCache.Add(emp); // Add to cache
-
-                    progress?.Report($"✨ Created new employee: {cleanName} (BioID: {bioId})");
+                    progress?.Report($"⚠️  Skipped (not in SS Master): {cleanName} (BioID: {bioId})");
+                    continue;
                 }
 
                 employeesProcessed++;
@@ -506,7 +511,20 @@ namespace SchoolFeeSystem.Infrastructure.Services
             }
 
             _context.SaveChanges();
-            progress?.Report($"✅ Import completed! {employeesProcessed} employees, {recordsProcessed} attendance records.");
+
+            // ── SUMMARY ───────────────────────────────────────────────────────
+            string summary = $"✅ Import completed! " +
+                $"{employeesProcessed} employees processed, {recordsProcessed} attendance records saved.";
+            // Save flagged entries to DB so admin can link them in Staff Directory
+            PersistFlaggedEntries(skippedEmployees);
+
+            if (skippedEmployees.Any())
+            {
+                summary += $"\n\n⚠️  {skippedEmployees.Count} person(s) from the file could not be matched.\n";
+                summary += $"   ➡ Open Staff Directory → 'Unmatched Biometrics' tab to link them.\n";
+                summary += string.Join("\n", skippedEmployees.Select(s => $"  • {s.Name} (BioID: {s.BioId})"));
+            }
+            progress?.Report(summary);
         }
 
         // =========================================================
@@ -517,6 +535,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
             var batch = new List<AttendanceRecord>();
             var tempBatch = new List<AttendanceRecord>();
             Employee currentEmployee = null;
+            var skippedEmployees = new List<(string BioId, string Name, string Format)>(); // Flagged for DB
 
             int employeesProcessed = 0;
             int recordsProcessed = 0;
@@ -568,38 +587,13 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
                     var employees = _context.Employees.ToList();
 
-                    // Try to find employee by BiometricId first, then by name
-                    currentEmployee = null;
-                    if (!string.IsNullOrEmpty(bioId))
-                    {
-                        currentEmployee = employees.FirstOrDefault(e => e.BiometricId == bioId);
-                    }
-
+                    // ── SS MASTER GUARD ───────────────────────────────────────
+                    // Only process employees already in the SS Master.
+                    currentEmployee = FindInSsMaster(employees, bioId, fullName, skippedEmployees, "FACE_ATTENDANCE");
                     if (currentEmployee == null)
                     {
-                        currentEmployee = employees.FirstOrDefault(e =>
-                            e.FullName.Equals(fullName, StringComparison.OrdinalIgnoreCase));
-                    }
-
-                    if (currentEmployee == null)
-                    {
-                        string[] parts = fullName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                        currentEmployee = new Employee
-                        {
-                            FirstName = parts.Length > 0 ? parts[0] : fullName,
-                            LastName = parts.Length > 1 ? string.Join(" ", parts.Skip(1)) : "",
-                            BiometricId = bioId
-                        };
-
-                        _context.Employees.Add(currentEmployee);
-                        _context.SaveChanges();
-                    }
-                    else if (string.IsNullOrEmpty(currentEmployee.BiometricId) && !string.IsNullOrEmpty(bioId))
-                    {
-                        // Update BiometricId if employee exists but doesn't have one
-                        currentEmployee.BiometricId = bioId;
-                        _context.Employees.Update(currentEmployee);
-                        _context.SaveChanges();
+                        progress?.Report($"⚠️  Skipped (not in SS Master): {fullName} (BioID: {bioId})");
+                        continue;
                     }
 
                     employeesProcessed++;
@@ -717,7 +711,19 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
             _context.SaveChanges();
 
-            progress?.Report($"Import completed! {employeesProcessed} employees, {recordsProcessed} attendance records.");
+            // ── SUMMARY ───────────────────────────────────────────────────────
+            string faSummary = $"✅ Import completed! " +
+                $"{employeesProcessed} employees processed, {recordsProcessed} attendance records saved.";
+            // Save flagged entries to DB so admin can link them in Staff Directory
+            PersistFlaggedEntries(skippedEmployees);
+
+            if (skippedEmployees.Any())
+            {
+                faSummary += $"\n\n⚠️  {skippedEmployees.Count} person(s) from the file could not be matched.\n";
+                faSummary += $"   ➡ Open Staff Directory → 'Unmatched Biometrics' tab to link them.\n";
+                faSummary += string.Join("\n", skippedEmployees.Select(s => $"  • {s.Name} (BioID: {s.BioId})"));
+            }
+            progress?.Report(faSummary);
         }
 
         // =========================================================
@@ -848,5 +854,268 @@ namespace SchoolFeeSystem.Infrastructure.Services
         public void ImportBiometricReport(string filePath) => ImportAttendance(filePath);
         public void AddAttendanceRecord(AttendanceRecord record) => MarkAttendance(record);
         IEnumerable<AttendanceRecord> IAttendanceService.GetRecords(int id, int month, int year) => GetAttendance(month, year, id);
+        // =========================================================
+        // SS MASTER GUARD — Find employee or flag for manual linking
+        // =========================================================
+        /// <summary>
+        /// Matches an attendance-file person to an SS Master employee using 4 tiers:
+        ///
+        ///   TIER 1 — BiometricId exact match. Zero ambiguity. Used after the first
+        ///            successful import has back-filled the ID into the DB.
+        ///
+        ///   TIER 2 — Exact normalised name match (unique result only).
+        ///            "Mr. Ashish Kumar" → "ASHISH KUMAR", "MRS RITU GOYAL" → "RITU GOYAL".
+        ///            If 2+ employees share the name → jump straight to Unmatched tab.
+        ///            On success, BiometricId is back-filled so next import uses Tier 1.
+        ///
+        ///   TIER 3 — Safe fuzzy name match (unique result only). Handles real-world
+        ///            spelling differences between the biometric machine and SS Master:
+        ///              • Space difference   : "RAJ DYAL" ↔ "RAJDYAL"
+        ///              • Missing surname    : "RUBAL" ↔ "RUBAL MASIH" (≥4 chars prefix)
+        ///              • Extra middle name  : "RAJESH DUBEY" ↔ "RAJESH KUMAR DUBEY"
+        ///              • 1-char typo only for long names (≥10 compact chars):
+        ///                  "SUNIL YADEV" ↔ "SUNIL YADAV", "MANPREET SINGH GHUMMAN" ↔ "…GHUMAN"
+        ///            Levenshtein is intentionally restricted to long names to prevent
+        ///            false matches like BABY→BABLU, HARPREET→GURPREET, RAJ KUMAR→SURAJ KUMAR.
+        ///            If fuzzy produces 2+ candidates → Unmatched tab.
+        ///
+        ///   UNMATCHED — Genuinely not in SS Master → flagged for manual linking.
+        /// </summary>
+        private Employee FindInSsMaster(
+            List<Employee> ssMasterCache,
+            string bioId,
+            string fullName,
+            List<(string BioId, string Name, string Format)> skippedLog,
+            string sourceFormat = "")
+        {
+            Employee emp = null;
+            bool fileHasBioId = !string.IsNullOrWhiteSpace(bioId);
+
+            // ── TIER 1: Exact BiometricId match ───────────────────────────────
+            if (fileHasBioId)
+            {
+                emp = ssMasterCache.FirstOrDefault(e =>
+                    !string.IsNullOrWhiteSpace(e.BiometricId) &&
+                    string.Equals(e.BiometricId.Trim(), bioId.Trim(), StringComparison.OrdinalIgnoreCase));
+            }
+
+            // ── TIER 2: Exact normalised name match ───────────────────────────
+            if (emp == null && !string.IsNullOrWhiteSpace(fullName))
+            {
+                string normInput = NormaliseName(fullName);
+                var exactMatches = ssMasterCache
+                    .Where(e => string.Equals(NormaliseName(e.FullName), normInput, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (exactMatches.Count == 1)
+                {
+                    emp = exactMatches[0];
+                }
+                else if (exactMatches.Count > 1)
+                {
+                    // Ambiguous exact name → flag immediately, don't try fuzzy
+                    LogSkipped(skippedLog, bioId, fullName, sourceFormat);
+                    return null;
+                }
+            }
+
+            // ── TIER 3: Safe fuzzy name match ─────────────────────────────────
+            if (emp == null && !string.IsNullOrWhiteSpace(fullName))
+            {
+                string normInput = NormaliseName(fullName);
+                string compactInput = normInput.Replace(" ", "");
+
+                var fuzzyMatches = ssMasterCache.Where(e =>
+                {
+                    string normDb = NormaliseName(e.FullName);
+                    string compactDb = normDb.Replace(" ", "");
+
+                    // Rule A: Space-only difference ("RAJ DYAL" ↔ "RAJDYAL")
+                    if (string.Equals(compactInput, compactDb, StringComparison.OrdinalIgnoreCase))
+                        return true;
+
+                    // Rule B: One compact string is a prefix of the other.
+                    //         Minimum 5 chars on the shorter side to avoid over-matching
+                    //         short common names (e.g. "RAM" shouldn't match "RAMESH KUMAR").
+                    //         Both sides must also share at least 75% of the longer length
+                    //         so "AMANPREETSINGH" does NOT match "MANPREETSINGH".
+                    int minLen = Math.Min(compactInput.Length, compactDb.Length);
+                    int maxLen = Math.Max(compactInput.Length, compactDb.Length);
+                    if (minLen >= 5 && (double)minLen / maxLen >= 0.75)
+                    {
+                        if (compactDb.StartsWith(compactInput, StringComparison.OrdinalIgnoreCase) ||
+                            compactInput.StartsWith(compactDb, StringComparison.OrdinalIgnoreCase))
+                            return true;
+                    }
+
+                    // Rule C: Word-subset — all words of the shorter name appear in the
+                    //         longer name (e.g. "RAJESH DUBEY" ↔ "RAJESH KUMAR DUBEY").
+                    //         Requires at least 2 words to avoid over-matching.
+                    var inputWords = normInput.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    var dbWords = normDb.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (inputWords.Length >= 2 && dbWords.Length >= 2)
+                    {
+                        var shorter = inputWords.Length <= dbWords.Length ? inputWords : dbWords;
+                        var longer = inputWords.Length <= dbWords.Length ? dbWords : inputWords;
+                        if (shorter.All(w => longer.Any(lw =>
+                            string.Equals(lw, w, StringComparison.OrdinalIgnoreCase))))
+                            return true;
+                    }
+
+                    // Rule D: 1-char typo, but ONLY for long names (compact ≥ 10 chars)
+                    //         AND first word must match (so "AMANPREET" ≠ "MANPREET")
+                    if (compactInput.Length >= 10 && compactDb.Length >= 10 &&
+                        Math.Abs(compactInput.Length - compactDb.Length) <= 1)
+                    {
+                        // Guard: first words must be the same to prevent cross-name typos
+                        var firstWordInput = normInput.Split(' ')[0];
+                        var firstWordDb = normDb.Split(' ')[0];
+                        bool firstWordMatch = string.Equals(firstWordInput, firstWordDb,
+                            StringComparison.OrdinalIgnoreCase);
+                        if (firstWordMatch && LevenshteinDistance(compactInput, compactDb) == 1)
+                            return true;
+                    }
+
+                    return false;
+                }).ToList();
+
+                if (fuzzyMatches.Count == 1)
+                {
+                    emp = fuzzyMatches[0];
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[AttendanceService] Fuzzy matched '{fullName}' → '{emp.FullName}'");
+                }
+                // If fuzzyMatches.Count > 1 → too ambiguous, emp stays null → Unmatched tab
+            }
+
+            // ── Back-fill BiometricId OR detect conflict ───────────────────────
+            // If the employee was matched by name but already has a DIFFERENT BiometricId
+            // stored in the DB, we have a conflict: two attendance-file people with
+            // different codes both name-matched to the same employee record.
+            // Classic case: two "Harjit Singh" — BioID 102 was matched first and
+            // written to the DB; when BioID CIHT87 arrives, it must NOT silently
+            // overwrite 102 or merge attendance into the same record.
+            // Instead: flag BioID CIHT87 for manual resolution (Add as New Employee
+            // or Link to the correct record via the Unmatched tab).
+            if (emp != null && fileHasBioId)
+            {
+                bool dbHasDifferentBioId = !string.IsNullOrWhiteSpace(emp.BiometricId) &&
+                    !string.Equals(emp.BiometricId.Trim(), bioId.Trim(), StringComparison.OrdinalIgnoreCase);
+
+                if (dbHasDifferentBioId)
+                {
+                    // Conflict: this attendance entry has a code that doesn't match the
+                    // code already stored for this employee. Flag it and don't import.
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[AttendanceService] BioID conflict: file has '{bioId}' for '{fullName}' " +
+                        $"but DB employee already has BioID '{emp.BiometricId}'. Flagging.");
+                    LogSkipped(skippedLog, bioId, fullName, sourceFormat);
+                    return null;
+                }
+
+                // Employee has no BiometricId yet — safe to back-fill
+                if (string.IsNullOrWhiteSpace(emp.BiometricId))
+                {
+                    emp.BiometricId = bioId.Trim();
+                    _context.Employees.Update(emp);
+                    // SaveChanges batched at end of import
+                }
+            }
+
+            // ── Not found → log for Unmatched Biometrics tab ─────────────────
+            if (emp == null)
+                LogSkipped(skippedLog, bioId, fullName, sourceFormat);
+
+            return emp;
+        }
+
+        private static void LogSkipped(
+            List<(string BioId, string Name, string Format)> log,
+            string bioId, string name, string format)
+        {
+            if (string.IsNullOrWhiteSpace(bioId) && string.IsNullOrWhiteSpace(name)) return;
+            bool already = log.Any(s =>
+                string.Equals(s.BioId, bioId ?? "", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(s.Name, name ?? "", StringComparison.OrdinalIgnoreCase));
+            if (!already) log.Add((bioId ?? "", name ?? "", format ?? ""));
+        }
+
+        /// <summary>Levenshtein edit distance. Only called on long-name pairs (≥10 compact chars).</summary>
+        private static int LevenshteinDistance(string a, string b)
+        {
+            int m = a.Length, n = b.Length;
+            var d = new int[m + 1, n + 1];
+            for (int i = 0; i <= m; i++) d[i, 0] = i;
+            for (int j = 0; j <= n; j++) d[0, j] = j;
+            for (int i = 1; i <= m; i++)
+                for (int j = 1; j <= n; j++)
+                    d[i, j] = Math.Min(Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1),
+                        d[i - 1, j - 1] + (char.ToUpper(a[i - 1]) == char.ToUpper(b[j - 1]) ? 0 : 1));
+            return d[m, n];
+        }
+
+        // =========================================================
+        // PERSIST FLAGGED ENTRIES TO DB
+        // =========================================================
+        /// <summary>
+        /// Upserts unmatched biometric entries to FlaggedBiometricEntries.
+        /// Skips any BioId already in the flagged table or already assigned to a real employee.
+        /// </summary>
+        private void PersistFlaggedEntries(List<(string BioId, string Name, string Format)> entries)
+        {
+            if (!entries.Any()) return;
+
+            var existingBioIds = _context.FlaggedBiometricEntries
+                .Select(f => f.BiometricId.ToLower())
+                .ToHashSet();
+
+            var assignedBioIds = _context.Employees
+                .Where(e => e.BiometricId != null && e.BiometricId != "")
+                .Select(e => e.BiometricId.ToLower())
+                .ToHashSet();
+
+            var toAdd = new List<FlaggedBiometricEntry>();
+            foreach (var (bioId, name, format) in entries)
+            {
+                string key = (bioId ?? "").ToLower();
+                if (!string.IsNullOrEmpty(key) && existingBioIds.Contains(key)) continue;
+                if (!string.IsNullOrEmpty(key) && assignedBioIds.Contains(key)) continue;
+
+                toAdd.Add(new FlaggedBiometricEntry
+                {
+                    BiometricId = bioId ?? "",
+                    BiometricName = name ?? "",
+                    SourceFormat = format ?? "",
+                    IsResolved = false,
+                    FirstSeenOn = DateTime.Now
+                });
+            }
+
+            if (toAdd.Any())
+            {
+                _context.FlaggedBiometricEntries.AddRange(toAdd);
+                _context.SaveChanges();
+            }
+        }
+
+        /// <summary>
+        /// Strips name prefixes (Mr/Mrs/Ms with or without dot, with or without trailing space)
+        /// and normalises whitespace to single spaces, uppercased.
+        /// "Mr. Ashish Kumar" → "ASHISH KUMAR"
+        /// "MRS RITU GOYAL"   → "RITU GOYAL"
+        /// "Mr.Anuj"          → "ANUJ"
+        /// </summary>
+        private static string NormaliseName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "";
+            // Strip title prefix with or without dot and with or without space after
+            string stripped = Regex.Replace(name.Trim(),
+                @"^(Mr\.?|Mrs\.?|Ms\.?|MR\.?|MRS\.?|MS\.?|Dr\.?)\s*",
+                "", RegexOptions.IgnoreCase);
+            // Collapse multiple spaces and uppercase
+            return Regex.Replace(stripped.Trim(), @"\s+", " ").ToUpperInvariant();
+        }
+
+
     }
 }

@@ -206,6 +206,7 @@
                         <TextBlock Text="Leave Type" FontWeight="SemiBold" Margin="0,0,0,5"/>
                         <ComboBox ItemsSource="{Binding LeaveTypes}"
                                   SelectedItem="{Binding SelectedLeaveType}"
+                                  DisplayMemberPath="Label"
                                   Height="35"
                                   Margin="0,0,0,15"/>
 
@@ -219,7 +220,7 @@
                                 <Style TargetType="Border">
                                     <Setter Property="Visibility" Value="Collapsed"/>
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding SelectedLeaveType}" Value="Custom Hours">
+                                        <DataTrigger Binding="{Binding SelectedLeaveType.Key}" Value="Custom Hours">
                                             <Setter Property="Visibility" Value="Visible"/>
                                         </DataTrigger>
                                     </Style.Triggers>

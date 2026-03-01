@@ -35,7 +35,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         private DateTime _leaveDate = DateTime.Today;
 
         [ObservableProperty]
-        private string _selectedLeaveType = "Half Day";
+        private LeaveTypeOption _selectedLeaveType;
 
         [ObservableProperty]
         private string _startTime = "09:00";
@@ -86,11 +86,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty]
         private string _gatePassWarning = "";
 
-        public List<string> LeaveTypes { get; } = new List<string>
+        public List<LeaveTypeOption> LeaveTypes { get; } = new List<LeaveTypeOption>
         {
-            "Full Day",
-            "Half Day",
-            "Custom Hours"
+            new LeaveTypeOption("Full Day",     "Full Day — 8.5 hrs  (9:00 AM – 5:30 PM)"),
+            new LeaveTypeOption("Half Day",     "Half Day — 4.5 hrs  (9:00 AM – 1:30 PM)"),
+            new LeaveTypeOption("Custom Hours", "Custom Hours — enter your own time range"),
         };
 
         public LeaveManagementViewModel(
@@ -103,6 +103,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             _gatePassService = gatePassService;
 
             LoadEmployees();
+            SelectedLeaveType = LeaveTypes.FirstOrDefault(t => t.Key == "Half Day");
         }
 
         private void LoadEmployees()
@@ -171,21 +172,22 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
         }
 
-        partial void OnSelectedLeaveTypeChanged(string value)
+        partial void OnSelectedLeaveTypeChanged(LeaveTypeOption value)
         {
+            if (value == null) return;
             // Update default values based on leave type
-            switch (value)
+            switch (value.Key)
             {
                 case "Full Day":
-                    CustomHours = 8;
+                    CustomHours = 8.5m;
                     StartTime = "09:00";
-                    EndTime = "17:00";
+                    EndTime = "17:30";
                     break;
 
                 case "Half Day":
-                    CustomHours = 4;
+                    CustomHours = 4.5m;
                     StartTime = "09:00";
-                    EndTime = "13:00";
+                    EndTime = "13:30";
                     break;
 
                 case "Custom Hours":
@@ -257,8 +259,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 return;
             }
 
-            decimal leaveHours = SelectedLeaveType == "Full Day" ? 8 :
-                               SelectedLeaveType == "Half Day" ? 4 :
+            decimal leaveHours = SelectedLeaveType?.Key == "Full Day" ? 8.5m :
+                               SelectedLeaveType?.Key == "Half Day" ? 4.5m :
                                CustomHours;
 
             int leaveMinutes = (int)(leaveHours * 60);
@@ -358,8 +360,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 return;
             }
 
-            decimal leaveHours = SelectedLeaveType == "Full Day" ? 8 :
-                               SelectedLeaveType == "Half Day" ? 4 :
+            decimal leaveHours = SelectedLeaveType?.Key == "Full Day" ? 8.5m :
+                               SelectedLeaveType?.Key == "Half Day" ? 4.5m :
                                CustomHours;
 
             if (leaveHours <= 0 || leaveHours > 24)
@@ -375,10 +377,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 {
                     EmployeeId = SelectedEmployee.Id,
                     LeaveDate = LeaveDate,
-                    LeaveType = SelectedLeaveType,
+                    LeaveType = SelectedLeaveType?.Key,
                     LeaveHours = leaveHours,
-                    StartTime = SelectedLeaveType == "Custom Hours" ? StartTime : null,
-                    EndTime = SelectedLeaveType == "Custom Hours" ? EndTime : null,
+                    StartTime = SelectedLeaveType?.Key == "Custom Hours" ? StartTime : null,
+                    EndTime = SelectedLeaveType?.Key == "Custom Hours" ? EndTime : null,
                     Reason = Reason,
                     Remarks = Remarks,
                     Status = "Approved",
@@ -390,7 +392,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     $"Leave granted successfully!\n\n" +
                     $"Employee: {SelectedEmployee.FullName}\n" +
                     $"Date: {LeaveDate:dd-MM-yyyy}\n" +
-                    $"Type: {SelectedLeaveType}\n" +
+                    $"Type: {SelectedLeaveType?.Key}\n" +
                     $"Hours: {leaveHours:F1}\n\n" +
                     $"{LeaveSourcePreview}",
                     "Success",
@@ -412,7 +414,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         private void ClearForm()
         {
             LeaveDate = DateTime.Today;
-            SelectedLeaveType = "Half Day";
+            SelectedLeaveType = LeaveTypes.FirstOrDefault(t => t.Key == "Half Day");
             Reason = string.Empty;
             Remarks = string.Empty;
             StatusMessage = "Leave granted successfully";
@@ -611,5 +613,25 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             LoadLeaveHistory();
             StatusMessage = "Data refreshed";
         }
+    }
+
+    /// <summary>
+    /// Represents a leave type option shown in the dropdown.
+    /// Key  = internal code stored in the DB ("Full Day", "Half Day", "Custom Hours")
+    /// Label = the human-readable text shown in the ComboBox
+    /// </summary>
+    public class LeaveTypeOption
+    {
+        public string Key { get; }
+        public string Label { get; }
+
+        public LeaveTypeOption(string key, string label)
+        {
+            Key = key;
+            Label = label;
+        }
+
+        // ToString fallback — used by anything that displays the object as plain text
+        public override string ToString() => Label;
     }
 }

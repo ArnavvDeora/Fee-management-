@@ -116,7 +116,7 @@
                     <!-- Filter Button -->
                     <Button Content="Filter Data" Command="{Binding LoadAttendanceCommand}" 
                             Background="#3498DB" Foreground="White" BorderThickness="0" FontWeight="Bold" 
-                            Padding="20,0" Height="35" VerticalAlignment="Bottom" Margin="0,0,0,1">
+                            Padding="20,0" Height="35" VerticalAlignment="Bottom" Margin="0,0,20,1">
                         <Button.Resources>
                             <Style TargetType="Border">
                                 <Setter Property="CornerRadius" Value="5"/>
@@ -132,62 +132,69 @@
                             </Style>
                         </Button.Style>
                     </Button>
+
+                    <!-- Department Filter -->
+                    <StackPanel Margin="0,0,0,0">
+                        <TextBlock Text="Filter by Department" FontWeight="SemiBold" Foreground="#7F8C8D" FontSize="12"/>
+                        <Grid Margin="0,5,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <ComboBox Grid.Column="0"
+                                      ItemsSource="{Binding Departments}"
+                                      SelectedItem="{Binding SelectedDepartment}"
+                                      Width="180" Height="35" Padding="8,0"
+                                      VerticalContentAlignment="Center"
+                                      BorderBrush="#D0D3D4" BorderThickness="1">
+                                <ComboBox.Style>
+                                    <Style TargetType="ComboBox">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsImporting}" Value="True">
+                                                <Setter Property="IsEnabled" Value="False"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ComboBox.Style>
+                            </ComboBox>
+                            <Button Grid.Column="1" Command="{Binding ClearDepartmentFilterCommand}"
+                                    Content="✕" Width="35" Height="35" Margin="5,0,0,0"
+                                    Background="#95A5A6" Foreground="White" BorderThickness="0"
+                                    FontWeight="Bold" ToolTip="Clear department filter">
+                                <Button.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius" Value="4"/>
+                                    </Style>
+                                </Button.Resources>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
                 </StackPanel>
 
-                <!-- Import Button + DEV Reset Button -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <Button Command="{Binding ImportExcelAsyncCommand}" 
-                            Background="#27AE60" Foreground="White" BorderThickness="0" 
-                            Height="45" Padding="20,0">
-                        <Button.Resources>
-                            <Style TargetType="Border">
-                                <Setter Property="CornerRadius" Value="6"/>
-                            </Style>
-                        </Button.Resources>
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsImporting}" Value="True">
-                                        <Setter Property="IsEnabled" Value="False"/>
-                                        <Setter Property="Opacity" Value="0.5"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="📥" Margin="0,0,10,0"/>
-                            <TextBlock Text="Import Biometric Excel" FontWeight="Bold"/>
-                        </StackPanel>
-                    </Button>
-
-                    <!-- ⚠️ DEV ONLY: Change Visibility to Visible when you need to reset data -->
-                    <!-- Change back to Collapsed before giving to company -->
-                    <Button Command="{Binding ResetAllDataCommand}"
-                            Visibility="Visible"
-                            Background="#C0392B" Foreground="White" BorderThickness="0"
-                            Height="45" Padding="20,0" Margin="10,0,0,0"
-                            ToolTip="DEV ONLY - Wipes all attendance and allowance data">
-                        <Button.Resources>
-                            <Style TargetType="Border">
-                                <Setter Property="CornerRadius" Value="6"/>
-                            </Style>
-                        </Button.Resources>
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsImporting}" Value="True">
-                                        <Setter Property="IsEnabled" Value="False"/>
-                                        <Setter Property="Opacity" Value="0.5"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="⚠️" Margin="0,0,10,0"/>
-                            <TextBlock Text="Reset All Data" FontWeight="Bold"/>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
+                <!-- Import Button -->
+                <Button Grid.Column="1" Command="{Binding ImportExcelAsyncCommand}" 
+                        Background="#27AE60" Foreground="White" BorderThickness="0" 
+                        Height="45" Padding="20,0">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="6"/>
+                        </Style>
+                    </Button.Resources>
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsImporting}" Value="True">
+                                    <Setter Property="IsEnabled" Value="False"/>
+                                    <Setter Property="Opacity" Value="0.5"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="📥" Margin="0,0,10,0"/>
+                        <TextBlock Text="Import Biometric Excel" FontWeight="Bold"/>
+                    </StackPanel>
+                </Button>
             </Grid>
         </Border>
 
@@ -271,13 +278,17 @@
                 <DataGridTextColumn Header="Date" Binding="{Binding Date, StringFormat=dd-MMM-yyyy}" 
                                     Width="*" Foreground="#34495E"/>
 
-                <DataGridTemplateColumn Header="Employee" Width="2*">
+                <DataGridTemplateColumn Header="Employee" Width="1.8*">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <TextBlock Text="{Binding Employee.FullName}" FontWeight="SemiBold" Foreground="#2C3E50"/>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
+
+                <DataGridTextColumn Header="Department"
+                                    Binding="{Binding Employee.Department}"
+                                    Width="1.2*" Foreground="#8E44AD" FontWeight="SemiBold"/>
 
                 <DataGridTextColumn Header="In Time" Binding="{Binding InTime}" 
                                     Width="*" FontWeight="Bold" Foreground="#27AE60"/>

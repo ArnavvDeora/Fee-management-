@@ -265,18 +265,42 @@ namespace SchoolFeeSystem.Infrastructure.Services
                                a.Remarks != "SS_MASTER_IMPORT")
                     .ToList();
 
-                int presentDays = attendanceRecords.Count(a => a.Status == "Present");
-                int holidays = _context.Holidays.Count(h =>
-                    h.Date.Month == month && h.Date.Year == year);
+                // FIX: Check for ZERO_ATTENDANCE sentinel — this means the attendance file
+                // WAS imported for this month and the employee genuinely had 0 present days.
+                // In this case daysWorkedFromData must stay 0 (not fall back to calendarDays).
+                bool hasZeroAttendanceSentinel = attendanceRecords
+                    .Any(a => a.Remarks == "ZERO_ATTENDANCE");
 
-                daysWorkedFromData = presentDays + holidays;
+                if (hasZeroAttendanceSentinel)
+                {
+                    // Attendance was confirmed checked — employee was fully absent this month
+                    daysWorkedFromData = 0;
+                    penaltyHours = 0;
+                    otHoursFromData = 0;
+                }
+                else if (!attendanceRecords.Any())
+                {
+                    // No attendance data at all — employee was added after the import.
+                    // Return 0 days — do NOT fabricate a full month of attendance.
+                    daysWorkedFromData = 0;
+                    penaltyHours = 0;
+                    otHoursFromData = 0;
+                }
+                else
+                {
+                    int presentDays = attendanceRecords.Count(a => a.Status == "Present");
+                    int holidays = _context.Holidays.Count(h =>
+                        h.Date.Month == month && h.Date.Year == year);
 
-                int totalLatePenaltyMinutes = attendanceRecords
-                    .Where(a => a.Status == "Present")
-                    .Sum(a => Math.Max(0, a.LatePenaltyMinutes - a.AllowanceTimeUsed));
-                penaltyHours = totalLatePenaltyMinutes / 60m;
+                    daysWorkedFromData = presentDays + holidays;
 
-                otHoursFromData = _overtimeService.GetPaidOvertimeHours(employeeId, month, year);
+                    int totalLatePenaltyMinutes = attendanceRecords
+                        .Where(a => a.Status == "Present")
+                        .Sum(a => Math.Max(0, a.LatePenaltyMinutes - a.AllowanceTimeUsed));
+                    penaltyHours = totalLatePenaltyMinutes / 60m;
+
+                    otHoursFromData = _overtimeService.GetPaidOvertimeHours(employeeId, month, year);
+                }
             }
 
             slip.RecoveryHours = penaltyHours;
@@ -285,8 +309,14 @@ namespace SchoolFeeSystem.Infrastructure.Services
             // DaysWorked is a decimal so 30.5-day employees are handled correctly.
             // The slip itself stores it as decimal — all formulas (SalaryEarned, EPF base)
             // will use the full 30.5, not a truncated 30.
-            slip.DaysWorked = daysWorkedFromData == 0 ? calendarDays :
-                             (daysWorkedFromData > calendarDays ? calendarDays : daysWorkedFromData);
+            //
+            // FIX: Do NOT fall back to calendarDays when daysWorkedFromData == 0.
+            // A value of 0 means "no attendance on record" — the employee worked 0 days,
+            // not that we should assume a full month. This was causing newly-added employees
+            // (who joined after the attendance import) to show 31 payable days incorrectly.
+            // Old (WRONG): daysWorkedFromData == 0 ? calendarDays : daysWorkedFromData
+            // New (RIGHT): cap at calendarDays, but never inflate a genuine 0.
+            slip.DaysWorked = daysWorkedFromData > calendarDays ? calendarDays : daysWorkedFromData;
 
             slip.PayableDays = slip.DaysWorked;
 
@@ -471,6 +501,30 @@ namespace SchoolFeeSystem.Infrastructure.Services
         public void AddEmployee(Employee employee)
         {
             _context.Employees.Add(employee);
+            _context.SaveChanges();
+        }
+        // ──────────────────────────────────────────────────────────────────────────────
+        // ADD THESE TWO METHODS TO YOUR PayrollService.cs
+        // (place them alongside the other employee management methods)
+        // ──────────────────────────────────────────────────────────────────────────────
+
+        public List<FlaggedBiometricEntry> GetUnresolvedFlaggedBiometrics()
+        {
+            return _context.FlaggedBiometricEntries
+                .Where(f => !f.IsResolved)
+                .OrderByDescending(f => f.FirstSeenOn)
+                .ToList();
+        }
+
+        public void ResolveFlaggedBiometric(int flaggedEntryId, int? linkedEmployeeId)
+        {
+            var entry = _context.FlaggedBiometricEntries.Find(flaggedEntryId);
+            if (entry == null) return;
+
+            entry.IsResolved = true;
+            entry.ResolvedToEmployeeId = linkedEmployeeId;
+            entry.ResolvedOn = DateTime.Now;
+
             _context.SaveChanges();
         }
 
