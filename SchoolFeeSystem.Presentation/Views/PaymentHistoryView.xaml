@@ -413,7 +413,6 @@
                          which causes "Items collection must be empty before using ItemsSource"
                          whenever ItemsSource is rebound. The DataGrid has its own built-in scroll. -->
                     <DataGrid x:Name="PaymentHistoryGrid"
-                                 ItemsSource="{Binding PaymentHistoryView, Mode=OneWay}"
                                  SelectedItem="{Binding SelectedPaymentRow, Mode=TwoWay}"
                                  AutoGenerateColumns="False"
                                  IsReadOnly="True"
@@ -616,7 +615,7 @@
                     </Border.Style>
                     <Grid>
                         <!-- DataGrid must NOT be wrapped in an outer ScrollViewer - it has built-in scrolling. -->
-                        <DataGrid ItemsSource="{Binding FinancialSummaryView, Mode=OneWay}"
+                        <DataGrid x:Name="FinancialSummaryGrid"
                                      AutoGenerateColumns="True"
                                      IsReadOnly="True"
                                      AlternatingRowBackground="#F1F8E9"

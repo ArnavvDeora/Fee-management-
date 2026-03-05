@@ -160,6 +160,24 @@ namespace SchoolFeeSystem.Infrastructure.Services
             int employeesProcessed = 0;
             int recordsProcessed = 0;
 
+            // ── PRE-SCAN: names with 2+ distinct BioIDs in this file go to Unmatched ──
+            var wdrPeople = new List<(string BioId, string NormName)>();
+            for (int s = 0; s < table.Rows.Count; s++)
+            {
+                string rtext = string.Join(" ", table.Rows[s].ItemArray.Select(x => x?.ToString() ?? "")).Trim();
+                if (!rtext.StartsWith("Employee:", StringComparison.OrdinalIgnoreCase)) continue;
+                var rm = Regex.Match(rtext, @"Employee:\s*([A-Za-z0-9]+)\s*:\s*(.+?)(?:\s+Total|$)", RegexOptions.IgnoreCase);
+                if (!rm.Success) continue;
+                string bid = rm.Groups[1].Value.Trim();
+                string nm = Regex.Replace(rm.Groups[2].Value.Trim(), @"^(Ms\.|Mr\.|Mrs\.)\s*", "", RegexOptions.IgnoreCase).Trim();
+                if (!string.IsNullOrEmpty(nm)) wdrPeople.Add((bid, NormaliseName(nm)));
+            }
+            var ambiguousNormNamesWdr = wdrPeople
+                .GroupBy(p => p.NormName, StringComparer.OrdinalIgnoreCase)
+                .Where(g => g.Select(p => p.BioId).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
+                .Select(g => g.Key)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
             // Find employee blocks
             for (int r = 0; r < table.Rows.Count; r++)
             {
@@ -196,7 +214,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
                     // ── SS MASTER GUARD ───────────────────────────────────────
                     // Only process employees that already exist in the SS Master.
                     // Never create new employees from the attendance file alone.
-                    var emp = FindInSsMaster(employeesCache, bioId, empName, skippedEmployees, "WORK_DURATION_REPORT");
+                    var emp = FindInSsMaster(employeesCache, bioId, empName, skippedEmployees, "WORK_DURATION_REPORT", ambiguousNormNamesWdr);
                     if (emp == null)
                     {
                         progress?.Report($"⚠️  Skipped (not in SS Master): {empName} (BioID: {bioId})");
@@ -411,6 +429,25 @@ namespace SchoolFeeSystem.Infrastructure.Services
             int employeesProcessed = 0;
             int recordsProcessed = 0;
 
+            // ── PRE-SCAN: names with 2+ distinct BioIDs in this file go to Unmatched ──
+            var drPeople = new List<(string BioId, string NormName)>();
+            for (int s = headerRow + 1; s < table.Rows.Count; s += 3)
+            {
+                if (s + 2 >= table.Rows.Count) break;
+                var sr = table.Rows[s];
+                string bid = sr[0]?.ToString()?.Trim() ?? "";
+                string rnm = sr[1]?.ToString()?.Trim() ?? "";
+                string typ = sr.ItemArray.Length > 3 ? sr[3]?.ToString()?.Trim() ?? "" : "";
+                if (string.IsNullOrEmpty(bid) || !typ.Contains("In-Time", StringComparison.OrdinalIgnoreCase)) continue;
+                string cnm = Regex.Replace(rnm, @"\s*\(\d+\)", "").Trim();
+                if (!string.IsNullOrEmpty(cnm)) drPeople.Add((bid, NormaliseName(cnm)));
+            }
+            var ambiguousNormNamesDr = drPeople
+                .GroupBy(p => p.NormName, StringComparer.OrdinalIgnoreCase)
+                .Where(g => g.Select(p => p.BioId).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
+                .Select(g => g.Key)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
             // Process Rows - Each employee has 3 rows (In-Time, Out-Time, Total-Time)
             for (int i = headerRow + 1; i < table.Rows.Count; i += 3)
             {
@@ -433,7 +470,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
                 // ── SS MASTER GUARD ───────────────────────────────────────
                 // Only process employees already in the SS Master.
-                var emp = FindInSsMaster(employeesCache, bioId, cleanName, skippedEmployees, "DETAILED_REPORT");
+                var emp = FindInSsMaster(employeesCache, bioId, cleanName, skippedEmployees, "DETAILED_REPORT", ambiguousNormNamesDr);
                 if (emp == null)
                 {
                     progress?.Report($"⚠️  Skipped (not in SS Master): {cleanName} (BioID: {bioId})");
@@ -463,11 +500,17 @@ namespace SchoolFeeSystem.Infrastructure.Services
                     // Determine status
                     string status = "Present";
 
-                    // If out-time is 00:00 or 0, assume missing punch
+                    // Reject stray late (I) punches — e.g. "17:30(I)" recorded at end-of-day.
+                    // An (I) punch at 14:00 or later cannot be a real morning arrival.
+                    // Accepting it causes OvertimeCalc to see a 17:30 arrival → 8.5h late penalty.
+                    if (TimeSpan.TryParse(inTime, out var parsedInCsv) && parsedInCsv.Hours >= 14)
+                        continue; // Stray punch — skip this day entirely
+
+                    // If out-time is 00:00 or 0, assume missing punch → treat as leaving on time
                     if (outTime == "0" || outTime == "00:00" || string.IsNullOrEmpty(outTime))
                     {
-                        outTime = "00:00";
-                        status = "MIS"; // Missing out-punch
+                        outTime = "17:30"; // Assume standard end time (no OT, no penalty)
+                        status = "Present";
                     }
 
                     // Calculate duration if not already provided
@@ -540,6 +583,41 @@ namespace SchoolFeeSystem.Infrastructure.Services
             int employeesProcessed = 0;
             int recordsProcessed = 0;
 
+            // ── PRE-SCAN: find names that appear with 2+ DIFFERENT BioIDs in this file ──
+            // Example: "HARJIT SINGH" appears as BioID=102 AND BioID=CIHT87.
+            // These are two real different people with the same name. We cannot safely
+            // assign either to the one SS Master record — both MUST go to Unmatched
+            // so the admin can decide. Tier 1 (BioID match) still works after linking.
+            var filePeople = new List<(string BioId, string NormName)>();
+            for (int s = 0; s < table.Rows.Count; s++)
+            {
+                var sr = table.Rows[s];
+                if (sr[0]?.ToString()?.Contains("Code & Name", StringComparison.OrdinalIgnoreCase) != true)
+                    continue;
+                string snm = sr.ItemArray.Length > 3 && !string.IsNullOrWhiteSpace(sr[3]?.ToString())
+                             ? sr[3].ToString().Trim()
+                             : (sr.ItemArray.Length > 1 ? sr[1]?.ToString()?.Trim() ?? "" : "");
+                string sbid = sr.ItemArray.Length > 2 ? sr[2]?.ToString()?.Trim() ?? "" : "";
+                if (!string.IsNullOrEmpty(snm))
+                    filePeople.Add((sbid, NormaliseName(snm)));
+            }
+            // Build set of normalised names that have 2+ distinct BioIDs
+            var ambiguousNormNames = filePeople
+                .GroupBy(p => p.NormName, StringComparer.OrdinalIgnoreCase)
+                .Where(g => g.Select(p => p.BioId)
+                             .Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
+                .Select(g => g.Key)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (ambiguousNormNames.Any())
+                progress?.Report(
+                    $"⚠️ {ambiguousNormNames.Count} name(s) found with multiple BioIDs — " +
+                    $"ALL matching entries will go to Unmatched: " +
+                    string.Join(", ", ambiguousNormNames));
+
+            // Load employee cache ONCE before the loop (not per-employee — that was O(n²))
+            var employeesCache = _context.Employees.ToList();
+
             for (int i = 0; i < table.Rows.Count; i++)
             {
                 var row = table.Rows[i];
@@ -585,14 +663,21 @@ namespace SchoolFeeSystem.Infrastructure.Services
                     // Extract BiometricId if available (column 2)
                     string bioId = row.ItemArray.Length > 2 ? row[2]?.ToString()?.Trim() : "";
 
-                    var employees = _context.Employees.ToList();
-
                     // ── SS MASTER GUARD ───────────────────────────────────────
                     // Only process employees already in the SS Master.
-                    currentEmployee = FindInSsMaster(employees, bioId, fullName, skippedEmployees, "FACE_ATTENDANCE");
+                    currentEmployee = FindInSsMaster(
+                        employeesCache, bioId, fullName,
+                        skippedEmployees, "FACE_ATTENDANCE",
+                        ambiguousNormNames);
+
                     if (currentEmployee == null)
                     {
                         progress?.Report($"⚠️  Skipped (not in SS Master): {fullName} (BioID: {bioId})");
+                        // IMPORTANT: discard tempBatch for the PREVIOUS employee that had already
+                        // been set as currentEmployee — the employee-header row already cleared it
+                        // above, so tempBatch is already empty here. Just null out currentEmployee
+                        // so attendance rows below don't attach to the wrong person.
+                        currentEmployee = null;
                         continue;
                     }
 
@@ -666,15 +751,31 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
                         // FIX 3: Apply MIS rule AFTER punch extraction so it only fires
                         // when there is genuinely no (O) punch — not overwritten by punch regex
-                        // MIS = forgot OUT punch → auto mark 5:30 PM
+                        //
+                        // IMPORTANT: Validate inTime is a realistic arrival time (before 14:00).
+                        // Edge case: "17:30(I)" — machine recorded an (I) punch at end-of-day.
+                        // This is a stray/erroneous punch, NOT a real arrival at 17:30.
+                        // If we accept it as inTime, OvertimeCalc sees arrival at 17:30 →
+                        // 510 minutes late → 8.5 hours penalty. So we reject it.
+                        // Any (I) punch at 14:00 or later is treated as no valid IN punch.
+                        if (TimeSpan.TryParse(inTime, out var parsedIn) && parsedIn.Hours >= 14)
+                        {
+                            // Stray late (I) punch — discard it, cannot determine real arrival
+                            inTime = "00:00";
+                        }
+
+                        // MIS = forgot OUT punch → auto mark 5:30 PM (only if we have a valid IN)
                         if (status == "MIS" && inTime != "00:00" && outTime == "00:00")
                         {
                             outTime = "17:30";
                         }
 
-                        // Mark as Present if we have a valid in-time
+                        // Mark as Present only if we have a valid in-time
+                        // If inTime is still "00:00" after all checks, skip this day entirely
                         if (inTime != "00:00")
                             finalStatus = "Present";
+                        else if (status == "MIS")
+                            continue; // No usable punch data — skip, don't save garbage record
 
                         tempBatch.Add(new AttendanceRecord
                         {
@@ -730,7 +831,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
         // BATCH SAVE HELPER
         // =========================================================
 
-        private void AddOrUpdateAttendanceBatch(List<AttendanceRecord> newRecords)
+        private void AddOrUpdateAttendanceBatch(List<AttendanceRecord> newRecords, bool isManualEdit = false)
         {
             if (!newRecords.Any()) return;
 
@@ -746,6 +847,41 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
             var empIds = newRecords.Select(r => r.EmployeeId).Distinct().ToList();
             var dates = newRecords.Select(r => r.Date).Distinct().ToList();
+
+            // ── Clear stale SS_MASTER_IMPORT records (bulk imports only) ─────────
+            // When fresh biometric attendance is imported for a month, any existing
+            // SS_MASTER_IMPORT record for that employee+month must be deleted first.
+            // Without this, GenerateDetailedSalary uses the old SS Master data
+            // (Days, OT, REC) as priority over newly imported biometric records.
+            // Skipped for manual edits (isManualEdit=true) — no stale records
+            // are introduced by single-record edits, and the cleanup is unnecessary.
+            if (!isManualEdit)
+            {
+                var monthsAffected = dates
+                    .Select(d => new { d.Month, d.Year })
+                    .Distinct()
+                    .ToList();
+
+                foreach (var period in monthsAffected)
+                {
+                    var staleSSMaster = _context.AttendanceRecords
+                        .Where(a => empIds.Contains(a.EmployeeId) &&
+                                    a.Date.Month == period.Month &&
+                                    a.Date.Year == period.Year &&
+                                    a.Remarks == "SS_MASTER_IMPORT")
+                        .ToList();
+
+                    if (staleSSMaster.Any())
+                    {
+                        _context.AttendanceRecords.RemoveRange(staleSSMaster);
+                        _context.SaveChanges();
+                        System.Diagnostics.Debug.WriteLine(
+                            $"Cleared {staleSSMaster.Count} stale SS_MASTER_IMPORT record(s) " +
+                            $"for {period.Month}/{period.Year} — biometrics will now be used.");
+                    }
+                }
+            }
+            // ─────────────────────────────────────────────────────────────────────
 
             var existingRecords = _context.AttendanceRecords
                 .Where(r => empIds.Contains(r.EmployeeId) && dates.Contains(r.Date))
@@ -844,7 +980,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
             progress?.Report("✅ Reset complete. You can now re-import attendance files.");
         }
 
-        public void MarkAttendance(AttendanceRecord record) => AddOrUpdateAttendanceBatch(new List<AttendanceRecord> { record });
+        public void MarkAttendance(AttendanceRecord record) => AddOrUpdateAttendanceBatch(new List<AttendanceRecord> { record }, isManualEdit: true);
         public void BulkMarkAttendance(List<AttendanceRecord> records) => AddOrUpdateAttendanceBatch(records);
         public void AddHoliday(Holiday holiday) { if (!_context.Holidays.Any(h => h.Date == holiday.Date)) { _context.Holidays.Add(holiday); _context.SaveChanges(); } }
         public void DeleteHoliday(int id) { var item = _context.Holidays.Find(id); if (item != null) { _context.Holidays.Remove(item); _context.SaveChanges(); } }
@@ -858,26 +994,28 @@ namespace SchoolFeeSystem.Infrastructure.Services
         // SS MASTER GUARD — Find employee or flag for manual linking
         // =========================================================
         /// <summary>
-        /// Matches an attendance-file person to an SS Master employee using 4 tiers:
+        /// Matches an attendance-file person to an SS Master employee using 4 tiers.
+        ///
+        ///   PRE-CHECK — If this person's normalised name is in <paramref name="ambiguousNormNames"/>
+        ///               (two different BioIDs in the same file share this name, e.g. BioID=102 and
+        ///               BioID=CIHT87 are both "HARJIT SINGH"), BOTH are sent to Unmatched immediately.
+        ///               We cannot know which physical person matches the one SS Master record.
+        ///               Exception: if Tier 1 (exact BioID) already resolves it, that is used instead.
         ///
         ///   TIER 1 — BiometricId exact match. Zero ambiguity. Used after the first
         ///            successful import has back-filled the ID into the DB.
         ///
         ///   TIER 2 — Exact normalised name match (unique result only).
-        ///            "Mr. Ashish Kumar" → "ASHISH KUMAR", "MRS RITU GOYAL" → "RITU GOYAL".
-        ///            If 2+ employees share the name → jump straight to Unmatched tab.
+        ///            If 2+ DB employees share the name → flag immediately.
         ///            On success, BiometricId is back-filled so next import uses Tier 1.
         ///
         ///   TIER 3 — Safe fuzzy name match (unique result only). Handles real-world
-        ///            spelling differences between the biometric machine and SS Master:
-        ///              • Space difference   : "RAJ DYAL" ↔ "RAJDYAL"
-        ///              • Missing surname    : "RUBAL" ↔ "RUBAL MASIH" (≥4 chars prefix)
-        ///              • Extra middle name  : "RAJESH DUBEY" ↔ "RAJESH KUMAR DUBEY"
-        ///              • 1-char typo only for long names (≥10 compact chars):
-        ///                  "SUNIL YADEV" ↔ "SUNIL YADAV", "MANPREET SINGH GHUMMAN" ↔ "…GHUMAN"
-        ///            Levenshtein is intentionally restricted to long names to prevent
-        ///            false matches like BABY→BABLU, HARPREET→GURPREET, RAJ KUMAR→SURAJ KUMAR.
-        ///            If fuzzy produces 2+ candidates → Unmatched tab.
+        ///            spelling differences: space removal, missing surname, extra middle name,
+        ///            1-char typos on long names.
+        ///
+        ///   CONFLICT — Matched by name but DB record already has a different BioID stored
+        ///              (first person was matched first and back-filled; second arrives later).
+        ///              Flag to Unmatched — admin resolves via Link or Add as New Employee.
         ///
         ///   UNMATCHED — Genuinely not in SS Master → flagged for manual linking.
         /// </summary>
@@ -886,10 +1024,41 @@ namespace SchoolFeeSystem.Infrastructure.Services
             string bioId,
             string fullName,
             List<(string BioId, string Name, string Format)> skippedLog,
-            string sourceFormat = "")
+            string sourceFormat = "",
+            HashSet<string> ambiguousNormNames = null)
         {
             Employee emp = null;
             bool fileHasBioId = !string.IsNullOrWhiteSpace(bioId);
+
+            // ── PRE-CHECK: name is ambiguous in this file ──────────────────────
+            // Two entries in the file share the same name but have different BioIDs.
+            // We try Tier 1 first (exact BioID) — if the admin already linked one of them
+            // in a previous import it will resolve cleanly. Otherwise both go to Unmatched.
+            if (ambiguousNormNames != null && !string.IsNullOrWhiteSpace(fullName)
+                && ambiguousNormNames.Contains(NormaliseName(fullName)))
+            {
+                // Try Tier 1 only
+                if (fileHasBioId)
+                {
+                    emp = ssMasterCache.FirstOrDefault(e =>
+                        !string.IsNullOrWhiteSpace(e.BiometricId) &&
+                        string.Equals(e.BiometricId.Trim(), bioId.Trim(), StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (emp == null)
+                {
+                    // Tier 1 also failed → send to Unmatched
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[AttendanceService] Ambiguous name '{fullName}' (BioID={bioId}) " +
+                        $"→ Unmatched (two people share this name with different codes).");
+                    LogSkipped(skippedLog, bioId, fullName, sourceFormat);
+                    return null;
+                }
+
+                // Tier 1 succeeded (BioID already stored from a prior import) → use it directly,
+                // no back-fill needed, no further processing.
+                return emp;
+            }
 
             // ── TIER 1: Exact BiometricId match ───────────────────────────────
             if (fileHasBioId)
@@ -913,7 +1082,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
                 }
                 else if (exactMatches.Count > 1)
                 {
-                    // Ambiguous exact name → flag immediately, don't try fuzzy
+                    // Ambiguous exact name in DB → flag immediately, don't try fuzzy
                     LogSkipped(skippedLog, bioId, fullName, sourceFormat);
                     return null;
                 }
@@ -934,11 +1103,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
                     if (string.Equals(compactInput, compactDb, StringComparison.OrdinalIgnoreCase))
                         return true;
 
-                    // Rule B: One compact string is a prefix of the other.
-                    //         Minimum 5 chars on the shorter side to avoid over-matching
-                    //         short common names (e.g. "RAM" shouldn't match "RAMESH KUMAR").
-                    //         Both sides must also share at least 75% of the longer length
-                    //         so "AMANPREETSINGH" does NOT match "MANPREETSINGH".
+                    // Rule B: Prefix match (≥5 chars, ≥75% ratio)
                     int minLen = Math.Min(compactInput.Length, compactDb.Length);
                     int maxLen = Math.Max(compactInput.Length, compactDb.Length);
                     if (minLen >= 5 && (double)minLen / maxLen >= 0.75)
@@ -948,9 +1113,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
                             return true;
                     }
 
-                    // Rule C: Word-subset — all words of the shorter name appear in the
-                    //         longer name (e.g. "RAJESH DUBEY" ↔ "RAJESH KUMAR DUBEY").
-                    //         Requires at least 2 words to avoid over-matching.
+                    // Rule C: Word-subset — all words of the shorter name appear in the longer
                     var inputWords = normInput.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     var dbWords = normDb.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     if (inputWords.Length >= 2 && dbWords.Length >= 2)
@@ -962,12 +1125,10 @@ namespace SchoolFeeSystem.Infrastructure.Services
                             return true;
                     }
 
-                    // Rule D: 1-char typo, but ONLY for long names (compact ≥ 10 chars)
-                    //         AND first word must match (so "AMANPREET" ≠ "MANPREET")
+                    // Rule D: 1-char typo, long names only (≥10 chars), first word must match
                     if (compactInput.Length >= 10 && compactDb.Length >= 10 &&
                         Math.Abs(compactInput.Length - compactDb.Length) <= 1)
                     {
-                        // Guard: first words must be the same to prevent cross-name typos
                         var firstWordInput = normInput.Split(' ')[0];
                         var firstWordDb = normDb.Split(' ')[0];
                         bool firstWordMatch = string.Equals(firstWordInput, firstWordDb,
@@ -985,18 +1146,12 @@ namespace SchoolFeeSystem.Infrastructure.Services
                     System.Diagnostics.Debug.WriteLine(
                         $"[AttendanceService] Fuzzy matched '{fullName}' → '{emp.FullName}'");
                 }
-                // If fuzzyMatches.Count > 1 → too ambiguous, emp stays null → Unmatched tab
+                // If fuzzyMatches.Count > 1 → too ambiguous, emp stays null → Unmatched
             }
 
             // ── Back-fill BiometricId OR detect conflict ───────────────────────
-            // If the employee was matched by name but already has a DIFFERENT BiometricId
-            // stored in the DB, we have a conflict: two attendance-file people with
-            // different codes both name-matched to the same employee record.
-            // Classic case: two "Harjit Singh" — BioID 102 was matched first and
-            // written to the DB; when BioID CIHT87 arrives, it must NOT silently
-            // overwrite 102 or merge attendance into the same record.
-            // Instead: flag BioID CIHT87 for manual resolution (Add as New Employee
-            // or Link to the correct record via the Unmatched tab).
+            // If matched by name but DB record already has a DIFFERENT BioID stored,
+            // two file-people have name-matched to the same DB record. Flag the second one.
             if (emp != null && fileHasBioId)
             {
                 bool dbHasDifferentBioId = !string.IsNullOrWhiteSpace(emp.BiometricId) &&
@@ -1004,8 +1159,6 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
                 if (dbHasDifferentBioId)
                 {
-                    // Conflict: this attendance entry has a code that doesn't match the
-                    // code already stored for this employee. Flag it and don't import.
                     System.Diagnostics.Debug.WriteLine(
                         $"[AttendanceService] BioID conflict: file has '{bioId}' for '{fullName}' " +
                         $"but DB employee already has BioID '{emp.BiometricId}'. Flagging.");

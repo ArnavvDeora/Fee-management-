@@ -289,10 +289,29 @@ namespace SchoolFeeSystem.Infrastructure.Services
                 else
                 {
                     int presentDays = attendanceRecords.Count(a => a.Status == "Present");
+                    int absentDays = attendanceRecords.Count(a => a.Status == "Absent");
+
+                    // PAYABLE DAYS = calendarDays − absentDays
+                    //
+                    // Why: A monthly salary already covers ALL days in the month,
+                    // including Weekly Offs (Sundays). Only genuine absent days should
+                    // reduce pay. Weekly Offs are NOT saved to the attendance DB
+                    // (the import skips WO rows), so we cannot count them directly.
+                    // Instead: payable = calendar − absent  (WO days cancel out naturally).
+                    //
+                    // Example — Gareeb Dass, July 2025:
+                    //   calendarDays=31, present=25, absent=2, WO=4 (not in DB)
+                    //   OLD (wrong): payable = presentDays = 25  (penalised 4 WO days!)
+                    //   NEW (right): payable = 31 − 2      = 29  (only 2 absent deducted)
+                    //
+                    //   Salary: 23,050 × 29 ÷ 31 = ₹21,563  (was ₹18,589 — underpaid by ₹2,974)
+
                     int holidays = _context.Holidays.Count(h =>
                         h.Date.Month == month && h.Date.Year == year);
 
-                    daysWorkedFromData = presentDays + holidays;
+                    // Payable = all calendar days, minus absent, plus any declared holidays
+                    // (holidays are already excluded from absent, so add them as bonus paid days)
+                    daysWorkedFromData = calendarDays - absentDays + holidays;
 
                     int totalLatePenaltyMinutes = attendanceRecords
                         .Where(a => a.Status == "Present")

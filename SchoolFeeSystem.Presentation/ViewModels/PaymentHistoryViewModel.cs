@@ -9,6 +9,7 @@ using System.Data;
 using System.Linq;
 using System.Windows;
 using System.Windows.Documents;
+using System.Windows.Threading;
 
 namespace SchoolFeeSystem.Presentation.ViewModels
 {
@@ -17,9 +18,15 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         private readonly CsvDataService _csvService;
         private readonly PaymentLogService _paymentLogService;
 
+        // Guard flag: prevents OnSelectedPaymentTypeChanged from firing
+        // during construction before the DataGrid is ready.
+        private bool _isInitializing = true;
+
         // ── Filters ───────────────────────────────────────────────────────────
-        [ObservableProperty] private string studentIdFilter;
-        [ObservableProperty] private string studentNameFilter;
+        // Initialize to string.Empty so WPF binding never triggers a null→""
+        // change notification during DataGrid initialization.
+        [ObservableProperty] private string studentIdFilter = string.Empty;
+        [ObservableProperty] private string studentNameFilter = string.Empty;
         [ObservableProperty] private DateTime? startDate;
         [ObservableProperty] private DateTime? endDate;
 
@@ -29,8 +36,34 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty] private string selectedPaymentType = "All";
 
         // ── Grid data ─────────────────────────────────────────────────────────
-        [ObservableProperty] private DataView paymentHistoryView;
-        [ObservableProperty] private DataView financialSummaryView;
+        // Manually implemented so we can ensure PropertyChanged is only ever
+        // raised on the UI thread at DispatcherPriority.Loaded — this prevents
+        // the DataGrid from receiving a new ItemsSource before its internal
+        // ItemCollection is ready, which would throw:
+        //   "Items collection must be empty before using ItemsSource."
+        private DataView _paymentHistoryView;
+        public DataView PaymentHistoryView
+        {
+            get => _paymentHistoryView;
+            private set
+            {
+                if (_paymentHistoryView == value) return;
+                _paymentHistoryView = value;
+                OnPropertyChanged(nameof(PaymentHistoryView));
+            }
+        }
+
+        private DataView _financialSummaryView;
+        public DataView FinancialSummaryView
+        {
+            get => _financialSummaryView;
+            private set
+            {
+                if (_financialSummaryView == value) return;
+                _financialSummaryView = value;
+                OnPropertyChanged(nameof(FinancialSummaryView));
+            }
+        }
 
         // ── Row selection → receipt preview ──────────────────────────────────
         [ObservableProperty] private DataRowView selectedPaymentRow;
@@ -62,7 +95,47 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             _csvService = csvService;
             _paymentLogService = paymentLogService;
+            // Do NOT load data here. The View calls Initialize() from its
+            // Loaded event, guaranteeing the DataGrid is fully ready first.
+        }
+
+        /// <summary>
+        /// Called by PaymentHistoryView.Loaded — at this point the DataGrid's
+        /// ItemCollection is empty and ready to accept an ItemsSource.
+        /// </summary>
+        public void Initialize()
+        {
+            _isInitializing = false;
             LoadAllPayments();
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // HELPERS — all DataView assignments go through the Dispatcher so the
+        // DataGrid's ItemCollection is fully ready before the swap occurs.
+        // ═════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Assigns a new DataView to PaymentHistoryView. The property setter
+        /// automatically dispatches the PropertyChanged notification at
+        /// DispatcherPriority.Loaded so the DataGrid is always ready first.
+        /// </summary>
+        private void SetPaymentHistoryView(DataView newView, DataTable summarySource = null)
+        {
+            PaymentHistoryView = null;
+            PaymentHistoryView = newView;
+            if (summarySource != null)
+                UpdateSummary(summarySource);
+        }
+
+        /// <summary>
+        /// Assigns a new DataView to FinancialSummaryView. Same dispatch
+        /// guarantee as SetPaymentHistoryView.
+        /// </summary>
+        private void SetFinancialSummaryView(DataView newView, bool isEmpty)
+        {
+            FinancialSummaryView = null;
+            FinancialSummaryView = newView;
+            FinancialSummaryEmptyVisibility = isEmpty ? Visibility.Visible : Visibility.Collapsed;
         }
 
         // ═════════════════════════════════════════════════════════════════════
@@ -72,10 +145,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         private void LoadAllPayments()
         {
             var all = _paymentLogService.GetPaymentHistory();
-            // Set to null first to force DataGrid to release old ItemsSource completely
-            PaymentHistoryView = null;
-            PaymentHistoryView = new System.Data.DataView(all);
-            UpdateSummary(all);
+            var newView = new DataView(all);
+            SetPaymentHistoryView(newView, all);
         }
 
         /// <summary>
@@ -109,18 +180,14 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 if (ok) filtered.ImportRow(row);
             }
 
-            PaymentHistoryView = null;
-            PaymentHistoryView = new System.Data.DataView(filtered);
-            UpdateSummary(filtered);
+            SetPaymentHistoryView(new DataView(filtered), filtered);
 
             // Financial summary uses the same search key
             string key = hasName ? StudentNameFilter : StudentIdFilter;
             var summary = _paymentLogService.GetStudentFinancialSummary(key);
-
-            FinancialSummaryView = null;
-            FinancialSummaryView = summary == null ? null : new System.Data.DataView(summary);
-            FinancialSummaryEmptyVisibility = (summary == null || summary.Rows.Count == 0)
-                                               ? Visibility.Visible : Visibility.Collapsed;
+            bool isEmpty = (summary == null || summary.Rows.Count == 0);
+            var summaryDv = isEmpty ? null : new DataView(summary);
+            SetFinancialSummaryView(summaryDv, isEmpty);
         }
 
         [RelayCommand]
@@ -140,13 +207,14 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 if (ok) filtered.ImportRow(row);
             }
 
-            PaymentHistoryView = null;
-            PaymentHistoryView = new System.Data.DataView(filtered);
-            UpdateSummary(filtered);
+            SetPaymentHistoryView(new DataView(filtered), filtered);
         }
 
         partial void OnSelectedPaymentTypeChanged(string value)
         {
+            // Skip during constructor — DataGrid is not ready yet
+            if (_isInitializing) return;
+
             if (value == "All") { LoadAllPayments(); return; }
 
             var all = _paymentLogService.GetPaymentHistory();
@@ -164,10 +232,18 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 if (match) filtered.ImportRow(row);
             }
 
-            PaymentHistoryView = null;
-            PaymentHistoryView = new System.Data.DataView(filtered);
-            UpdateSummary(filtered);
+            SetPaymentHistoryView(new DataView(filtered), filtered);
         }
+
+        // These partial methods intentionally do nothing.
+        // Filtering is driven explicitly by the Search button only.
+        // Without these, the source generator fires a change callback when
+        // WPF first binds the TextBoxes (null → ""), which crashes the
+        // DataGrid with "Items collection must be empty before using ItemsSource".
+        partial void OnStudentIdFilterChanged(string value) { }
+        partial void OnStudentNameFilterChanged(string value) { }
+        partial void OnStartDateChanged(DateTime? value) { }
+        partial void OnEndDateChanged(DateTime? value) { }
 
         [RelayCommand]
         public void ClearFilters()
@@ -176,9 +252,14 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             StudentNameFilter = string.Empty;
             StartDate = null;
             EndDate = null;
+
+            // Temporarily suppress the type-change handler to avoid a
+            // redundant reload — LoadAllPayments() below covers it.
+            _isInitializing = true;
             SelectedPaymentType = "All";
-            FinancialSummaryView = null;
-            FinancialSummaryEmptyVisibility = Visibility.Visible;
+            _isInitializing = false;
+
+            SetFinancialSummaryView(null, true);
             ReceiptPanelVisibility = Visibility.Collapsed;
             LoadAllPayments();
         }
@@ -193,10 +274,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             PopulateReceiptFields(value.Row);
         }
 
-        // ─────────────────────────────────────────────────────────────────────
         // Per-row 🖨️ button calls this with CommandParameter="{Binding}"
         // which is the DataRowView for that exact row.
-        // ─────────────────────────────────────────────────────────────────────
         [RelayCommand]
         public void PrintReceiptForRow(object parameter)
         {
@@ -347,19 +426,31 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         private static System.Windows.Documents.BlockUIContainer HRule()
         {
             var r = new System.Windows.Shapes.Rectangle
-            { Height = 1, Fill = System.Windows.Media.Brushes.LightGray, Margin = new Thickness(0, 6, 0, 6) };
+            {
+                Height = 1,
+                Fill = System.Windows.Media.Brushes.LightGray,
+                Margin = new Thickness(0, 6, 0, 6)
+            };
             return new System.Windows.Documents.BlockUIContainer(r);
         }
 
         private static System.Windows.Documents.TableCell LabelCell(string t) =>
             new(new System.Windows.Documents.Paragraph(
                 new System.Windows.Documents.Run(t))
-            { FontSize = 11, Foreground = System.Windows.Media.Brushes.Gray, Margin = new Thickness(0, 4, 8, 4) });
+            {
+                FontSize = 11,
+                Foreground = System.Windows.Media.Brushes.Gray,
+                Margin = new Thickness(0, 4, 8, 4)
+            });
 
         private static System.Windows.Documents.TableCell ValueCell(string t) =>
             new(new System.Windows.Documents.Paragraph(
                 new System.Windows.Documents.Run(t ?? ""))
-            { FontSize = 12, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 4, 16, 4) });
+            {
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 4, 16, 4)
+            });
 
         // ═════════════════════════════════════════════════════════════════════
         // SUMMARY

@@ -45,11 +45,35 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             if (_actualRecord == null) return;
 
             // 2. Commit changes ONLY when Save is clicked
-            _actualRecord.InTime = EditInTime;
-            _actualRecord.OutTime = EditOutTime;
+            _actualRecord.InTime = EditInTime?.Trim();
+            _actualRecord.OutTime = EditOutTime?.Trim();
             _actualRecord.Status = EditStatus;
 
-            // 3. Update Database
+            // FIX 1: Recalculate Duration from the new InTime/OutTime
+            // Without this, the attendance grid shows the old duration after editing.
+            if (TimeSpan.TryParse(_actualRecord.InTime, out var tIn) &&
+                TimeSpan.TryParse(_actualRecord.OutTime, out var tOut) &&
+                tOut > TimeSpan.Zero)
+            {
+                var diff = tOut - tIn;
+                if (diff.TotalMinutes < 0) diff = diff.Add(TimeSpan.FromHours(24));
+                _actualRecord.Duration = $"{(int)diff.TotalHours}h {diff.Minutes}m";
+            }
+            else
+            {
+                _actualRecord.Duration = "0h 0m";
+            }
+
+            // FIX 2: Reset penalty/OT fields before recalculation so stale values
+            // don't carry over. e.g. admin removes lateness — AllowanceTimeUsed must
+            // reset to 0 or OvertimeCalc will apply the old offset incorrectly.
+            _actualRecord.LateMinutes = 0;
+            _actualRecord.LatePenaltyMinutes = 0;
+            _actualRecord.OvertimeMinutes = 0;
+            _actualRecord.AllowanceTimeUsed = 0;
+
+            // 3. Update Database (MarkAttendance → AddOrUpdateAttendanceBatch
+            //    → CalculateOvertimeAndPenalties recalculates everything fresh)
             _attendanceService.MarkAttendance(_actualRecord);
 
             // 4. Close Window

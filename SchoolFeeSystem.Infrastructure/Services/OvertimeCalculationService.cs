@@ -24,9 +24,12 @@ namespace SchoolFeeSystem.Infrastructure.Services
         // Departments eligible for PAID overtime (get cash, not allowance time)
         private static readonly string[] OT_PAID_DEPARTMENTS = {
             "TRAINING WORKSHOP",
-            "CNC Workshop", // Legacy name support
+            "CNC Workshop",        // Legacy name support
             "HEAT-TREATMENT SHOP",
-            "Heat Treatment" // Legacy name support
+            "Heat Treatment",      // Legacy name support
+            "HEAT SHOP",           // Heat Shop (as shown in Staff Directory)
+            "FORGE SHOP",          // Forge Shop (as shown in Staff Directory)
+            "Forge Shop"           // Legacy name support
         };
 
         public OvertimeCalculationService(AppDbContext context)
@@ -151,7 +154,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
         /// <summary>
         /// Calculate total paid overtime hours for an employee in a month
-        /// Only for TRAINING WORKSHOP & HEAT-TREATMENT SHOP departments
+        /// Only for TRAINING WORKSHOP, CNC WORKSHOP, HEAT-TREATMENT SHOP, HEAT SHOP & FORGE SHOP departments
         /// These employees get CASH for OT, not allowance time
         /// </summary>
         public decimal GetPaidOvertimeHours(int employeeId, int month, int year)
