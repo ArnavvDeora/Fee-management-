@@ -476,6 +476,15 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
         }
 
+
+        // ── NEW: called by card list "Select" button ──────────────────────────
+        [RelayCommand]
+        public void SelectStudentRow(object row)
+        {
+            if (row is System.Data.DataRowView drv)
+                SelectedRow = drv;
+        }
+
         [RelayCommand]
         public void GoBack()
         {

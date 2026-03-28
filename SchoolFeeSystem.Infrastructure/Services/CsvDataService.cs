@@ -878,7 +878,8 @@ namespace SchoolFeeSystem.Presentation.Services
             {
                 InstituteName = "School Fee System",
                 Period = ExtractPeriodFromSheetName(sheetName),
-                CourseInfo = sheetName
+                CourseInfo = sheetName,
+                Quarter = table.ExtendedProperties["Quarter"]?.ToString() ?? ""
             };
         }
 
@@ -1310,6 +1311,7 @@ namespace SchoolFeeSystem.Presentation.Services
             public string InstituteName { get; set; }
             public string Period { get; set; }
             public string CourseInfo { get; set; }
+            public string Quarter { get; set; }
         }
         /// <summary>
         /// Gets all available sheets from all loaded files

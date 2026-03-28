@@ -90,7 +90,12 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         // ==========================
         // DATA VIEW PROPERTIES
         // ==========================
-
+        [ObservableProperty]
+        private ObservableCollection<StudentCardRow> studentCardRows = new();
+        [ObservableProperty] private int dataViewTotalStudents;
+        [ObservableProperty] private int dataViewPaidStudents;
+        [ObservableProperty] private int dataViewPendingStudents;
+        [ObservableProperty] private decimal dataViewPendingAmount;
         [ObservableProperty]
         private DataView csvTableView;
 
@@ -131,7 +136,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             InitializeDepartments();
             InitializeFilters();
-
+            App.FeeDataChanged += () =>
+            {
+                if (IsDataViewMode)
+                    BuildStudentCards();
+            };
             PropertyChanged += (s, e) =>
             {
                 if (e.PropertyName == nameof(SelectedYearFilter) ||
@@ -144,6 +153,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     ApplyDataViewSearch();
             };
         }
+
 
         // ==========================
         // INITIALIZATION
@@ -522,8 +532,100 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             IsDataViewMode = true;
 
             UpdateRowCountDisplay();
+            BuildStudentCards();
+        }
+        private void BuildStudentCards()
+        {
+            StudentCardRows.Clear();
+            if (_originalData == null) return;
+
+            DataColumn ColFind(params string[] keywords) =>
+                _originalData.Columns.Cast<DataColumn>()
+                    .FirstOrDefault(c => keywords.All(k =>
+                        c.ColumnName.IndexOf(k, System.StringComparison.OrdinalIgnoreCase) >= 0));
+
+            decimal SafeDec(DataRow r, DataColumn c) =>
+                c != null && decimal.TryParse(r[c]?.ToString()?.Trim(), out decimal v) ? v : 0m;
+
+            var nameCol = ColFind("name");
+            var fatherCol = ColFind("father");
+            var categoryCol = ColFind("category");
+            var quarterlyCol = ColFind("quarterly") ?? ColFind("installment") ?? ColFind("fees");
+            var prevPendCol = ColFind("previous", "pending") ?? ColFind("pending");
+            var phoneCol = ColFind("phone") ?? ColFind("contact") ?? ColFind("mobile");
+
+            int serial = 1;
+            var view = CsvTableView ?? _originalData.DefaultView;
+
+            foreach (System.Data.DataRowView drv in view)
+            {
+                DataRow row = drv.Row;
+
+                string nm = nameCol != null ? row[nameCol]?.ToString()?.Trim() ?? "" : "";
+                if (string.IsNullOrEmpty(nm)) continue;
+                if (nm.Equals("Name", System.StringComparison.OrdinalIgnoreCase)) continue;
+                if (nm.StartsWith("Note", System.StringComparison.OrdinalIgnoreCase)) continue;
+                if (nm.Length > 60 || nm.Contains(":-") || nm.Contains("Per Day")) continue;
+
+                decimal quarterly = SafeDec(row, quarterlyCol);
+                decimal prevPend = SafeDec(row, prevPendCol);
+                decimal totalDue = quarterly + prevPend;
+
+                string cat = categoryCol != null ? row[categoryCol]?.ToString()?.Trim() ?? "" : "";
+                cat = cat.ToUpper() switch
+                {
+                    "SC" => "SC",
+                    "ST" => "ST",
+                    "OBC" => "OBC",
+                    "GEN" => "GEN",
+                    "GENERAL" => "GEN",
+                    "GEN FW" => "GEN FW",
+                    _ => cat.ToUpper()
+                };
+
+                StudentCardRows.Add(new StudentCardRow
+                {
+                    SerialNumber = serial.ToString(),
+                    Name = nm,
+                    FatherName = fatherCol != null ? row[fatherCol]?.ToString()?.Trim() ?? "–" : "–",
+                    PhoneNumber = phoneCol != null ? row[phoneCol]?.ToString()?.Trim() ?? "" : "",
+                    Category = cat,
+                    QuarterlyFee = quarterly,
+                    PreviousPending = prevPend,
+                    TotalDue = totalDue,
+                    SourceRow = drv
+                });
+
+                serial++;
+            }
+
+            RefreshDataViewStats();
         }
 
+        private void RefreshDataViewStats()
+        {
+            DataViewTotalStudents = StudentCardRows.Count;
+            DataViewPendingStudents = StudentCardRows.Count(r => r.TotalDue > 0);
+            DataViewPaidStudents = StudentCardRows.Count(r => r.TotalDue <= 0);
+            DataViewPendingAmount = StudentCardRows.Sum(r => r.TotalDue);
+        }
+
+        [RelayCommand]
+        public void CollectFeeForRow(StudentCardRow card)
+        {
+            if (card == null) return;
+            var feeView = App.Current.Services
+                .GetRequiredService<SchoolFeeSystem.Presentation.Views.FeeCollectionView>();
+            if (feeView.DataContext is FeeCollectionViewModel feeVm &&
+                !string.IsNullOrEmpty(_currentSheetName))
+            {
+                string displayName = _csvService.GetSheetDisplayNames()
+                    .FirstOrDefault(d => _csvService.GetSheetNameFromDisplay(d) == _currentSheetName);
+                if (!string.IsNullOrEmpty(displayName))
+                    feeVm.SelectedSheet = displayName;
+            }
+            System.Windows.Application.Current.MainWindow.Content = feeView;
+        }
         [RelayCommand]
         public void PromoteCourse(CourseInfo course)
         {

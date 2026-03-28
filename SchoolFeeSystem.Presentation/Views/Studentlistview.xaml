@@ -1,0 +1,681 @@
+﻿<UserControl x:Class="SchoolFeeSystem.Presentation.Views.StudentListView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignHeight="800" d:DesignWidth="1200"
+             Background="#F0F2F5">
+
+    <UserControl.Resources>
+
+        <!-- ── Reusable button template (no chrome) ── -->
+        <Style x:Key="FlatButton" TargetType="Button">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Opacity" Value="0.85"/>
+                    <Setter Property="Cursor" Value="Hand"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- ── Card shadow ── -->
+        <DropShadowEffect x:Key="CardShadow"
+                          BlurRadius="14" Color="#C8C8C8"
+                          Opacity="0.45" ShadowDepth="2"/>
+
+        <!-- ── Sidebar tree-item style ── -->
+        <Style x:Key="TreeItemStyle" TargetType="TreeViewItem">
+            <Setter Property="Foreground" Value="#2C3E50"/>
+            <Setter Property="FontSize"   Value="13"/>
+            <Setter Property="Padding"    Value="4,3"/>
+            <Setter Property="Cursor"     Value="Hand"/>
+        </Style>
+
+        <!-- ── Status badge styles ── -->
+        <Style x:Key="BadgePaid" TargetType="Border">
+            <Setter Property="Background"   Value="#E8F5E9"/>
+            <Setter Property="BorderBrush"  Value="#4CAF50"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding"      Value="8,2"/>
+        </Style>
+        <Style x:Key="BadgePending" TargetType="Border">
+            <Setter Property="Background"   Value="#FFEBEE"/>
+            <Setter Property="BorderBrush"  Value="#F44336"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding"      Value="8,2"/>
+        </Style>
+
+        <!-- ── DataGrid style — no default header/row chrome ── -->
+        <Style x:Key="AppDataGrid" TargetType="DataGrid">
+            <Setter Property="Background"           Value="Transparent"/>
+            <Setter Property="BorderThickness"      Value="0"/>
+            <Setter Property="GridLinesVisibility"  Value="Horizontal"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="#ECEFF1"/>
+            <Setter Property="RowBackground"        Value="White"/>
+            <Setter Property="AlternatingRowBackground" Value="#FAFAFA"/>
+            <Setter Property="ColumnHeaderHeight"   Value="40"/>
+            <Setter Property="RowHeight"            Value="52"/>
+            <Setter Property="FontSize"             Value="13"/>
+            <Setter Property="SelectionMode"        Value="Single"/>
+            <Setter Property="AutoGenerateColumns"  Value="False"/>
+            <Setter Property="CanUserAddRows"       Value="False"/>
+            <Setter Property="CanUserDeleteRows"    Value="False"/>
+            <Setter Property="IsReadOnly"           Value="True"/>
+        </Style>
+
+        <!-- DataGrid column header style -->
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background"   Value="#ECEFF1"/>
+            <Setter Property="Foreground"   Value="#607D8B"/>
+            <Setter Property="FontWeight"   Value="SemiBold"/>
+            <Setter Property="FontSize"     Value="12"/>
+            <Setter Property="Padding"      Value="12,0"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+
+        <!-- DataGrid row style -->
+        <Style TargetType="DataGridRow">
+            <Setter Property="BorderThickness" Value="0"/>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#E3F2FD"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#F5F5F5"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <!-- Top header bar -->
+            <RowDefinition Height="64"/>
+            <!-- Toolbar / filter row -->
+            <RowDefinition Height="Auto"/>
+            <!-- Main content -->
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- ══════════════════════════════════════════════
+             ROW 0  ─  TOP HEADER BAR
+        ══════════════════════════════════════════════ -->
+        <Border Grid.Row="0" Background="#1565C0">
+            <Grid Margin="20,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Back button -->
+                <Button Grid.Column="0"
+                        Content="← Back to Dashboard"
+                        Command="{Binding GoBackCommand}"
+                        Style="{StaticResource FlatButton}"
+                        Background="Transparent"
+                        Foreground="White" FontSize="13"
+                        Padding="10,8"/>
+
+                <!-- Title -->
+                <StackPanel Grid.Column="1"
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Center">
+                    <TextBlock Text="🎓 Student Fee Register"
+                               FontSize="20" FontWeight="Bold"
+                               Foreground="White"/>
+                </StackPanel>
+
+                <!-- Upload button -->
+                <Button Grid.Column="2"
+                        Content="⬆ Upload Excel File"
+                        Command="{Binding UploadFileCommand}"
+                        Style="{StaticResource FlatButton}"
+                        Background="#FDD835"
+                        Foreground="#1A237E"
+                        FontWeight="Bold" FontSize="13"
+                        Padding="16,8"/>
+            </Grid>
+        </Border>
+
+        <!-- ══════════════════════════════════════════════
+             ROW 1  ─  FILTER / SEARCH TOOLBAR
+        ══════════════════════════════════════════════ -->
+        <Border Grid.Row="1" Background="White"
+                BorderBrush="#E0E0E0" BorderThickness="0,0,0,1"
+                Padding="20,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <!-- Search box -->
+                    <ColumnDefinition Width="260"/>
+                    <ColumnDefinition Width="16"/>
+                    <!-- Status filter -->
+                    <ColumnDefinition Width="160"/>
+                    <ColumnDefinition Width="16"/>
+                    <!-- Sort -->
+                    <ColumnDefinition Width="180"/>
+                    <ColumnDefinition Width="*"/>
+                    <!-- Summary chips -->
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Search -->
+                <Border Grid.Column="0" BorderBrush="#BDBDBD"
+                        BorderThickness="1" CornerRadius="6"
+                        Padding="8,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="🔍" VerticalAlignment="Center"
+                                   Foreground="#9E9E9E" Margin="0,0,4,0"/>
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding StudentSearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 BorderThickness="0" FontSize="13"
+                                 VerticalAlignment="Center"
+                                 Padding="0,6">
+                            <TextBox.Style>
+                                <Style TargetType="TextBox">
+                                    <Style.Triggers>
+                                        <Trigger Property="Text" Value="">
+                                            <Setter Property="Background">
+                                                <Setter.Value>
+                                                    <VisualBrush Stretch="None" AlignmentX="Left">
+                                                        <VisualBrush.Visual>
+                                                            <TextBlock Text="Search by name or father name..."
+                                                                       Foreground="#BDBDBD"
+                                                                       Margin="2,0,0,0" FontSize="12"/>
+                                                        </VisualBrush.Visual>
+                                                    </VisualBrush>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBox.Style>
+                        </TextBox>
+                    </Grid>
+                </Border>
+
+                <!-- Status filter -->
+                <ComboBox Grid.Column="2"
+                          ItemsSource="{Binding StatusFilterOptions}"
+                          SelectedItem="{Binding SelectedStatusFilter}"
+                          Padding="8,6" FontSize="13"
+                          BorderBrush="#BDBDBD" BorderThickness="1"/>
+
+                <!-- Sort -->
+                <ComboBox Grid.Column="4"
+                          ItemsSource="{Binding SortOptions}"
+                          SelectedItem="{Binding SelectedSortOption}"
+                          Padding="8,6" FontSize="13"
+                          BorderBrush="#BDBDBD" BorderThickness="1"/>
+
+                <!-- Summary chips -->
+                <StackPanel Grid.Column="6" Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <!-- Total students chip -->
+                    <Border Background="#E3F2FD" CornerRadius="12"
+                            Padding="10,4" Margin="0,0,8,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="👥 " FontSize="12"/>
+                            <TextBlock Text="{Binding TotalStudentsCount}"
+                                       FontWeight="Bold" FontSize="12"
+                                       Foreground="#1565C0"/>
+                            <TextBlock Text=" Students" FontSize="12"
+                                       Foreground="#1565C0"/>
+                        </StackPanel>
+                    </Border>
+                    <!-- Pending chip -->
+                    <Border Background="#FFEBEE" CornerRadius="12"
+                            Padding="10,4" Margin="0,0,8,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚠ " FontSize="12"/>
+                            <TextBlock Text="{Binding PendingCount}"
+                                       FontWeight="Bold" FontSize="12"
+                                       Foreground="#C62828"/>
+                            <TextBlock Text=" Pending" FontSize="12"
+                                       Foreground="#C62828"/>
+                        </StackPanel>
+                    </Border>
+                    <!-- Paid chip -->
+                    <Border Background="#E8F5E9" CornerRadius="12"
+                            Padding="10,4">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="✓ " FontSize="12"/>
+                            <TextBlock Text="{Binding PaidCount}"
+                                       FontWeight="Bold" FontSize="12"
+                                       Foreground="#2E7D32"/>
+                            <TextBlock Text=" Paid" FontSize="12"
+                                       Foreground="#2E7D32"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ══════════════════════════════════════════════
+             ROW 2  ─  SIDEBAR + MAIN CONTENT
+        ══════════════════════════════════════════════ -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <!-- Left sidebar -->
+                <ColumnDefinition Width="240"/>
+                <!-- Main area -->
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- ─── LEFT SIDEBAR: Department → Year tree ─── -->
+            <Border Grid.Column="0" Background="White"
+                    BorderBrush="#E0E0E0" BorderThickness="0,0,1,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Sidebar header -->
+                    <Border Grid.Row="0" Background="#ECEFF1"
+                            Padding="16,12">
+                        <TextBlock Text="📂 Departments"
+                                   FontWeight="Bold" FontSize="13"
+                                   Foreground="#37474F"/>
+                    </Border>
+
+                    <!-- Tree of Dept → Year -->
+                    <TreeView Grid.Row="1"
+                              ItemsSource="{Binding DepartmentTree}"
+                              BorderThickness="0"
+                              Padding="8"
+                              SelectedItemChanged="TreeView_SelectedItemChanged">
+                        <TreeView.ItemContainerStyle>
+                            <Style TargetType="TreeViewItem">
+                                <Setter Property="IsExpanded" Value="True"/>
+                                <Setter Property="Padding"    Value="4,4"/>
+                                <Setter Property="Cursor"     Value="Hand"/>
+                            </Style>
+                        </TreeView.ItemContainerStyle>
+
+                        <!-- Department level (root node) -->
+                        <TreeView.ItemTemplate>
+                            <HierarchicalDataTemplate
+                                ItemsSource="{Binding YearNodes}">
+
+                                <!-- Department header row -->
+                                <Border CornerRadius="6" Padding="6,6"
+                                        Margin="0,2,0,0">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Background" Value="Transparent"/>
+                                            <Style.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Background" Value="#E8EAF6"/>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="🏫 " FontSize="14"/>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding DepartmentName}"
+                                                       FontWeight="Bold"
+                                                       FontSize="13"
+                                                       Foreground="#1A237E"/>
+                                            <TextBlock Text="{Binding StudentCountLabel}"
+                                                       FontSize="11"
+                                                       Foreground="#78909C"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Year-level item template -->
+                                <HierarchicalDataTemplate.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border CornerRadius="6" Padding="6,5"
+                                                Margin="0,1,0,0">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="Transparent"/>
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Background" Value="#E8EAF6"/>
+                                                        </Trigger>
+                                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                            <Setter Property="Background" Value="#C5CAE9"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="📋 " FontSize="12"
+                                                               VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding YearLabel}"
+                                                               FontSize="12"
+                                                               Foreground="#37474F"
+                                                               VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                                <!-- Student count bubble -->
+                                                <Border Grid.Column="1"
+                                                        Background="#1565C0"
+                                                        CornerRadius="10"
+                                                        Padding="6,2">
+                                                    <TextBlock Text="{Binding StudentCount}"
+                                                               FontSize="10"
+                                                               Foreground="White"
+                                                               FontWeight="Bold"/>
+                                                </Border>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </HierarchicalDataTemplate.ItemTemplate>
+                            </HierarchicalDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+
+                    <!-- Promotion button at bottom -->
+                    <Border Grid.Row="2" Background="#F3E5F5"
+                            Padding="12,10"
+                            BorderBrush="#E0E0E0"
+                            BorderThickness="0,1,0,0">
+                        <StackPanel>
+                            <TextBlock Text="📅 Academic Cycle"
+                                       FontWeight="Bold" FontSize="12"
+                                       Foreground="#6A1B9A"
+                                       Margin="0,0,0,4"/>
+                            <TextBlock Text="{Binding CurrentQuarterLabel}"
+                                       FontSize="11" Foreground="#7B1FA2"
+                                       Margin="0,0,0,8"/>
+                            <Button Content="🔄 Run Promotion Check"
+                                    Command="{Binding RunPromotionCommand}"
+                                    Style="{StaticResource FlatButton}"
+                                    Background="#7B1FA2"
+                                    Foreground="White"
+                                    FontSize="12" FontWeight="Bold"
+                                    Padding="10,8"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- ─── RIGHT MAIN AREA ─── -->
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <!-- Breadcrumb + section title -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- Student grid / empty state -->
+                    <RowDefinition Height="*"/>
+                    <!-- Status bar -->
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Breadcrumb bar -->
+                <Border Grid.Row="0" Background="#FAFAFA"
+                        Padding="20,10"
+                        BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal"
+                                    VerticalAlignment="Center">
+                            <TextBlock Text="All Departments"
+                                       FontSize="12" Foreground="#78909C"/>
+                            <TextBlock Text=" › " FontSize="12"
+                                       Foreground="#BDBDBD"
+                                       Visibility="{Binding BreadcrumbVisible}"/>
+                            <TextBlock Text="{Binding SelectedDepartmentName}"
+                                       FontSize="12" Foreground="#78909C"
+                                       Visibility="{Binding BreadcrumbVisible}"/>
+                            <TextBlock Text=" › " FontSize="12"
+                                       Foreground="#BDBDBD"
+                                       Visibility="{Binding BreadcrumbYearVisible}"/>
+                            <TextBlock Text="{Binding SelectedYearLabel}"
+                                       FontSize="12" FontWeight="SemiBold"
+                                       Foreground="#1565C0"
+                                       Visibility="{Binding BreadcrumbYearVisible}"/>
+                        </StackPanel>
+
+                        <!-- Quarter badge -->
+                        <Border Grid.Column="1" Background="#E8EAF6"
+                                CornerRadius="8" Padding="10,4">
+                            <TextBlock Text="{Binding ActiveSheetLabel}"
+                                       FontSize="12" Foreground="#3949AB"
+                                       FontWeight="SemiBold"/>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- EMPTY STATE: shown when no file is loaded -->
+                <Border Grid.Row="1"
+                        Visibility="{Binding EmptyStateVisible}">
+                    <StackPanel HorizontalAlignment="Center"
+                                VerticalAlignment="Center">
+                        <TextBlock Text="📂" FontSize="64"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,0,0,16"/>
+                        <TextBlock Text="No student data loaded"
+                                   FontSize="20" FontWeight="Bold"
+                                   Foreground="#37474F"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Text="Upload an Excel file using the button above.&#x0a;The system will auto-detect the department and academic year."
+                                   FontSize="14" Foreground="#78909C"
+                                   HorizontalAlignment="Center"
+                                   TextAlignment="Center"
+                                   Margin="0,8,0,24"/>
+                        <Button Content="⬆  Upload Excel File"
+                                Command="{Binding UploadFileCommand}"
+                                Style="{StaticResource FlatButton}"
+                                Background="#1565C0"
+                                Foreground="White"
+                                FontSize="14" FontWeight="Bold"
+                                Padding="24,12"
+                                HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- STUDENT DATA GRID: shown when data is loaded -->
+                <Border Grid.Row="1"
+                        Visibility="{Binding GridVisible}"
+                        Background="White"
+                        Margin="16,12,16,0"
+                        CornerRadius="10"
+                        Effect="{StaticResource CardShadow}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Section title inside card -->
+                        <Border Grid.Row="0" Padding="20,14"
+                                BorderBrush="#ECEFF1"
+                                BorderThickness="0,0,0,1">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding SectionTitle}"
+                                               FontSize="16" FontWeight="Bold"
+                                               Foreground="#1A237E"/>
+                                    <TextBlock Text="{Binding SectionSubTitle}"
+                                               FontSize="12" Foreground="#78909C"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1"
+                                            Orientation="Horizontal">
+                                    <Button Content="📄 Export PDF"
+                                            Command="{Binding ExportPdfCommand}"
+                                            Style="{StaticResource FlatButton}"
+                                            Background="#E53935"
+                                            Foreground="White"
+                                            FontSize="12" FontWeight="Bold"
+                                            Padding="12,6"
+                                            Margin="0,0,8,0"/>
+                                    <Button Content="📊 Export Excel"
+                                            Command="{Binding ExportExcelCommand}"
+                                            Style="{StaticResource FlatButton}"
+                                            Background="#2E7D32"
+                                            Foreground="White"
+                                            FontSize="12" FontWeight="Bold"
+                                            Padding="12,6"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <!-- The DataGrid -->
+                        <DataGrid Grid.Row="1"
+                                  x:Name="StudentGrid"
+                                  ItemsSource="{Binding StudentGridView}"
+                                  SelectedItem="{Binding SelectedStudent}"
+                                  Style="{StaticResource AppDataGrid}"
+                                  AutoGeneratingColumn="StudentGrid_AutoGeneratingColumn"
+                                  LoadingRow="StudentGrid_LoadingRow"
+                                  SelectionChanged="StudentGrid_SelectionChanged"
+                                  Margin="0">
+
+                            <!-- Sr No column — auto-numbered via LoadingRow -->
+                            <DataGrid.RowHeaderStyle>
+                                <Style TargetType="DataGridRowHeader">
+                                    <Setter Property="Width"           Value="48"/>
+                                    <Setter Property="Background"      Value="#ECEFF1"/>
+                                    <Setter Property="Foreground"      Value="#607D8B"/>
+                                    <Setter Property="FontSize"        Value="12"/>
+                                    <Setter Property="FontWeight"      Value="SemiBold"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                </Style>
+                            </DataGrid.RowHeaderStyle>
+
+                            <!-- Row detail panel — fee breakdown on click -->
+                            <DataGrid.RowDetailsTemplate>
+                                <DataTemplate>
+                                    <Border Background="#F8F9FA"
+                                            BorderBrush="#E3F2FD"
+                                            BorderThickness="0,2,0,0"
+                                            Padding="48,12,20,12">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <!-- Fee details -->
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="📋 FEE DETAILS"
+                                                           FontSize="10"
+                                                           FontWeight="Bold"
+                                                           Foreground="#90A4AE"
+                                                           Margin="0,0,0,6"/>
+                                                <TextBlock FontSize="12" Foreground="#37474F">
+                                                    <Run Text="Quarterly Fee: "/>
+                                                    <Run Text="{Binding [Quarterly Fees (Feb 2025 To April 2025)], StringFormat='₹{0}'}"
+                                                         FontWeight="SemiBold"/>
+                                                </TextBlock>
+                                                <TextBlock FontSize="12" Foreground="#C62828"
+                                                           Margin="0,4,0,0">
+                                                    <Run Text="Previous Pending: "/>
+                                                    <Run Text="{Binding [Previous Quarter Pending], StringFormat='₹{0}'}"
+                                                         FontWeight="SemiBold"/>
+                                                </TextBlock>
+                                            </StackPanel>
+
+                                            <!-- Fine info -->
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="⚠ FINE STATUS"
+                                                           FontSize="10"
+                                                           FontWeight="Bold"
+                                                           Foreground="#90A4AE"
+                                                           Margin="0,0,0,6"/>
+                                                <TextBlock FontSize="12"
+                                                           Foreground="#E65100">
+                                                    <Run Text="Fine: "/>
+                                                    <Run Text="{Binding [Fine], StringFormat='₹{0:N2}'}"
+                                                         FontWeight="SemiBold"/>
+                                                </TextBlock>
+                                            </StackPanel>
+
+                                            <!-- Category -->
+                                            <StackPanel Grid.Column="2">
+                                                <TextBlock Text="🏷 CATEGORY"
+                                                           FontSize="10"
+                                                           FontWeight="Bold"
+                                                           Foreground="#90A4AE"
+                                                           Margin="0,0,0,6"/>
+                                                <TextBlock Text="{Binding [Category]}"
+                                                           FontSize="12"
+                                                           Foreground="#37474F"/>
+                                            </StackPanel>
+
+                                            <!-- Action button -->
+                                            <Button Grid.Column="3"
+                                                    Content="💰 Collect Fee"
+                                                    Command="{Binding DataContext.CollectFeeForRowCommand,
+                                                              RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    Style="{StaticResource FlatButton}"
+                                                    Background="#1565C0"
+                                                    Foreground="White"
+                                                    FontSize="12"
+                                                    FontWeight="Bold"
+                                                    Padding="14,8"
+                                                    VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </DataGrid.RowDetailsTemplate>
+
+                            <!-- Auto-generated columns are handled in code-behind
+                                 (StudentGrid_AutoGeneratingColumn) which hides internal
+                                 columns and lets RowHeader carry the Sr No. -->
+                        </DataGrid>
+                    </Grid>
+                </Border>
+
+                <!-- STATUS BAR -->
+                <Border Grid.Row="2" Background="White"
+                        BorderBrush="#E0E0E0" BorderThickness="0,1,0,0"
+                        Padding="16,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding StatusBarText}"
+                                   FontSize="12" Foreground="#78909C"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding LastRefreshedText}"
+                                   FontSize="11" Foreground="#BDBDBD"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

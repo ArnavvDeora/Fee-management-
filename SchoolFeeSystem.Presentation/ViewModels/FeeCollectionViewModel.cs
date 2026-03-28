@@ -17,11 +17,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         private readonly CsvDataService _csvService;
         private readonly PaymentLogService _paymentLogService;
         private readonly AcademicCycleService _cycleService;
-        private readonly FineCalculationService _fineService;   // NEW
+        private readonly FineCalculationService _fineService;
 
         private DataTable _fullSheetData;
         private string _currentSheetName;
-        private DateTime _currentQuarterStart;  // NEW: tracked per sheet
+        private DateTime _currentQuarterStart;
 
         public ObservableCollection<string> SheetNames { get; } = new();
         public ObservableCollection<string> FilteredSheetNames { get; } = new();
@@ -34,22 +34,34 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             "All Students", "Pending Fees Only", "No Pending Fees"
         };
 
+        // ── Sheet / filter ────────────────────────────────────────────────────
         [ObservableProperty] private string selectedSheet;
         [ObservableProperty] private string sheetSearchText;
         [ObservableProperty] private DataView pendingFeesView;
         [ObservableProperty] private DataRowView selectedRow;
         [ObservableProperty] private string selectedFeeFilter = "All Students";
 
-        // PaymentAmount is stored as string so the TextBox binding never throws
-        // FormatException when the field is cleared (empty string → decimal fails).
-        // Use the safe decimal accessor PaymentAmountDecimal in all logic.
+        // ── NEW: Card list + selection ────────────────────────────────────────
+        [ObservableProperty] private ObservableCollection<FeeStudentCard> feeStudentCards = new();
+        [ObservableProperty] private FeeStudentCard selectedStudentCard;
+
+        // ── NEW: Summary stat chips ───────────────────────────────────────────
+        [ObservableProperty] private int summaryTotalStudents;
+        [ObservableProperty] private int summaryPaidStudents;
+        [ObservableProperty] private int summaryPendingStudents;
+        [ObservableProperty] private decimal summaryPendingAmount;
+
+        // ── Payment ───────────────────────────────────────────────────────────
+        // Stored as string so the TextBox binding never throws FormatException
+        // when cleared. Use PaymentAmountDecimal in all logic.
         [ObservableProperty] private string paymentAmount = "0";
 
-        /// <summary>Safe decimal accessor — returns 0 if the TextBox is empty or invalid.</summary>
         private decimal PaymentAmountDecimal =>
             decimal.TryParse(PaymentAmount, out decimal v) ? v : 0m;
+
         [ObservableProperty] private string selectedPaymentMode = "Cash";
 
+        // ── Selected student info (drives the right-side payment panel) ───────
         [ObservableProperty] private string studentName;
         [ObservableProperty] private string studentPhoneNumber;
         [ObservableProperty] private string studentGuardianName;
@@ -59,18 +71,25 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty] private decimal previousPendingAmount;
         [ObservableProperty] private decimal quarterlyFeeAmount;
         [ObservableProperty] private decimal currentFineAmount;
-        // FineWaiverAmount also stored as string for the same reason as PaymentAmount.
+
+        // Same string-storage pattern as paymentAmount
         [ObservableProperty] private string fineWaiverAmount = "0";
 
         private decimal FineWaiverAmountDecimal =>
             decimal.TryParse(FineWaiverAmount, out decimal v) ? v : 0m;
+
         [ObservableProperty] private decimal netFineAfterWaiver;
         [ObservableProperty] private decimal totalPendingForSelectedStudent;
-        [ObservableProperty] private string fineBreakdownText;  // NEW: shown in UI
+        [ObservableProperty] private string fineBreakdownText;
 
+        // ── Note / increment bar ──────────────────────────────────────────────
         [ObservableProperty] private string noteInformation;
         [ObservableProperty] private DateTime extensionDate = DateTime.Now.AddMonths(1);
         [ObservableProperty] private bool hasActiveNote;
+
+        // ═════════════════════════════════════════════════════════════════════
+        // CONSTRUCTOR
+        // ═════════════════════════════════════════════════════════════════════
 
         public FeeCollectionViewModel(CsvDataService csvService,
                                       PaymentLogService paymentLogService,
@@ -104,18 +123,27 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
         }
 
+        // ═════════════════════════════════════════════════════════════════════
+        // PROPERTY CHANGE HANDLERS
+        // ═════════════════════════════════════════════════════════════════════
+
         partial void OnSheetSearchTextChanged(string value)
         {
             FilteredSheetNames.Clear();
             var src = string.IsNullOrWhiteSpace(value)
                 ? SheetNames
-                : (IEnumerable<string>)SheetNames.Where(n => n.ToLower().Contains(value.ToLower()));
+                : (IEnumerable<string>)SheetNames.Where(n =>
+                    n.ToLower().Contains(value.ToLower()));
             foreach (var n in src) FilteredSheetNames.Add(n);
         }
 
         partial void OnSelectedSheetChanged(string value)
         {
-            if (!string.IsNullOrEmpty(value)) { LoadSheetData(value); UpdateNoteInformation(); }
+            if (!string.IsNullOrEmpty(value))
+            {
+                LoadSheetData(value);
+                UpdateNoteInformation();
+            }
         }
 
         partial void OnSelectedFeeFilterChanged(string value) => ApplyFeeFilter();
@@ -130,6 +158,16 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 PreviousPendingAmount + QuarterlyFeeAmount + NetFineAfterWaiver;
         }
 
+        partial void OnSelectedRowChanged(DataRowView value)
+        {
+            if (value != null) UpdateSelectedStudentInfo();
+            else ClearStudentInfo();
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // DATA LOADING
+        // ═════════════════════════════════════════════════════════════════════
+
         private void LoadSheetData(string displayName)
         {
             _currentSheetName = _csvService.GetSheetNameFromDisplay(displayName);
@@ -139,40 +177,46 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             {
                 var meta = _csvService.GetSheetMetadata(_currentSheetName);
                 _currentQuarterStart = DetermineQuarterStart(_fullSheetData, meta?.Period);
-
-                // Inject correct fines using FineCalculationService
                 _fineService.InjectFinesIntoTable(_fullSheetData, _currentQuarterStart);
             }
 
             ApplyFeeFilter();
         }
 
+        // ═════════════════════════════════════════════════════════════════════
+        // FILTER — keeps the legacy DataView AND rebuilds the card list
+        // ═════════════════════════════════════════════════════════════════════
+
         private void ApplyFeeFilter()
         {
             if (_fullSheetData == null) return;
+
             var table = _fullSheetData;
             var prevCol = FindCol(table, "previous", "pending");
             var quarterlyCol = FindCol(table, "quarterly fees", "installment");
-            // BUG FIX: include the fine column in the "has pending" check so students
-            // with an outstanding fine are never silently excluded from the view.
             var fineCol = FindFineCol(table);
 
             if ((prevCol == null && quarterlyCol == null) || SelectedFeeFilter == "All Students")
             {
-                // ULTIMATE FIX: Use Dispatcher to delay binding until WPF finishes processing current state
                 System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     PendingFeesView = null;
                     PendingFeesView = new System.Data.DataView(table);
                 }, System.Windows.Threading.DispatcherPriority.DataBind);
+
+                // Rebuild card list on background priority after the view is set
+                System.Windows.Application.Current.Dispatcher.InvokeAsync(
+                    RebuildCards,
+                    System.Windows.Threading.DispatcherPriority.Background);
                 return;
             }
 
             var ft = table.Clone();
             foreach (DataRow row in table.Rows)
             {
-                decimal total = ReadDec(row, prevCol) + ReadDec(row, quarterlyCol)
-                                + ReadDec(row, fineCol);
+                decimal total = ReadDec(row, prevCol)
+                              + ReadDec(row, quarterlyCol)
+                              + ReadDec(row, fineCol);
                 bool ok = SelectedFeeFilter == "Pending Fees Only" ? total > 0
                         : SelectedFeeFilter == "No Pending Fees" ? total == 0
                         : true;
@@ -184,21 +228,127 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 PendingFeesView = null;
                 PendingFeesView = new System.Data.DataView(ft);
             }, System.Windows.Threading.DispatcherPriority.DataBind);
+
+            System.Windows.Application.Current.Dispatcher.InvokeAsync(
+                RebuildCards,
+                System.Windows.Threading.DispatcherPriority.Background);
         }
 
-        partial void OnSelectedRowChanged(DataRowView value)
+        // ═════════════════════════════════════════════════════════════════════
+        // NEW: BUILD CARD LIST
+        // Converts the current PendingFeesView into FeeStudentCard objects and
+        // recalculates the summary stat chips shown in the header.
+        // ═════════════════════════════════════════════════════════════════════
+
+        private void RebuildCards()
         {
-            if (value != null) UpdateSelectedStudentInfo();
-            else ClearStudentInfo();
+            FeeStudentCards.Clear();
+            if (_fullSheetData == null) return;
+
+            var table = _fullSheetData;
+
+            // Helper — find a column by any matching keyword (case-insensitive)
+            DataColumn ColFind(params string[] keywords) =>
+                table.Columns.Cast<DataColumn>()
+                    .FirstOrDefault(c => keywords.Any(k =>
+                        c.ColumnName.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0));
+
+            decimal SafeDec(DataRow r, DataColumn c) =>
+                c != null && decimal.TryParse(r[c]?.ToString()?.Trim(), out decimal v) ? v : 0m;
+
+            var nameCol = ColFind("name");
+            var fatherCol = ColFind("father");
+            var categoryCol = ColFind("category");
+            var quarterlyCol = ColFind("quarterly fees") ?? ColFind("installment") ?? ColFind("fees");
+            var prevPendCol = ColFind("previous", "pending") ?? ColFind("pending");
+            var phoneCol = ColFind("phone") ?? ColFind("contact") ?? ColFind("mobile");
+
+            // Use the filtered view rows if available, otherwise full table
+            var rows = PendingFeesView != null
+                ? PendingFeesView.Cast<DataRowView>().Select(drv => drv.Row).ToList()
+                : table.Rows.Cast<DataRow>().ToList();
+
+            int serial = 1;
+            foreach (var row in rows)
+            {
+                // Skip non-student rows
+                string nm = nameCol != null ? row[nameCol]?.ToString()?.Trim() ?? "" : "";
+                if (string.IsNullOrEmpty(nm)) continue;
+                if (nm.Equals("Name", StringComparison.OrdinalIgnoreCase)) continue;
+                if (nm.StartsWith("Note", StringComparison.OrdinalIgnoreCase)) continue;
+                if (nm.Length > 60 || nm.Contains(":-") || nm.Contains("Per Day")) continue;
+
+                decimal quarterly = SafeDec(row, quarterlyCol);
+                decimal prevPend = SafeDec(row, prevPendCol);
+                decimal totalDue = quarterly + prevPend;
+
+                string cat = (categoryCol != null
+                    ? row[categoryCol]?.ToString()?.Trim() ?? ""
+                    : "").ToUpper();
+
+                // Find the matching DataRowView so we can set SelectedRow on click
+                var sourceRowView = table.DefaultView
+                    .Cast<DataRowView>()
+                    .FirstOrDefault(drv => drv.Row == row);
+
+                FeeStudentCards.Add(new FeeStudentCard
+                {
+                    SerialNumber = serial.ToString(),
+                    Name = nm,
+                    FatherName = fatherCol != null ? row[fatherCol]?.ToString()?.Trim() ?? "–" : "–",
+                    PhoneNumber = phoneCol != null ? row[phoneCol]?.ToString()?.Trim() ?? "" : "",
+                    Category = cat,
+                    QuarterlyFee = quarterly,
+                    PreviousPending = prevPend,
+                    TotalDue = totalDue,
+                    SourceRow = sourceRowView
+                });
+
+                serial++;
+            }
+
+            // Update summary chips
+            SummaryTotalStudents = FeeStudentCards.Count;
+            SummaryPendingStudents = FeeStudentCards.Count(c => c.TotalDue > 0);
+            SummaryPaidStudents = FeeStudentCards.Count(c => c.TotalDue <= 0);
+            SummaryPendingAmount = FeeStudentCards.Sum(c => c.TotalDue);
         }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // NEW: SELECT STUDENT CARD COMMAND
+        // Called when the user clicks "💳 Collect" on a card.
+        // Highlights the card and wires up the right-side payment panel via
+        // the existing SelectedRow / UpdateSelectedStudentInfo() path.
+        // ═════════════════════════════════════════════════════════════════════
+
+        [RelayCommand]
+        public void SelectStudentCard(FeeStudentCard card)
+        {
+            if (card == null) return;
+
+            // Deselect all cards
+            foreach (var c in FeeStudentCards)
+                c.IsSelected = false;
+
+            // Select the clicked card
+            card.IsSelected = true;
+            SelectedStudentCard = card;
+
+            // Route into the existing payment-panel logic via SelectedRow
+            if (card.SourceRow != null)
+                SelectedRow = card.SourceRow;
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // STUDENT INFO HELPERS
+        // ═════════════════════════════════════════════════════════════════════
 
         private void ClearStudentInfo()
         {
             StudentName = StudentPhoneNumber = StudentGuardianName =
-            StudentId = CurrentQuarter = FineBreakdownText = string.Empty;
+                StudentId = CurrentQuarter = FineBreakdownText = string.Empty;
             PreviousPendingAmount = QuarterlyFeeAmount = CurrentFineAmount =
-            PreviousPendingAmount = QuarterlyFeeAmount = CurrentFineAmount =
-            NetFineAfterWaiver = TotalPendingForSelectedStudent = 0;
+                NetFineAfterWaiver = TotalPendingForSelectedStudent = 0;
             FineWaiverAmount = "0";
         }
 
@@ -217,8 +367,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             var prevCol = FindCol(t, "previous", "pending");
             var quarterlyCol = FindCol(t, "quarterly fees", "installment");
-            var fineCol = FindFineCol(t);                    // exact "Fine" column
-            var waiverCol = FindWaiverCol(t);                  // "Fine Waiver" column
+            var fineCol = FindFineCol(t);
+            var waiverCol = FindWaiverCol(t);
 
             PreviousPendingAmount = ReadDec(SelectedRow.Row, prevCol);
             QuarterlyFeeAmount = ReadDec(SelectedRow.Row, quarterlyCol);
@@ -226,9 +376,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             bool hasPending = PreviousPendingAmount > 0 || QuarterlyFeeAmount > 0;
             if (hasPending)
             {
-                // Prefer the already-injected "Fine" cell value (includes waiver subtraction
-                // applied by InjectFinesIntoTable).  Fall back to live calculation minus
-                // any stored waiver if the column hasn't been injected yet on this row.
                 decimal injectedFine = fineCol != null ? ReadDec(SelectedRow.Row, fineCol) : 0m;
                 if (injectedFine > 0)
                 {
@@ -255,6 +402,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             TotalPendingForSelectedStudent =
                 PreviousPendingAmount + QuarterlyFeeAmount + NetFineAfterWaiver;
         }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // COMMANDS
+        // ═════════════════════════════════════════════════════════════════════
 
         [RelayCommand]
         public void ApplyFineWaiver()
@@ -294,8 +445,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 phoneNumber: StudentPhoneNumber,
                 guardianName: StudentGuardianName,
                 remarks: $"Fine waiver | Original: Rs{CurrentFineAmount:F2}" +
-                                 $" | Waiver: Rs{FineWaiverAmountDecimal:F2}" +
-                                 $" | Net: Rs{NetFineAfterWaiver:F2}"
+                               $" | Waiver: Rs{FineWaiverAmountDecimal:F2}" +
+                               $" | Net: Rs{NetFineAfterWaiver:F2}"
             );
 
             MessageBox.Show(
@@ -310,7 +461,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             FineWaiverAmount = "0";
             TotalPendingForSelectedStudent =
                 PreviousPendingAmount + QuarterlyFeeAmount + NetFineAfterWaiver;
-            ApplyFeeFilter();
+
+            ApplyFeeFilter(); // also rebuilds cards via dispatcher
         }
 
         [RelayCommand]
@@ -322,8 +474,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             { MessageBox.Show("Please enter a valid payment amount.", "Invalid Amount", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
             if (PaymentAmountDecimal > TotalPendingForSelectedStudent && TotalPendingForSelectedStudent > 0)
             {
-                if (MessageBox.Show($"Payment (Rs{PaymentAmountDecimal:F2}) exceeds pending (Rs{TotalPendingForSelectedStudent:F2}).\nProceed?",
-                    "Overpayment", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.No) return;
+                if (MessageBox.Show(
+                        $"Payment (Rs{PaymentAmountDecimal:F2}) exceeds pending (Rs{TotalPendingForSelectedStudent:F2}).\nProceed?",
+                        "Overpayment", MessageBoxButton.YesNo, MessageBoxImage.Question)
+                    == MessageBoxResult.No) return;
             }
 
             try
@@ -336,47 +490,61 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
                 var prevCol = FindCol(table, "previous", "pending");
                 var quarterlyCol = FindCol(table, "quarterly fees", "installment");
-                // BUG FIX: Use FindFineCol to get the exact injected "Fine" column
                 var fineCol = FindFineCol(table);
                 var totalCol = FindCol(table, "total");
 
                 decimal remaining = PaymentAmountDecimal, totalApplied = 0;
 
-                // Fine first
+                // 1. Clear fine first
                 if (fineCol != null && remaining > 0)
                 {
                     decimal fineAmt = ReadDec(targetRow, fineCol);
-                    if (fineAmt > 0) { decimal d = Math.Min(fineAmt, remaining); targetRow[fineCol] = (fineAmt - d).ToString("F2"); totalApplied += d; remaining -= d; }
+                    if (fineAmt > 0)
+                    {
+                        decimal d = Math.Min(fineAmt, remaining);
+                        targetRow[fineCol] = (fineAmt - d).ToString("F2");
+                        totalApplied += d;
+                        remaining -= d;
+                    }
                 }
-                // Previous pending
+                // 2. Clear previous pending
                 if (prevCol != null && remaining > 0)
                 {
                     decimal prevAmt = ReadDec(targetRow, prevCol);
-                    if (prevAmt > 0) { decimal d = Math.Min(prevAmt, remaining); targetRow[prevCol] = (prevAmt - d).ToString("F2"); totalApplied += d; remaining -= d; }
+                    if (prevAmt > 0)
+                    {
+                        decimal d = Math.Min(prevAmt, remaining);
+                        targetRow[prevCol] = (prevAmt - d).ToString("F2");
+                        totalApplied += d;
+                        remaining -= d;
+                    }
                 }
-                // Quarterly fees
+                // 3. Clear quarterly fee
                 if (quarterlyCol != null && remaining > 0)
                 {
                     decimal qAmt = ReadDec(targetRow, quarterlyCol);
-                    if (qAmt > 0) { decimal d = Math.Min(qAmt, remaining); targetRow[quarterlyCol] = (qAmt - d).ToString("F2"); totalApplied += d; remaining -= d; }
+                    if (qAmt > 0)
+                    {
+                        decimal d = Math.Min(qAmt, remaining);
+                        targetRow[quarterlyCol] = (qAmt - d).ToString("F2");
+                        totalApplied += d;
+                        remaining -= d;
+                    }
                 }
 
                 if (totalApplied == 0)
                 { MessageBox.Show("No pending amounts to pay.", "No Fees", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
 
                 if (totalCol != null)
-                    targetRow[totalCol] = (ReadDec(targetRow, prevCol) + ReadDec(targetRow, quarterlyCol) + ReadDec(targetRow, fineCol)).ToString("F2");
+                    targetRow[totalCol] = (ReadDec(targetRow, prevCol)
+                                         + ReadDec(targetRow, quarterlyCol)
+                                         + ReadDec(targetRow, fineCol)).ToString("F2");
 
                 decimal newBalance = previousBalance - totalApplied;
-                _csvService.RecordPayment(_currentSheetName, targetRow, totalApplied, SelectedPaymentMode, DateTime.Now);
+                _csvService.RecordPayment(
+                    _currentSheetName, targetRow, totalApplied, SelectedPaymentMode, DateTime.Now);
 
                 var meta = _csvService.GetSheetMetadata(_currentSheetName);
-
-                // Pass studentName, studentId, and guardianName as their own
-                // dedicated parameters so PaymentLogService writes them into
-                // separate "Student Name" and "Student ID" CSV columns.
-                // This is what makes Payment History searchable by name/ID and
-                // lets the receipt show the correct student.
                 _paymentLogService.LogPayment(
                     studentName: StudentName,
                     studentId: StudentId,
@@ -405,9 +573,17 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     $"Transaction logged. View in 'Payment History'.\nClick 'Save Changes' to persist.",
                     "Payment Applied", MessageBoxButton.OK, MessageBoxImage.Information);
 
+                // Refresh filter → also triggers RebuildCards via dispatcher
                 ApplyFeeFilter();
                 PaymentAmount = "0";
                 UpdateSelectedStudentInfo();
+
+                // ── Notify ClassViewModel of data change ──────────────────
+                // Because both views share the same CsvDataService DataTable in
+                // memory, ClassViewModel.BuildStudentCards() will automatically
+                // pick up the updated values the next time the user opens a course.
+                // For immediate live sync fire the static event below:
+                App.RaiseFeeDataChanged();
             }
             catch (Exception ex)
             { MessageBox.Show($"Payment processing failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error); }
@@ -416,32 +592,62 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [RelayCommand]
         public void SendWhatsAppReminder()
         {
-            if (SelectedRow == null) { MessageBox.Show("Please select a student.", "No Student", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
-            if (string.IsNullOrWhiteSpace(StudentPhoneNumber)) { MessageBox.Show("No phone number for this student.", "No Phone", MessageBoxButton.OK, MessageBoxImage.Error); return; }
+            if (SelectedRow == null)
+            { MessageBox.Show("Please select a student.", "No Student", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+            if (string.IsNullOrWhiteSpace(StudentPhoneNumber))
+            { MessageBox.Show("No phone number for this student.", "No Phone", MessageBoxButton.OK, MessageBoxImage.Error); return; }
+
             string c = StudentPhoneNumber.Replace(" ", "").Replace("-", "").Replace("+", "");
-            if (!c.All(char.IsDigit) || c.Length < 10) { MessageBox.Show("Invalid phone number.", "Invalid Phone", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+            if (!c.All(char.IsDigit) || c.Length < 10)
+            { MessageBox.Show("Invalid phone number.", "Invalid Phone", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
             if (!c.StartsWith("91") && c.Length == 10) c = "91" + c;
-            string msg = $"Dear {StudentGuardianName},%0A%0AFee reminder for *{StudentName}*%0A%0AQuarter: {CurrentQuarter}%0APrevious Pending: Rs{PreviousPendingAmount:F2}%0AQuarterly Fees: Rs{QuarterlyFeeAmount:F2}%0AFine: Rs{NetFineAfterWaiver:F2}%0A*Total Due: Rs{TotalPendingForSelectedStudent:F2}*%0A%0APlease pay at the earliest.%0ASchool Administration";
-            try { Process.Start(new ProcessStartInfo { FileName = $"https://web.whatsapp.com/send?phone={c}&text={msg}", UseShellExecute = true }); }
-            catch (Exception ex) { MessageBox.Show($"Failed to open WhatsApp.\n\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error); }
+
+            string msg = $"Dear {StudentGuardianName},%0A%0AFee reminder for *{StudentName}*" +
+                         $"%0A%0AQuarter: {CurrentQuarter}" +
+                         $"%0APrevious Pending: Rs{PreviousPendingAmount:F2}" +
+                         $"%0AQuarterly Fees: Rs{QuarterlyFeeAmount:F2}" +
+                         $"%0AFine: Rs{NetFineAfterWaiver:F2}" +
+                         $"%0A*Total Due: Rs{TotalPendingForSelectedStudent:F2}*" +
+                         $"%0A%0APlease pay at the earliest.%0ASchool Administration";
+
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = $"https://web.whatsapp.com/send?phone={c}&text={msg}",
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            { MessageBox.Show($"Failed to open WhatsApp.\n\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error); }
         }
 
         private void UpdateNoteInformation()
         {
-            if (string.IsNullOrEmpty(SelectedSheet)) { HasActiveNote = false; NoteInformation = "No note."; return; }
+            if (string.IsNullOrEmpty(SelectedSheet))
+            { HasActiveNote = false; NoteInformation = "No note."; return; }
+
             var ni = _csvService.GetSheetNote(_currentSheetName);
-            if (ni == null) { HasActiveNote = false; NoteInformation = "No auto-increment note."; ExtensionDate = DateTime.Now.AddMonths(1); return; }
-            HasActiveNote = true; ExtensionDate = ni.IncrementDate;
+            if (ni == null)
+            { HasActiveNote = false; NoteInformation = "No auto-increment note."; ExtensionDate = DateTime.Now.AddMonths(1); return; }
+
+            HasActiveNote = true;
+            ExtensionDate = ni.IncrementDate;
             bool past = DateTime.Now >= ni.IncrementDate;
-            NoteInformation = $"{(past ? "PAST DUE" : "ACTIVE")}\n\nIncrement: Rs{ni.IncrementAmount}\nTarget: {ni.IncrementDate:dd-MM-yyyy}\nDays {(past ? "Overdue" : "Remaining")}: {Math.Abs((ni.IncrementDate - DateTime.Now).Days)}";
+            NoteInformation = $"{(past ? "PAST DUE" : "ACTIVE")}\n\n" +
+                              $"Increment: Rs{ni.IncrementAmount}\n" +
+                              $"Target: {ni.IncrementDate:dd-MM-yyyy}\n" +
+                              $"Days {(past ? "Overdue" : "Remaining")}: {Math.Abs((ni.IncrementDate - DateTime.Now).Days)}";
         }
 
         [RelayCommand]
         public void UpdateExtensionDate()
         {
-            if (string.IsNullOrEmpty(SelectedSheet)) { MessageBox.Show("Please select a sheet first.", "No Sheet", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+            if (string.IsNullOrEmpty(SelectedSheet))
+            { MessageBox.Show("Please select a sheet first.", "No Sheet", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
             var ni = _csvService.GetSheetNote(_currentSheetName);
-            if (ni == null) { MessageBox.Show("No auto-increment note found.", "No Note", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+            if (ni == null)
+            { MessageBox.Show("No auto-increment note found.", "No Note", MessageBoxButton.OK, MessageBoxImage.Information); return; }
             _csvService.UpdateExtensionDate(_currentSheetName, ExtensionDate);
             MessageBox.Show($"Extension date updated to {ExtensionDate:dd-MM-yyyy}.", "Updated", MessageBoxButton.OK, MessageBoxImage.Information);
             UpdateNoteInformation();
@@ -450,27 +656,30 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [RelayCommand]
         public void ManualApplyIncrement()
         {
-            if (string.IsNullOrEmpty(SelectedSheet)) { MessageBox.Show("Please select a sheet first.", "No Sheet", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+            if (string.IsNullOrEmpty(SelectedSheet))
+            { MessageBox.Show("Please select a sheet first.", "No Sheet", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
             var ni = _csvService.GetSheetNote(_currentSheetName);
-            if (ni == null) { MessageBox.Show("No auto-increment note found.", "No Note", MessageBoxButton.OK, MessageBoxImage.Information); return; }
-            if (MessageBox.Show($"Apply increment of Rs{ni.IncrementAmount}? Cannot be undone easily.", "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
-            { _csvService.ManuallyApplyIncrement(_currentSheetName); LoadSheetData(SelectedSheet); MessageBox.Show($"Increment of Rs{ni.IncrementAmount} applied.", "Done", MessageBoxButton.OK, MessageBoxImage.Information); }
+            if (ni == null)
+            { MessageBox.Show("No auto-increment note found.", "No Note", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+            if (MessageBox.Show($"Apply increment of Rs{ni.IncrementAmount}? Cannot be undone easily.",
+                    "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            {
+                _csvService.ManuallyApplyIncrement(_currentSheetName);
+                LoadSheetData(SelectedSheet);
+                MessageBox.Show($"Increment of Rs{ni.IncrementAmount} applied.", "Done", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
         }
 
         [RelayCommand]
         public void SaveChanges()
         {
-            // The "Fine" column is injected in-memory on every sheet load and must
-            // NOT be written to disk (it causes "Empty extension is not supported"
-            // because some rows store empty strings instead of numbers).
-            // "Fine Waiver" IS a persistent column and stays on disk.
-            // Strategy: strip "Fine" from every in-memory table → save → re-inject.
+            // The "Fine" column is transient (injected in-memory) and must NOT be
+            // written to disk. "Fine Waiver" is persistent and stays.
             try
             {
                 RemoveTransientFineColumns();
                 _csvService.SaveFile();
 
-                // Re-inject so the grid is still correct after saving.
                 if (_fullSheetData != null)
                     _fineService.InjectFinesIntoTable(_fullSheetData, _currentQuarterStart);
 
@@ -478,7 +687,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
             catch (Exception ex)
             {
-                // Re-inject even on failure so the UI is not left column-less.
                 if (_fullSheetData != null)
                     _fineService.InjectFinesIntoTable(_fullSheetData, _currentQuarterStart);
 
@@ -486,11 +694,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
         }
 
-        /// <summary>
-        /// Removes the transient in-memory "Fine" column from every sheet so
-        /// SaveFile() only writes columns that belong on disk.
-        /// "Fine Waiver" is intentionally left intact — it is a persistent column.
-        /// </summary>
         private void RemoveTransientFineColumns()
         {
             foreach (var sheetName in _csvService.GetSheetNames())
@@ -502,9 +705,13 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         }
 
         [RelayCommand]
-        public void GoBack() => Application.Current.MainWindow.Content = App.Current.Services.GetRequiredService<DashboardView>();
+        public void GoBack() =>
+            Application.Current.MainWindow.Content =
+                App.Current.Services.GetRequiredService<DashboardView>();
 
-        // ── Helpers ───────────────────────────────────────────────────────────
+        // ═════════════════════════════════════════════════════════════════════
+        // HELPERS
+        // ═════════════════════════════════════════════════════════════════════
 
         private static DateTime DetermineQuarterStart(DataTable table, string periodString)
         {
@@ -525,51 +732,32 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         }
 
         private static DataColumn FindCol(DataTable t, params string[] keywords) =>
-            t.Columns.Cast<DataColumn>().FirstOrDefault(c => keywords.Any(k => c.ColumnName.ToLower().Contains(k)));
+            t.Columns.Cast<DataColumn>()
+             .FirstOrDefault(c => keywords.Any(k =>
+                 c.ColumnName.ToLower().Contains(k)));
 
-        /// <summary>
-        /// Locates the injected fine column added by FineCalculationService.InjectFinesIntoTable().
-        /// Strategy (in priority order):
-        ///   1. Exact match on "Fine" (the column name written by InjectFinesIntoTable).
-        ///   2. Column whose name is EXACTLY "fine" (case-insensitive).
-        ///   3. Shortest column name that contains "fine" – avoids matching long descriptive
-        ///      columns such as "Remarks / Previous Quarter Late Fees Fine" which caused the
-        ///      bug where ReadDec() always returned 0 for the selected student's fine.
-        /// </summary>
         private static DataColumn FindFineCol(DataTable t)
         {
             if (t == null) return null;
-
-            // 1. Exact name "Fine" – what InjectFinesIntoTable creates
-            if (t.Columns.Contains("Fine"))
-                return t.Columns["Fine"];
-
-            // 2. Case-insensitive exact match
+            if (t.Columns.Contains("Fine")) return t.Columns["Fine"];
             var exact = t.Columns.Cast<DataColumn>()
-                         .FirstOrDefault(c => string.Equals(c.ColumnName, "fine",
-                                              StringComparison.OrdinalIgnoreCase));
+                         .FirstOrDefault(c => string.Equals(
+                             c.ColumnName, "fine", StringComparison.OrdinalIgnoreCase));
             if (exact != null) return exact;
-
-            // 3. Shortest column containing "fine" — guards against matching remarks columns
             return t.Columns.Cast<DataColumn>()
-                    .Where(c => c.ColumnName.IndexOf("fine", StringComparison.OrdinalIgnoreCase) >= 0)
+                    .Where(c => c.ColumnName.IndexOf("fine",
+                        StringComparison.OrdinalIgnoreCase) >= 0)
                     .OrderBy(c => c.ColumnName.Length)
                     .FirstOrDefault();
         }
 
-        /// <summary>
-        /// Locates the persistent "Fine Waiver" column written by ApplyFineWaiver().
-        /// This column is saved to disk and survives reloads.
-        /// Returns null if the column does not yet exist for this sheet.
-        /// </summary>
         private static DataColumn FindWaiverCol(DataTable t)
         {
             if (t == null) return null;
-            if (t.Columns.Contains("Fine Waiver"))
-                return t.Columns["Fine Waiver"];
+            if (t.Columns.Contains("Fine Waiver")) return t.Columns["Fine Waiver"];
             return t.Columns.Cast<DataColumn>()
-                    .FirstOrDefault(c => string.Equals(c.ColumnName, "fine waiver",
-                                         StringComparison.OrdinalIgnoreCase));
+                    .FirstOrDefault(c => string.Equals(
+                        c.ColumnName, "fine waiver", StringComparison.OrdinalIgnoreCase));
         }
 
         private static decimal ReadDec(DataRow row, DataColumn col)
@@ -580,7 +768,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
         private static string ColVal(DataTable t, DataRowView row, Func<string, bool> pred)
         {
-            var col = t.Columns.Cast<DataColumn>().FirstOrDefault(c => pred(c.ColumnName.ToLower()));
+            var col = t.Columns.Cast<DataColumn>()
+                       .FirstOrDefault(c => pred(c.ColumnName.ToLower()));
             return col != null ? row[col.ColumnName]?.ToString()?.Trim() ?? "" : "";
         }
 

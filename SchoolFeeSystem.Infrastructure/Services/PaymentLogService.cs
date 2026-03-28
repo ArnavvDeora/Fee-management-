@@ -311,6 +311,92 @@ namespace SchoolFeeSystem.Presentation.Services
             File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);
         }
 
+
+        /// <summary>
+        /// Returns all payment log entries for a specific student name,
+        /// matched case-insensitively against the "Student Name" column.
+        /// Also matches against "Student ID" so searching by roll number works.
+        /// Returns entries in descending date order (newest first).
+        /// </summary>
+        public List<PaymentLogEntryFull> GetLogsForStudent(string studentName)
+        {
+            if (string.IsNullOrWhiteSpace(studentName))
+                return new List<PaymentLogEntryFull>();
+
+            var all = GetPaymentHistory();
+            var result = new List<PaymentLogEntryFull>();
+
+            foreach (DataRow row in all.Rows)
+            {
+                string nameInLog = row["Student Name"]?.ToString() ?? "";
+                string idInLog = row["Student ID"]?.ToString() ?? "";
+
+                bool match =
+                    nameInLog.Contains(studentName, StringComparison.OrdinalIgnoreCase) ||
+                    idInLog.Contains(studentName, StringComparison.OrdinalIgnoreCase);
+
+                if (!match) continue;
+
+                if (!DateTime.TryParse(row["Payment Date"]?.ToString(),
+                        CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.None, out DateTime pd))
+                    DateTime.TryParse(row["Payment Date"]?.ToString(), out pd);
+
+                decimal.TryParse(row["Amount"]?.ToString(),
+                    System.Globalization.NumberStyles.Any,
+                    CultureInfo.InvariantCulture, out decimal amt);
+
+                decimal.TryParse(row["Previous Balance"]?.ToString(),
+                    System.Globalization.NumberStyles.Any,
+                    CultureInfo.InvariantCulture, out decimal prevBal);
+
+                decimal.TryParse(row["New Balance"]?.ToString(),
+                    System.Globalization.NumberStyles.Any,
+                    CultureInfo.InvariantCulture, out decimal newBal);
+
+                result.Add(new PaymentLogEntryFull
+                {
+                    PaymentId = row["Payment ID"]?.ToString() ?? "",
+                    StudentName = nameInLog,
+                    StudentId = idInLog,
+                    Guardian = row["Guardian"]?.ToString() ?? "",
+                    PhoneNumber = row["Phone"]?.ToString() ?? "",
+                    SheetClass = row["Sheet / Class"]?.ToString() ?? "",
+                    CourseName = row["Sheet / Class"]?.ToString() ?? "",
+                    Quarter = row["Quarter"]?.ToString() ?? "",
+                    Period = row["Quarter"]?.ToString() ?? "",
+                    PaymentDate = pd,
+                    AmountPaid = amt,
+                    PaymentMode = row["Payment Mode"]?.ToString() ?? "",
+                    PreviousBalance = prevBal,
+                    NewBalance = newBal,
+                    TransactionId = row["Payment ID"]?.ToString() ?? "",
+                    Remarks = row["Remarks"]?.ToString() ?? "",
+                    ProcessedBy = row["Recorded By"]?.ToString() ?? ""
+                });
+            }
+
+            // Newest first
+            result.Sort((a, b) => b.PaymentDate.CompareTo(a.PaymentDate));
+            return result;
+        }
+
+
+        /// <summary>
+        /// Returns all unique student names that appear in the payment log,
+        /// sorted alphabetically. Used to populate the Payment History dropdown.
+        /// </summary>
+        public List<string> GetStudentNamesFromLog()
+        {
+            var all = GetPaymentHistory();
+            return all.AsEnumerable()
+                .Select(r => r["Student Name"]?.ToString()?.Trim() ?? "")
+                .Where(n => !string.IsNullOrEmpty(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(n => n)
+                .ToList();
+        }
+
         // ─────────────────────────────────────────────────────────────────────
         // HELPERS
         // ─────────────────────────────────────────────────────────────────────
@@ -404,5 +490,31 @@ namespace SchoolFeeSystem.Presentation.Services
         public string NewBalance { get; set; } = "";
         public string Remarks { get; set; } = "";
         public string RecordedBy { get; set; } = "";
+    }
+
+    /// <summary>
+    /// Extended payment log entry with DateTime-typed PaymentDate and
+    /// decimal-typed balances — used by StudentPaymentHistoryViewModel.
+    /// Avoids the need for the ViewModel to manually parse strings.
+    /// </summary>
+    public class PaymentLogEntryFull
+    {
+        public string PaymentId { get; set; } = "";
+        public string StudentName { get; set; } = "";
+        public string StudentId { get; set; } = "";
+        public string Guardian { get; set; } = "";
+        public string PhoneNumber { get; set; } = "";
+        public string SheetClass { get; set; } = "";
+        public string CourseName { get; set; } = "";
+        public string Quarter { get; set; } = "";
+        public string Period { get; set; } = "";
+        public DateTime PaymentDate { get; set; }
+        public decimal AmountPaid { get; set; }
+        public string PaymentMode { get; set; } = "";
+        public decimal PreviousBalance { get; set; }
+        public decimal NewBalance { get; set; }
+        public string TransactionId { get; set; } = "";
+        public string Remarks { get; set; } = "";
+        public string ProcessedBy { get; set; } = "";
     }
 }

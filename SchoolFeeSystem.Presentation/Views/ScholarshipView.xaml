@@ -1,25 +1,47 @@
 ﻿<UserControl x:Class="SchoolFeeSystem.Presentation.Views.ScholarshipView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             mc:Ignorable="d"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             mc:Ignorable="d"
-             d:DesignHeight="800" d:DesignWidth="1200">
+             d:DesignHeight="800" d:DesignWidth="1300">
 
     <UserControl.Resources>
-        <DropShadowEffect x:Key="DropShadow"
-                          Color="Black" Opacity="0.2"
-                          BlurRadius="10" ShadowDepth="2"/>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+
+        <Style x:Key="FlatBtn" TargetType="Button">
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Opacity" Value="0.85"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
-    <Grid Background="#F5F5F5">
+    <Grid Background="#F0F2F5">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <!-- header -->
+            <RowDefinition Height="Auto"/>
+            <!-- stat chips -->
             <RowDefinition Height="*"/>
+            <!-- main content -->
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <Border Grid.Row="0" Background="#2196F3" Padding="20">
+        <!-- ═══ HEADER ═══ -->
+        <Border Grid.Row="0" Background="#1565C0" Padding="20,14">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -29,311 +51,478 @@
 
                 <Button Grid.Column="0" Content="← Back"
                         Command="{Binding GoBackCommand}"
-                        Padding="15,8" Margin="0,0,20,0"
                         Background="#1976D2" Foreground="White"
-                        BorderThickness="0" Cursor="Hand"
-                        FontSize="14" FontWeight="SemiBold"/>
+                        Padding="14,8" FontWeight="Bold"
+                        Style="{StaticResource FlatBtn}"/>
 
-                <TextBlock Grid.Column="1" Text="📚 Scholarship Management"
-                           FontSize="28" FontWeight="Bold"
-                           Foreground="White" VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                    <TextBlock Text="📚 Scholarship Management"
+                              FontSize="22" FontWeight="Bold" Foreground="White"
+                              HorizontalAlignment="Center"/>
+                    <TextBlock Text="Apply and manage student scholarships"
+                              FontSize="11" Foreground="#90CAF9" HorizontalAlignment="Center"/>
+                </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="💰 Total Scholarship Amount: "
-                               FontSize="14" Foreground="White"
-                               VerticalAlignment="Center" Margin="0,0,5,0"/>
-                    <TextBlock Text="{Binding TotalScholarshipAmount, StringFormat='₹{0:N2}'}"
-                               FontSize="16" FontWeight="Bold"
-                               Foreground="#FFF176" VerticalAlignment="Center"/>
-                    <TextBlock Text=" | 👥 Students: "
-                               FontSize="14" Foreground="White"
-                               VerticalAlignment="Center" Margin="15,0,5,0"/>
-                    <TextBlock Text="{Binding TotalStudentsWithScholarship}"
-                               FontSize="16" FontWeight="Bold"
-                               Foreground="#FFF176" VerticalAlignment="Center"/>
+                    <Border Background="#0D47A1" CornerRadius="8" Padding="14,8" Margin="0,0,10,0">
+                        <StackPanel>
+                            <TextBlock Text="{Binding TotalScholarshipAmount, StringFormat=₹{0:N0}}"
+                                      FontSize="18" FontWeight="Bold" Foreground="#FFF176"
+                                      HorizontalAlignment="Center"/>
+                            <TextBlock Text="Total Scholarships" FontSize="10" Foreground="#90CAF9"
+                                      HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Background="#0D47A1" CornerRadius="8" Padding="14,8">
+                        <StackPanel>
+                            <TextBlock Text="{Binding TotalStudentsWithScholarship}"
+                                      FontSize="18" FontWeight="Bold" Foreground="#FFF176"
+                                      HorizontalAlignment="Center"/>
+                            <TextBlock Text="Students" FontSize="10" Foreground="#90CAF9"
+                                      HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- Main Content -->
-        <Grid Grid.Row="1" Margin="20">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="2*"/>
-                <ColumnDefinition Width="20"/>
-                <ColumnDefinition Width="1*"/>
-            </Grid.ColumnDefinitions>
+        <!-- ═══ FILTER BAR ═══ -->
+        <Border Grid.Row="1" Background="White" Padding="16,12"
+                BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="200"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="240"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="200"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-            <!-- Left Panel: Student List -->
-            <Border Grid.Column="0" Background="White"
-                    CornerRadius="8" Padding="20"
-                    Effect="{StaticResource DropShadow}">
-                <Grid>
+                <TextBlock Grid.Column="0" Text="📋 Sheet:"
+                           VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                <Grid Grid.Column="1">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBox Grid.Row="0"
+                             Text="{Binding SheetSearchText, UpdateSourceTrigger=PropertyChanged}"
+                             Padding="7,4" FontSize="12" BorderBrush="#BDBDBD" BorderThickness="1"
+                             Margin="0,0,0,2"/>
+                    <ComboBox Grid.Row="1"
+                              ItemsSource="{Binding FilteredSheetNames}"
+                              SelectedItem="{Binding SelectedSheet}"
+                              Padding="7,5" FontSize="13"
+                              BorderBrush="#1976D2" BorderThickness="2"/>
+                </Grid>
+
+                <TextBlock Grid.Column="3" Text="🔍 Filter:"
+                           VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                <ComboBox Grid.Column="4"
+                          ItemsSource="{Binding ScholarshipFilterOptions}"
+                          SelectedItem="{Binding SelectedScholarshipFilter}"
+                          Padding="7,5" FontSize="13" VerticalAlignment="Bottom"
+                          BorderBrush="#1976D2" BorderThickness="2"/>
+
+                <TextBlock Grid.Column="6" Text="🔎 Search:"
+                           VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                <TextBox Grid.Column="7"
+                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                         Padding="7,5" FontSize="13" VerticalAlignment="Bottom"
+                         BorderBrush="#1976D2" BorderThickness="2">
+                    <TextBox.InputBindings>
+                        <KeyBinding Key="Return" Command="{Binding SearchStudentCommand}"/>
+                    </TextBox.InputBindings>
+                </TextBox>
+
+                <Button Grid.Column="10"
+                        Command="{Binding SearchStudentCommand}"
+                        Background="#388E3C" Foreground="White"
+                        Padding="14,7" Margin="0,0,6,0"
+                        FontSize="12" FontWeight="SemiBold"
+                        VerticalAlignment="Bottom"
+                        Style="{StaticResource FlatBtn}">
+                    <TextBlock Text="🔍 Search" Foreground="White" FontWeight="SemiBold"/>
+                </Button>
+                <Button Grid.Column="11"
+                        Command="{Binding ClearSearchCommand}"
+                        Background="#E53935" Foreground="White"
+                        Padding="14,7" FontSize="12" FontWeight="SemiBold"
+                        VerticalAlignment="Bottom"
+                        Style="{StaticResource FlatBtn}">
+                    <TextBlock Text="✕ Clear" Foreground="White" FontWeight="SemiBold"/>
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- ═══ MAIN CONTENT ═══ -->
+        <Grid Grid.Row="2" Margin="16,12,16,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="320"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- LEFT: Student card list -->
+            <Border Grid.Column="0" Background="White" CornerRadius="10"
+                    BorderBrush="#E0E0E0" BorderThickness="1">
+                <Border.Effect>
+                    <DropShadowEffect Color="#AAAAAA" Opacity="0.10" BlurRadius="12" ShadowDepth="1"/>
+                </Border.Effect>
+                <Grid>
+                    <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Sheet Selection -->
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,15">
-                        <TextBlock Text="📋 Select Sheet:" FontSize="14"
-                                   FontWeight="SemiBold" VerticalAlignment="Center"
-                                   Margin="0,0,10,0"/>
-                        <TextBox Text="{Binding SheetSearchText, UpdateSourceTrigger=PropertyChanged}"
-                                 Width="150" Height="32" Margin="0,0,10,0"
-                                 VerticalContentAlignment="Center"
-                                 FontSize="12" Padding="8,5"
-                                 BorderBrush="#BDBDBD" BorderThickness="1"/>
-                        <ComboBox ItemsSource="{Binding FilteredSheetNames}"
-                                  SelectedItem="{Binding SelectedSheet}"
-                                  Width="250" Height="32"
-                                  FontSize="12" Padding="8,5"
-                                  BorderBrush="#BDBDBD" BorderThickness="1"/>
-                    </StackPanel>
+                    <Border Grid.Row="0" Background="#1565C0" CornerRadius="10,10,0,0" Padding="16,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="🎓 Student List"
+                                      FontSize="15" FontWeight="Bold" Foreground="White"
+                                      VerticalAlignment="Center"/>
+                            <Border Grid.Column="1" Background="#0D47A1" CornerRadius="10" Padding="10,3">
+                                <TextBlock Text="{Binding TotalStudentsWithScholarship, StringFormat={}{0} with scholarship}"
+                                          FontSize="11" Foreground="White" FontWeight="SemiBold"/>
+                            </Border>
+                        </Grid>
+                    </Border>
 
-                    <!-- Filter Options -->
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,15">
-                        <TextBlock Text="🔍 Filter:" FontSize="14"
-                                   FontWeight="SemiBold" VerticalAlignment="Center"
-                                   Margin="0,0,10,0"/>
-                        <ComboBox ItemsSource="{Binding ScholarshipFilterOptions}"
-                                  SelectedItem="{Binding SelectedScholarshipFilter}"
-                                  Width="200" Height="32"
-                                  FontSize="12" Padding="8,5"
-                                  BorderBrush="#BDBDBD" BorderThickness="1"/>
-                    </StackPanel>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                  Padding="12,8" Background="#F8F9FA">
+                        <ItemsControl ItemsSource="{Binding StudentView}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,8" CornerRadius="10"
+                                            Background="White" Cursor="Hand"
+                                            BorderThickness="1">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="BorderBrush" Value="#E8ECF0"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding [Scholarship %]}" Value="0">
+                                                        <Setter Property="BorderBrush" Value="#E8ECF0"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Border.Effect>
+                                            <DropShadowEffect Color="#AAAAAA" Opacity="0.07"
+                                                              BlurRadius="6" ShadowDepth="1"/>
+                                        </Border.Effect>
 
-                    <!-- Search Bar -->
-                    <Grid Grid.Row="2" Margin="0,0,0,15">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
+                                        <Border.InputBindings>
+                                            <MouseBinding MouseAction="LeftClick"
+                                                          Command="{Binding DataContext.SelectStudentRowCommand,
+                                                                    RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                          CommandParameter="{Binding}"/>
+                                        </Border.InputBindings>
 
-                        <TextBox Grid.Column="0"
-                                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                                 Height="36" Padding="10,8"
-                                 FontSize="13" VerticalContentAlignment="Center"
-                                 BorderBrush="#BDBDBD" BorderThickness="1"
-                                 Background="White">
-                            <TextBox.InputBindings>
-                                <KeyBinding Key="Return" Command="{Binding SearchStudentCommand}"/>
-                            </TextBox.InputBindings>
-                        </TextBox>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="6"/>
+                                                <ColumnDefinition Width="50"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="110"/>
+                                                <ColumnDefinition Width="110"/>
+                                                <ColumnDefinition Width="110"/>
+                                                <ColumnDefinition Width="100"/>
+                                            </Grid.ColumnDefinitions>
 
-                        <Button Grid.Column="1" Content="🔍 Search"
-                                Command="{Binding SearchStudentCommand}"
-                                Width="100" Height="36" Margin="10,0,0,0"
-                                Background="#4CAF50" Foreground="White"
-                                BorderThickness="0" Cursor="Hand"
-                                FontSize="13" FontWeight="SemiBold"/>
+                                            <!-- Stripe: orange = has scholarship, grey = none -->
+                                            <Border Grid.Column="0" CornerRadius="10,0,0,10">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="#E0E0E0"/>
+                                                    </Style>
+                                                </Border.Style>
+                                            </Border>
 
-                        <Button Grid.Column="2" Content="✕ Clear"
-                                Command="{Binding ClearSearchCommand}"
-                                Width="80" Height="36" Margin="10,0,0,0"
-                                Background="#F44336" Foreground="White"
-                                BorderThickness="0" Cursor="Hand"
-                                FontSize="13" FontWeight="SemiBold"/>
-                    </Grid>
+                                            <!-- Avatar -->
+                                            <Border Grid.Column="1" Width="34" Height="34"
+                                                    CornerRadius="17" Background="#FFF3E0"
+                                                    VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                <TextBlock Text="{Binding [Sr No.]}"
+                                                          FontSize="12" FontWeight="Bold"
+                                                          Foreground="#E65100"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center"/>
+                                            </Border>
 
-                    <!-- Student DataGrid -->
-                    <DataGrid Grid.Row="3"
-                              ItemsSource="{Binding StudentView}"
-                              SelectedItem="{Binding SelectedRow}"
-                              AutoGenerateColumns="True"
-                              IsReadOnly="True"
-                              SelectionMode="Single"
-                              GridLinesVisibility="All"
-                              HeadersVisibility="Column"
-                              CanUserAddRows="False"
-                              CanUserDeleteRows="False"
-                              AlternatingRowBackground="#F5F5F5"
-                              RowBackground="White"
-                              BorderBrush="#BDBDBD" BorderThickness="1">
-                        <DataGrid.ColumnHeaderStyle>
-                            <Style TargetType="DataGridColumnHeader">
-                                <Setter Property="Background" Value="#2196F3"/>
-                                <Setter Property="Foreground" Value="White"/>
-                                <Setter Property="FontWeight" Value="Bold"/>
-                                <Setter Property="Padding" Value="10,8"/>
-                                <Setter Property="BorderThickness" Value="0,0,1,1"/>
-                                <Setter Property="BorderBrush" Value="White"/>
-                            </Style>
-                        </DataGrid.ColumnHeaderStyle>
-                    </DataGrid>
+                                            <!-- Name + Father Name -->
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center"
+                                                        Margin="8,12,8,12">
+                                                <TextBlock Text="{Binding [Name]}"
+                                                          FontSize="14" FontWeight="SemiBold"
+                                                          Foreground="#1A1A2E"/>
+                                                <TextBlock FontSize="12" Foreground="#78909C" Margin="0,2,0,0">
+                                                    <Run Text="S/o "/>
+                                                    <Run Text="{Binding [Father Name]}"/>
+                                                </TextBlock>
+                                            </StackPanel>
+
+                                            <!-- Category pill -->
+                                            <Border Grid.Column="3" VerticalAlignment="Center"
+                                                    Background="#F3E5F5" CornerRadius="10"
+                                                    Padding="8,4" Margin="4,0">
+                                                <TextBlock Text="{Binding [Category]}"
+                                                          FontSize="11" FontWeight="Bold"
+                                                          Foreground="#6A1B9A"/>
+                                            </Border>
+
+                                            <!-- Quarterly Fees -->
+                                            <StackPanel Grid.Column="4" VerticalAlignment="Center"
+                                                        HorizontalAlignment="Center" Margin="4,0">
+                                                <TextBlock Text="Quarterly" FontSize="10"
+                                                          Foreground="#90A4AE" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="{Binding [Quarterly Fees (AUG 2024 to OCT 2024)], StringFormat=₹{0:N0}}"
+                                                          FontSize="13" FontWeight="Bold"
+                                                          Foreground="#1565C0" HorizontalAlignment="Center"/>
+                                            </StackPanel>
+
+                                            <!-- Prev Pending -->
+                                            <StackPanel Grid.Column="5" VerticalAlignment="Center"
+                                                        HorizontalAlignment="Center" Margin="4,0">
+                                                <TextBlock Text="Prev Pending" FontSize="10"
+                                                          Foreground="#90A4AE" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="{Binding [Previous Quarter Pending Fees], StringFormat=₹{0:N0}}"
+                                                          FontSize="13" FontWeight="Bold"
+                                                          Foreground="#C62828" HorizontalAlignment="Center"/>
+                                            </StackPanel>
+
+                                            <!-- Scholarship % -->
+                                            <StackPanel Grid.Column="6" VerticalAlignment="Center"
+                                                        HorizontalAlignment="Center" Margin="4,0">
+                                                <TextBlock Text="Scholarship" FontSize="10"
+                                                          Foreground="#90A4AE" HorizontalAlignment="Center"/>
+                                                <TextBlock FontSize="13" FontWeight="Bold"
+                                                          HorizontalAlignment="Center">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Text" Value="None"/>
+                                                            <Setter Property="Foreground" Value="#9E9E9E"/>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </StackPanel>
+
+                                            <!-- Apply button -->
+                                            <Button Grid.Column="7"
+                                                    Command="{Binding DataContext.SelectStudentRowCommand,
+                                                              RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    Background="#FF9800" Foreground="White"
+                                                    Padding="10,7" Margin="6,0,10,0"
+                                                    FontSize="12" FontWeight="SemiBold"
+                                                    VerticalAlignment="Center"
+                                                    Style="{StaticResource FlatBtn}">
+                                                <TextBlock Text="✏️ Select" Foreground="White" FontWeight="SemiBold"/>
+                                            </Button>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
                 </Grid>
             </Border>
 
-            <!-- Right Panel: Scholarship Management -->
-            <Border Grid.Column="2" Background="White"
-                    CornerRadius="8" Padding="20"
-                    Effect="{StaticResource DropShadow}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel>
-                        <TextBlock Text="🎓 Student Details"
-                                   FontSize="18" FontWeight="Bold"
-                                   Foreground="#2196F3" Margin="0,0,0,20"/>
+            <!-- RIGHT: Scholarship management panel -->
+            <Border Grid.Column="2" Background="White" CornerRadius="10"
+                    BorderBrush="#E0E0E0" BorderThickness="1">
+                <Border.Effect>
+                    <DropShadowEffect Color="#AAAAAA" Opacity="0.10" BlurRadius="12" ShadowDepth="1"/>
+                </Border.Effect>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
 
-                        <!-- Student Name -->
-                        <TextBlock Text="Student Name:" FontSize="12"
-                                   Foreground="#757575" Margin="0,0,0,5"/>
-                        <TextBox Text="{Binding StudentName}"
-                                 IsReadOnly="True" Height="32"
-                                 Padding="8,5" Margin="0,0,0,15"
-                                 Background="#F5F5F5"
-                                 BorderBrush="#BDBDBD" BorderThickness="1"/>
+                    <Border Grid.Row="0" Background="#FF9800" CornerRadius="10,10,0,0" Padding="16,10">
+                        <TextBlock Text="🎯 Scholarship Panel"
+                                  FontSize="15" FontWeight="Bold" Foreground="White"/>
+                    </Border>
 
-                        <!-- Phone Number -->
-                        <TextBlock Text="📱 Phone Number:" FontSize="12"
-                                   Foreground="#757575" Margin="0,0,0,5"/>
-                        <Grid Margin="0,0,0,15">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBox Grid.Column="0"
-                                     Text="{Binding PhoneNumber, UpdateSourceTrigger=PropertyChanged}"
-                                     Height="32" Padding="8,5"
-                                     BorderBrush="#BDBDBD" BorderThickness="1"/>
-                            <Button Grid.Column="1" Content="💾"
-                                    Command="{Binding UpdatePhoneNumberCommand}"
-                                    Width="40" Height="32" Margin="5,0,0,0"
-                                    Background="#4CAF50" Foreground="White"
-                                    BorderThickness="0" Cursor="Hand"
-                                    ToolTip="Update Phone Number"/>
-                        </Grid>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="16">
+                        <StackPanel>
 
-                        <Separator Margin="0,10,0,20" Background="#E0E0E0"/>
+                            <!-- Student info card -->
+                            <Border Background="#F5F7FA" Padding="14" CornerRadius="8"
+                                    BorderBrush="#E8ECF0" BorderThickness="1" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <TextBlock Text="🎓 Student Details"
+                                              FontSize="14" FontWeight="Bold" Foreground="#1565C0"
+                                              Margin="0,0,0,10"/>
+                                    <TextBlock Text="Student Name" FontSize="11" Foreground="#90A4AE"/>
+                                    <TextBlock Text="{Binding StudentName}"
+                                              FontSize="16" FontWeight="Bold" Foreground="#1A1A2E"
+                                              Margin="0,2,0,8"/>
+                                    <TextBlock Text="📱 Phone Number" FontSize="11" Foreground="#90A4AE"/>
+                                    <Grid Margin="0,4,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0"
+                                                 Text="{Binding PhoneNumber, UpdateSourceTrigger=PropertyChanged}"
+                                                 Padding="8,6" FontSize="13"
+                                                 BorderBrush="#BDBDBD" BorderThickness="1"/>
+                                        <Button Grid.Column="1"
+                                                Command="{Binding UpdatePhoneNumberCommand}"
+                                                Background="#43A047" Foreground="White"
+                                                Padding="10,6" Margin="6,0,0,0"
+                                                Style="{StaticResource FlatBtn}">
+                                            <TextBlock Text="💾" FontSize="14" Foreground="White"/>
+                                        </Button>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
 
-                        <!-- Fee Breakdown -->
-                        <TextBlock Text="💰 Fee Breakdown"
-                                   FontSize="18" FontWeight="Bold"
-                                   Foreground="#2196F3" Margin="0,0,0,15"/>
+                            <!-- Fee breakdown -->
+                            <TextBlock Text="💰 Fee Breakdown"
+                                      FontSize="13" FontWeight="Bold" Foreground="#424242"
+                                      Margin="0,0,0,8"/>
 
-                        <!-- Previous Pending -->
-                        <Border Background="#FFEBEE" Padding="10"
-                                Margin="0,0,0,10" CornerRadius="4">
-                            <StackPanel>
-                                <TextBlock Text="Previous Quarter Pending:"
-                                           FontSize="11" Foreground="#C62828"/>
-                                <TextBlock Text="{Binding PreviousPending, StringFormat='₹{0:N2}'}"
-                                           FontSize="16" FontWeight="Bold"
-                                           Foreground="#D32F2F"/>
-                            </StackPanel>
-                        </Border>
+                            <Border Background="#FFEBEE" Padding="12" CornerRadius="8"
+                                    BorderBrush="#FFCDD2" BorderThickness="1" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock Text="Previous Quarter Pending"
+                                              FontSize="11" Foreground="#C62828"/>
+                                    <TextBlock Text="{Binding PreviousPending, StringFormat=₹{0:N2}}"
+                                              FontSize="18" FontWeight="Bold" Foreground="#D32F2F"
+                                              Margin="0,3,0,0"/>
+                                </StackPanel>
+                            </Border>
 
-                        <!-- Quarterly Fees -->
-                        <Border Background="#E3F2FD" Padding="10"
-                                Margin="0,0,0,10" CornerRadius="4">
-                            <StackPanel>
-                                <TextBlock Text="Current Quarterly Fees:"
-                                           FontSize="11" Foreground="#1565C0"/>
-                                <TextBlock Text="{Binding QuarterlyFees, StringFormat='₹{0:N2}'}"
-                                           FontSize="16" FontWeight="Bold"
-                                           Foreground="#1976D2"/>
-                            </StackPanel>
-                        </Border>
+                            <Border Background="#E3F2FD" Padding="12" CornerRadius="8"
+                                    BorderBrush="#BBDEFB" BorderThickness="1" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <TextBlock Text="Current Quarterly Fees"
+                                              FontSize="11" Foreground="#1565C0"/>
+                                    <TextBlock Text="{Binding QuarterlyFees, StringFormat=₹{0:N2}}"
+                                              FontSize="18" FontWeight="Bold" Foreground="#1976D2"
+                                              Margin="0,3,0,0"/>
+                                </StackPanel>
+                            </Border>
 
-                        <Separator Margin="0,10,0,15" Background="#E0E0E0"/>
+                            <!-- Scholarship input -->
+                            <TextBlock Text="🎯 Apply Scholarship"
+                                      FontSize="13" FontWeight="Bold" Foreground="#E65100"
+                                      Margin="0,0,0,8"/>
 
-                        <!-- Scholarship Section -->
-                        <TextBlock Text="🎯 Scholarship Application"
-                                   FontSize="16" FontWeight="Bold"
-                                   Foreground="#FF9800" Margin="0,0,0,10"/>
+                            <Border Background="#FFF8E1" Padding="14" CornerRadius="8"
+                                    BorderBrush="#FFE082" BorderThickness="1" Margin="0,0,0,12">
+                                <StackPanel>
+                                    <TextBlock Text="Scholarship Percentage (%)"
+                                              FontSize="12" Foreground="#F57F17" Margin="0,0,0,6"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0"
+                                                 Text="{Binding ScholarshipPercentage, UpdateSourceTrigger=PropertyChanged}"
+                                                 Padding="10,8" FontSize="16"
+                                                 BorderBrush="#FF9800" BorderThickness="2"/>
+                                        <TextBlock Grid.Column="1" Text="%"
+                                                  FontSize="20" FontWeight="Bold"
+                                                  VerticalAlignment="Center" Margin="8,0,0,0"
+                                                  Foreground="#E65100"/>
+                                    </Grid>
 
-                        <TextBlock Text="Scholarship Percentage (%):"
-                                   FontSize="12" Foreground="#757575"
-                                   Margin="0,0,0,5"/>
-                        <Grid Margin="0,0,0,15">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBox Grid.Column="0"
-                                     Text="{Binding ScholarshipPercentage, UpdateSourceTrigger=PropertyChanged}"
-                                     Height="36" Padding="10,8" FontSize="14"
-                                     BorderBrush="#FF9800" BorderThickness="2"/>
-                            <TextBlock Grid.Column="1" Text="%"
-                                       FontSize="18" FontWeight="Bold"
-                                       VerticalAlignment="Center" Margin="10,0,0,0"/>
-                        </Grid>
+                                    <!-- Results -->
+                                    <Border Background="#FFF3E0" Padding="10" CornerRadius="6"
+                                            Margin="0,10,0,6">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Discount:" FontSize="12" Foreground="#E65100"
+                                                      VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1"
+                                                      Text="{Binding ScholarshipDiscount, StringFormat=- ₹{0:N2}}"
+                                                      FontSize="14" FontWeight="Bold" Foreground="#F57C00"/>
+                                        </Grid>
+                                    </Border>
 
-                        <!-- Scholarship Discount -->
-                        <Border Background="#FFF3E0" Padding="10"
-                                Margin="0,0,0,10" CornerRadius="4">
-                            <StackPanel>
-                                <TextBlock Text="Scholarship Discount:"
-                                           FontSize="11" Foreground="#E65100"/>
-                                <TextBlock Text="{Binding ScholarshipDiscount, StringFormat='- ₹{0:N2}'}"
-                                           FontSize="15" FontWeight="Bold"
-                                           Foreground="#F57C00"/>
-                            </StackPanel>
-                        </Border>
+                                    <Border Background="#E8F5E9" Padding="10" CornerRadius="6" Margin="0,0,0,6">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Adjusted Quarterly:" FontSize="12"
+                                                      Foreground="#2E7D32" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1"
+                                                      Text="{Binding AdjustedQuarterly, StringFormat=₹{0:N2}}"
+                                                      FontSize="14" FontWeight="Bold" Foreground="#388E3C"/>
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
 
-                        <!-- Adjusted Quarterly -->
-                        <Border Background="#E8F5E9" Padding="10"
-                                Margin="0,0,0,10" CornerRadius="4">
-                            <StackPanel>
-                                <TextBlock Text="Adjusted Quarterly (After Scholarship):"
-                                           FontSize="11" Foreground="#2E7D32"/>
-                                <TextBlock Text="{Binding AdjustedQuarterly, StringFormat='₹{0:N2}'}"
-                                           FontSize="15" FontWeight="Bold"
-                                           Foreground="#388E3C"/>
-                            </StackPanel>
-                        </Border>
+                            <!-- Total -->
+                            <Border Background="#E8EAF6" Padding="14" CornerRadius="8"
+                                    BorderBrush="#9FA8DA" BorderThickness="2" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <TextBlock Text="TOTAL DUE (Previous + Adjusted)"
+                                              FontSize="12" FontWeight="Bold" Foreground="#3949AB"/>
+                                    <TextBlock Text="{Binding TotalFees, StringFormat=₹{0:N2}}"
+                                              FontSize="26" FontWeight="Bold" Foreground="#283593"
+                                              Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Border>
 
-                        <!-- Total Fees -->
-                        <Border Background="#C5CAE9" Padding="12"
-                                Margin="0,0,0,15" CornerRadius="4"
-                                BorderBrush="#3F51B5" BorderThickness="2">
-                            <StackPanel>
-                                <TextBlock Text="Total Fees (Previous + Adjusted):"
-                                           FontSize="12" FontWeight="SemiBold"
-                                           Foreground="#1A237E"/>
-                                <TextBlock Text="{Binding TotalFees, StringFormat='₹{0:N2}'}"
-                                           FontSize="22" FontWeight="Bold"
-                                           Foreground="#303F9F"/>
-                            </StackPanel>
-                        </Border>
+                            <!-- Action buttons -->
+                            <Button Command="{Binding ApplyScholarshipCommand}"
+                                    Background="#FF9800" Foreground="White"
+                                    Padding="15,13" FontSize="14" FontWeight="Bold"
+                                    Margin="0,0,0,8" Style="{StaticResource FlatBtn}">
+                                <TextBlock Text="✅ Apply Scholarship" Foreground="White"
+                                          FontWeight="Bold" FontSize="14"/>
+                            </Button>
 
-                        <!-- Apply Button -->
-                        <Button Content="✅ Apply Scholarship"
-                                Command="{Binding ApplyScholarshipCommand}"
-                                Height="45" Margin="0,0,0,10"
-                                Background="#FF9800" Foreground="White"
-                                BorderThickness="0" Cursor="Hand"
-                                FontSize="15" FontWeight="Bold"/>
+                            <Button Command="{Binding SaveChangesCommand}"
+                                    Background="#2E7D32" Foreground="White"
+                                    Padding="15,13" FontSize="14" FontWeight="Bold"
+                                    Margin="0,0,0,12" Style="{StaticResource FlatBtn}">
+                                <TextBlock Text="💾 Save All Changes" Foreground="White"
+                                          FontWeight="Bold" FontSize="14"/>
+                            </Button>
 
-                        <!-- Save Button -->
-                        <Button Content="💾 Save All Changes"
-                                Command="{Binding SaveChangesCommand}"
-                                Height="45" Margin="0,0,0,10"
-                                Background="#4CAF50" Foreground="White"
-                                BorderThickness="0" Cursor="Hand"
-                                FontSize="15" FontWeight="Bold"/>
+                            <!-- Formula hint -->
+                            <Border Background="#FFFDE7" Padding="12" CornerRadius="8"
+                                    BorderBrush="#FBC02D" BorderThickness="1">
+                                <StackPanel>
+                                    <TextBlock Text="ℹ️ Formula" FontSize="12" FontWeight="Bold"
+                                              Foreground="#F57F17" Margin="0,0,0,6"/>
+                                    <TextBlock FontSize="11" Foreground="#827717" TextWrapping="Wrap"
+                                              LineHeight="18">
+                                        <Run Text="1. Discount = Quarterly × (% ÷ 100)"/>
+                                        <LineBreak/>
+                                        <Run Text="2. Adjusted = Quarterly − Discount"/>
+                                        <LineBreak/>
+                                        <Run Text="3. Total = Previous Pending + Adjusted"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
 
-                        <!-- Formula Info -->
-                        <Border Background="#FFFDE7" Padding="10"
-                                Margin="0,10,0,0" CornerRadius="4"
-                                BorderBrush="#FBC02D" BorderThickness="1">
-                            <StackPanel>
-                                <TextBlock Text="ℹ️ Calculation Formula:"
-                                           FontSize="11" FontWeight="Bold"
-                                           Foreground="#F57F17" Margin="0,0,0,5"/>
-                                <TextBlock TextWrapping="Wrap" FontSize="10"
-                                           Foreground="#827717">
-									<Run Text="1. Scholarship Discount = Quarterly × (Scholarship % ÷ 100)"/>
-									<LineBreak/>
-									<Run Text="2. Adjusted Quarterly = Quarterly - Discount"/>
-									<LineBreak/>
-									<Run Text="3. Total = Previous Pending + Adjusted Quarterly"/>
-                                </TextBlock>
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-                </ScrollViewer>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
             </Border>
         </Grid>
     </Grid>

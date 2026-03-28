@@ -139,7 +139,8 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<ClassView>();
             services.AddTransient<HelpViewModel>();
             services.AddTransient<HelpView>();
-
+            services.AddTransient<StudentListView>();
+            services.AddTransient<StudentListViewModel>();
             // Scholarship
             services.AddTransient<ScholarshipViewModel>();
             services.AddTransient<ScholarshipView>();
@@ -186,7 +187,8 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<LeaveManagementViewModel>();
             services.AddTransient<LeaveManagementView>();
         }
-
+        public static event Action FeeDataChanged;
+        public static void RaiseFeeDataChanged() => FeeDataChanged?.Invoke();
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);

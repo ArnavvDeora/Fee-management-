@@ -3,52 +3,52 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             xmlns:converters="clr-namespace:SchoolFeeSystem.Presentation.Converters"
              mc:Ignorable="d" d:DesignHeight="900" d:DesignWidth="1400"
-             Background="#F5F5F5">
+             Background="#F0F2F5">
 
     <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
 
-        <!-- Rounded button template shared across all buttons -->
-        <ControlTemplate x:Key="RoundBtn" TargetType="Button">
-            <Border Background="{TemplateBinding Background}"
-                    CornerRadius="6" Padding="{TemplateBinding Padding}">
-                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-        </ControlTemplate>
-
-        <!-- ✅ ROOT FIX: Declare converter LOCALLY inside this UserControl.
-             The XamlParseException "Provide value on StaticResourceExtension" at line 221
-             was caused by {StaticResource NullToVisibilityConverter} trying to resolve
-             against App.xaml before the Application resources were available at
-             InitializeComponent() time. Declaring it here makes it self-contained. -->
-        <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
-
+        <Style x:Key="FlatBtn" TargetType="Button">
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Opacity" Value="0.85"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
-    <!-- Outer ScrollViewer so all content is reachable on smaller screens -->
-    <ScrollViewer VerticalScrollBarVisibility="Auto"
-                  HorizontalScrollBarVisibility="Disabled">
-
-        <Grid Margin="20">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
-                <!-- header             -->
+                <!-- header -->
                 <RowDefinition Height="Auto"/>
-                <!-- summary cards      -->
+                <!-- stat chips -->
                 <RowDefinition Height="Auto"/>
-                <!-- filter + calc      -->
+                <!-- filter + calculator -->
                 <RowDefinition Height="Auto"/>
                 <!-- live status banner -->
-                <RowDefinition Height="500"/>
-                <!-- data grid          -->
+                <RowDefinition Height="Auto" MinHeight="350"/>
+                <!-- fine cards -->
                 <RowDefinition Height="Auto"/>
-                <!-- action buttons     -->
+                <!-- action buttons -->
             </Grid.RowDefinitions>
 
-            <!-- ══════════════ HEADER ══════════════ -->
-            <Border Grid.Row="0" Background="#FF9800" CornerRadius="8"
-                    Padding="20" Margin="0,0,0,20">
+            <!-- ═══ HEADER ═══ -->
+            <Border Grid.Row="0" Background="#E65100" Padding="20,14">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -56,85 +56,86 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel>
                         <TextBlock Text="⚠️ Fine Management"
-                                   FontSize="28" FontWeight="Bold" Foreground="White"/>
+                              FontSize="22" FontWeight="Bold" Foreground="White"/>
                         <TextBlock Text="Track, manage, and calculate late payment fines"
-                                   FontSize="14" Foreground="#FFF3E0" Margin="0,5,0,0"/>
+                              FontSize="11" Foreground="#FFCCBC"/>
                     </StackPanel>
-                    <Button Grid.Column="1" Content="← Back to Dashboard"
-                            Command="{Binding GoBackCommand}"
-                            Background="#F57C00" Foreground="White"
-                            Padding="20,10" FontSize="14" BorderThickness="0" Cursor="Hand"
-                            Template="{StaticResource RoundBtn}" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Command="{Binding GoBackCommand}"
+                        Background="#BF360C" Foreground="White"
+                        Padding="16,8" FontWeight="Bold"
+                        Style="{StaticResource FlatBtn}">
+                        <TextBlock Text="← Back to Dashboard" Foreground="White" FontWeight="Bold"/>
+                    </Button>
                 </Grid>
             </Border>
 
-            <!-- ══════════════ SUMMARY CARDS ══════════════ -->
-            <Grid Grid.Row="1" Margin="0,0,0,20">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
+            <!-- ═══ STAT CHIPS ═══ -->
+            <Border Grid.Row="1" Background="White" Padding="16,12"
+                BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
 
-                <Border Grid.Column="0" Background="White" CornerRadius="8" Padding="20"
-                        Margin="0,0,10,0" BorderBrush="#E0E0E0" BorderThickness="2">
-                    <StackPanel>
-                        <TextBlock Text="💰 Total Fines" FontSize="14" Foreground="#666"/>
-                        <TextBlock Text="{Binding TotalFinesAmount}" FontSize="24"
-                                   FontWeight="Bold" Foreground="#FF9800" Margin="0,5,0,0"/>
-                        <TextBlock Text="All time" FontSize="11" Foreground="#999" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </Border>
+                    <Border Background="#FFF3E0" CornerRadius="8" Padding="20,10" Margin="0,0,10,0">
+                        <StackPanel>
+                            <TextBlock Text="{Binding TotalFinesAmount}"
+                                  FontSize="20" FontWeight="Bold" Foreground="#E65100"
+                                  HorizontalAlignment="Center"/>
+                            <TextBlock Text="💰 Total Fines" FontSize="11" Foreground="#607D8B"
+                                  HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
 
-                <Border Grid.Column="1" Background="White" CornerRadius="8" Padding="20"
-                        Margin="5,0" BorderBrush="#E0E0E0" BorderThickness="2">
-                    <StackPanel>
-                        <TextBlock Text="⏳ Pending Fines" FontSize="14" Foreground="#666"/>
-                        <TextBlock Text="{Binding PendingFinesAmount}" FontSize="24"
-                                   FontWeight="Bold" Foreground="#F44336" Margin="0,5,0,0"/>
-                        <TextBlock FontSize="11" Foreground="#999" Margin="0,2,0,0">
+                    <Border Background="#FFEBEE" CornerRadius="8" Padding="20,10" Margin="0,0,10,0">
+                        <StackPanel>
+                            <TextBlock Text="{Binding PendingFinesAmount}"
+                                  FontSize="20" FontWeight="Bold" Foreground="#C62828"
+                                  HorizontalAlignment="Center"/>
+                            <TextBlock FontSize="11" Foreground="#607D8B" HorizontalAlignment="Center">
+                            <Run Text="⏳ Pending ("/>
                             <Run Text="{Binding PendingFinesCount}"/>
-                            <Run Text=" students"/>
-                        </TextBlock>
-                    </StackPanel>
-                </Border>
+                            <Run Text=" students)"/>
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
 
-                <Border Grid.Column="2" Background="White" CornerRadius="8" Padding="20"
-                        Margin="5,0" BorderBrush="#E0E0E0" BorderThickness="2">
-                    <StackPanel>
-                        <TextBlock Text="✅ Paid / Waived" FontSize="14" Foreground="#666"/>
-                        <TextBlock Text="{Binding PaidFinesAmount}" FontSize="24"
-                                   FontWeight="Bold" Foreground="#4CAF50" Margin="0,5,0,0"/>
-                        <TextBlock Text="Collected" FontSize="11" Foreground="#999" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </Border>
+                    <Border Background="#E8F5E9" CornerRadius="8" Padding="20,10" Margin="0,0,10,0">
+                        <StackPanel>
+                            <TextBlock Text="{Binding PaidFinesAmount}"
+                                  FontSize="20" FontWeight="Bold" Foreground="#2E7D32"
+                                  HorizontalAlignment="Center"/>
+                            <TextBlock Text="✅ Paid / Waived" FontSize="11" Foreground="#607D8B"
+                                  HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
 
-                <Border Grid.Column="3" Background="White" CornerRadius="8" Padding="20"
-                        Margin="10,0,0,0" BorderBrush="#E0E0E0" BorderThickness="2">
-                    <StackPanel>
-                        <TextBlock Text="👥 Students" FontSize="14" Foreground="#666"/>
-                        <TextBlock Text="{Binding TotalStudentsWithFines}" FontSize="24"
-                                   FontWeight="Bold" Foreground="#2196F3" Margin="0,5,0,0"/>
-                        <TextBlock Text="with fines" FontSize="11" Foreground="#999" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </Border>
-            </Grid>
+                    <Border Background="#E3F2FD" CornerRadius="8" Padding="20,10">
+                        <StackPanel>
+                            <TextBlock Text="{Binding TotalStudentsWithFines}"
+                                  FontSize="20" FontWeight="Bold" Foreground="#1565C0"
+                                  HorizontalAlignment="Center"/>
+                            <TextBlock Text="👥 Students tracked" FontSize="11" Foreground="#607D8B"
+                                  HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
 
-            <!-- ══════════════ FILTER  +  CALCULATOR ══════════════ -->
-            <Grid Grid.Row="2" Margin="0,0,0,16">
+            <!-- ═══ FILTER + CALCULATOR ═══ -->
+            <Grid Grid.Row="2" Margin="16,12,16,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="2*"/>
-                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="12"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
                 <!-- Filter panel -->
-                <Border Grid.Column="0" Background="White" CornerRadius="8" Padding="20"
-                        BorderBrush="#E0E0E0" BorderThickness="1">
+                <Border Grid.Column="0" Background="White" CornerRadius="10" Padding="18"
+                    BorderBrush="#E0E0E0" BorderThickness="1">
+                    <Border.Effect>
+                        <DropShadowEffect Color="#AAAAAA" Opacity="0.08" BlurRadius="8" ShadowDepth="1"/>
+                    </Border.Effect>
                     <StackPanel>
-                        <TextBlock Text="🔍 Filter Fines" FontSize="18"
-                                   FontWeight="SemiBold" Margin="0,0,0,15"/>
+                        <TextBlock Text="🔍 Filter Fines" FontSize="15" FontWeight="Bold"
+                              Foreground="#424242" Margin="0,0,0,12"/>
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
@@ -142,105 +143,116 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
 
-                            <StackPanel Grid.Column="0" Margin="0,0,10,0">
-                                <TextBlock Text="Student ID / Name" FontSize="12"
-                                           Foreground="#666" Margin="0,0,0,5"/>
+                            <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                                <TextBlock Text="Student ID / Name" FontSize="11"
+                                      Foreground="#90A4AE" Margin="0,0,0,4"/>
                                 <TextBox Text="{Binding StudentSearchText, UpdateSourceTrigger=PropertyChanged}"
-                                         Padding="10,8" FontSize="13"
-                                         BorderBrush="#BDBDBD" BorderThickness="1"/>
+                                     Padding="8,7" FontSize="13"
+                                     BorderBrush="#BDBDBD" BorderThickness="1"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Column="1" Margin="5,0">
-                                <TextBlock Text="Department / Class" FontSize="12"
-                                           Foreground="#666" Margin="0,0,0,5"/>
+                            <StackPanel Grid.Column="1" Margin="4,0">
+                                <TextBlock Text="Department / Class" FontSize="11"
+                                      Foreground="#90A4AE" Margin="0,0,0,4"/>
                                 <ComboBox ItemsSource="{Binding Departments}"
-                                          SelectedItem="{Binding DepartmentFilter}"
-                                          Padding="10,8" FontSize="13"
-                                          BorderBrush="#BDBDBD" BorderThickness="1"/>
+                                      SelectedItem="{Binding DepartmentFilter}"
+                                      Padding="8,7" FontSize="13"
+                                      BorderBrush="#BDBDBD" BorderThickness="1"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Column="2" Margin="5,0,0,0">
-                                <TextBlock Text="Fine Status" FontSize="12"
-                                           Foreground="#666" Margin="0,0,0,5"/>
+                            <StackPanel Grid.Column="2" Margin="8,0,0,0">
+                                <TextBlock Text="Fine Status" FontSize="11"
+                                      Foreground="#90A4AE" Margin="0,0,0,4"/>
                                 <ComboBox ItemsSource="{Binding FineStatusOptions}"
-                                          SelectedItem="{Binding SelectedFineStatus}"
-                                          Padding="10,8" FontSize="13"
-                                          BorderBrush="#BDBDBD" BorderThickness="1"/>
+                                      SelectedItem="{Binding SelectedFineStatus}"
+                                      Padding="8,7" FontSize="13"
+                                      BorderBrush="#BDBDBD" BorderThickness="1"/>
                             </StackPanel>
                         </Grid>
 
-                        <StackPanel Orientation="Horizontal" Margin="0,15,0,0">
-                            <Button Content="🔍 Apply Filters"
-                                    Command="{Binding ApplyFiltersCommand}"
-                                    Background="#2196F3" Foreground="White"
-                                    Padding="20,10" FontSize="14" BorderThickness="0" Cursor="Hand"
-                                    Template="{StaticResource RoundBtn}" Margin="0,0,10,0"/>
-                            <Button Content="🗑 Clear"
-                                    Command="{Binding ClearFiltersCommand}"
-                                    Background="#9E9E9E" Foreground="White"
-                                    Padding="20,10" FontSize="14" BorderThickness="0" Cursor="Hand"
-                                    Template="{StaticResource RoundBtn}"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <Button Command="{Binding ApplyFiltersCommand}"
+                                Background="#1976D2" Foreground="White"
+                                Padding="18,9" Margin="0,0,8,0"
+                                FontSize="13" FontWeight="SemiBold"
+                                Style="{StaticResource FlatBtn}">
+                                <TextBlock Text="🔍 Apply Filters" Foreground="White" FontWeight="SemiBold"/>
+                            </Button>
+                            <Button Command="{Binding ClearFiltersCommand}"
+                                Background="#757575" Foreground="White"
+                                Padding="18,9" FontSize="13" FontWeight="SemiBold"
+                                Style="{StaticResource FlatBtn}">
+                                <TextBlock Text="🗑 Clear" Foreground="White" FontWeight="SemiBold"/>
+                            </Button>
                         </StackPanel>
                     </StackPanel>
                 </Border>
 
-                <!-- Fine Calculator -->
-                <Border Grid.Column="2" Background="White" CornerRadius="8" Padding="20"
-                        BorderBrush="#FF9800" BorderThickness="2">
+                <!-- Fine calculator -->
+                <Border Grid.Column="2" Background="White" CornerRadius="10" Padding="18"
+                    BorderBrush="#FF9800" BorderThickness="2">
+                    <Border.Effect>
+                        <DropShadowEffect Color="#AAAAAA" Opacity="0.08" BlurRadius="8" ShadowDepth="1"/>
+                    </Border.Effect>
                     <StackPanel>
-                        <TextBlock Text="🧮 Fine Calculator" FontSize="16"
-                                   FontWeight="Bold" Foreground="#E65100" Margin="0,0,0,12"/>
+                        <TextBlock Text="🧮 Fine Calculator" FontSize="15" FontWeight="Bold"
+                              Foreground="#E65100" Margin="0,0,0,10"/>
 
-                        <Border Background="#FFF3E0" CornerRadius="4" Padding="10" Margin="0,0,0,12">
+                        <Border Background="#FFF3E0" CornerRadius="6" Padding="10" Margin="0,0,0,10">
                             <TextBlock FontSize="11" Foreground="#BF360C" TextWrapping="Wrap">
-                                <Run FontWeight="Bold">Fine Rules:</Run>
-                                <Run Text=" Days 1–15: No fine. Days 16–end of Month 1: Rs 10/day. Month 2: Rs 20/day. Month 3+: Rs 750 flat/month."/>
+                            <Run FontWeight="Bold">Rules:</Run>
+                            <Run Text=" Days 1–15: No fine. Day 16+: ₹10/day. Month 2: ₹20/day. Month 3+: ₹750 flat."/>
                             </TextBlock>
                         </Border>
 
-                        <TextBlock Text="Quarter Start Date" FontSize="12"
-                                   Foreground="#666" Margin="0,0,0,4"/>
+                        <TextBlock Text="Quarter Start Date" FontSize="11"
+                              Foreground="#90A4AE" Margin="0,0,0,4"/>
                         <DatePicker SelectedDate="{Binding QuarterStartDate}"
-                                    Padding="8" FontSize="13" Margin="0,0,0,10"
-                                    BorderBrush="#FF9800" BorderThickness="1"/>
+                                Padding="8" FontSize="13" Margin="0,0,0,8"
+                                BorderBrush="#FF9800" BorderThickness="1"/>
 
-                        <TextBlock Text="Calculate As Of (leave blank = today)"
-                                   FontSize="12" Foreground="#666" Margin="0,0,0,4"/>
+                        <TextBlock Text="As Of (blank = today)" FontSize="11"
+                              Foreground="#90A4AE" Margin="0,0,0,4"/>
                         <DatePicker SelectedDate="{Binding CustomAsOfDate}"
-                                    Padding="8" FontSize="13" Margin="0,0,0,12"
-                                    BorderBrush="#BDBDBD" BorderThickness="1"/>
+                                Padding="8" FontSize="13" Margin="0,0,0,10"
+                                BorderBrush="#BDBDBD" BorderThickness="1"/>
 
-                        <Button Content="🧮 Calculate Fine"
-                                Command="{Binding CalculateFineCommand}"
-                                Background="#FF9800" Foreground="White"
-                                Padding="15,10" FontSize="14" FontWeight="Bold"
-                                BorderThickness="0" Cursor="Hand"
-                                Template="{StaticResource RoundBtn}" Margin="0,0,0,10"/>
+                        <Button Command="{Binding CalculateFineCommand}"
+                            Background="#FF9800" Foreground="White"
+                            Padding="14,10" FontSize="13" FontWeight="Bold"
+                            Margin="0,0,0,10" Style="{StaticResource FlatBtn}">
+                            <TextBlock Text="🧮 Calculate Fine" Foreground="White" FontWeight="Bold"/>
+                        </Button>
 
-                        <!-- Result panel: hidden until CalculatedFine is non-empty.
-                             Uses the LOCALLY declared converter — no App.xaml dependency. -->
-                        <Border Background="#FFF8E1" CornerRadius="4" Padding="12"
-                                Visibility="{Binding CalculatedFine,
-                                             Converter={StaticResource NullToVisibilityConverter}}">
+                        <!-- Result — shown when CalculatedFine has a value -->
+                        <Border Background="#FFF8E1" CornerRadius="6" Padding="12">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding CalculatedFine}" Value="">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
                             <StackPanel>
-                                <TextBlock Text="Calculated Fine:" FontSize="12"
-                                           Foreground="#666" Margin="0,0,0,4"/>
+                                <TextBlock Text="Calculated Fine:" FontSize="11"
+                                      Foreground="#666" Margin="0,0,0,4"/>
                                 <TextBlock Text="{Binding CalculatedFine}"
-                                           FontSize="22" FontWeight="Bold"
-                                           Foreground="#FF9800" Margin="0,0,0,6"/>
+                                      FontSize="22" FontWeight="Bold"
+                                      Foreground="#FF9800" Margin="0,0,0,6"/>
                                 <TextBlock Text="{Binding FineBreakdownText}"
-                                           FontSize="11" Foreground="#5D4037"
-                                           TextWrapping="Wrap"/>
+                                      FontSize="11" Foreground="#5D4037" TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
                 </Border>
             </Grid>
 
-            <!-- ══════════════ LIVE FINE STATUS BANNER ══════════════ -->
-            <Border Grid.Row="3" Background="#FFF3E0" CornerRadius="6"
-                    BorderBrush="#FF9800" BorderThickness="1"
-                    Padding="16,10" Margin="0,0,0,16">
+            <!-- ═══ LIVE STATUS BANNER ═══ -->
+            <Border Grid.Row="3" Background="#FFF3E0" Padding="16,10"
+                BorderBrush="#FFCC80" BorderThickness="0,0,0,1" Margin="0,10,0,0">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -248,105 +260,307 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <TextBlock Text="📅 Live Fine Status — " FontSize="13"
-                                   FontWeight="Bold" Foreground="#E65100" VerticalAlignment="Center"/>
+                              FontWeight="Bold" Foreground="#E65100" VerticalAlignment="Center"/>
                         <TextBlock FontSize="13" Foreground="#5D4037"
-                                   VerticalAlignment="Center" TextWrapping="Wrap">
-                            <Run Text="Fines are calculated automatically every time a sheet loads."/>
-                            <Run Text=" Grace period: first 15 days of each quarter."/>
-                            <Run Text=" Month 1 (day 16–end): Rs 10/day · Month 2: Rs 20/day · Month 3+: Rs 750 flat."/>
-                            <Run Text=" Only students with outstanding fees are charged."/>
+                              VerticalAlignment="Center" TextWrapping="Wrap">
+                        <Run Text="Fines calculated automatically on sheet load."/>
+                        <Run Text=" Grace: first 15 days of each quarter."/>
+                        <Run Text=" Month 1 (day 16+): ₹10/day · Month 2: ₹20/day · Month 3+: ₹750 flat."/>
                         </TextBlock>
                     </StackPanel>
-                    <Button Grid.Column="1" Content="🔄 Refresh"
-                            Command="{Binding RefreshDataCommand}"
-                            Background="#FF9800" Foreground="White"
-                            Padding="14,8" FontSize="13" BorderThickness="0" Cursor="Hand"
-                            Template="{StaticResource RoundBtn}" VerticalAlignment="Center"
-                            Margin="12,0,0,0"/>
+                    <Button Grid.Column="1" Command="{Binding RefreshDataCommand}"
+                        Background="#FF9800" Foreground="White"
+                        Padding="14,7" Margin="12,0,16,0"
+                        FontSize="13" Style="{StaticResource FlatBtn}">
+                        <TextBlock Text="🔄 Refresh" Foreground="White" FontWeight="SemiBold"/>
+                    </Button>
                 </Grid>
             </Border>
 
-            <!-- ══════════════ DATA GRID ══════════════ -->
-            <Border Grid.Row="4" Background="White" CornerRadius="8"
-                    BorderBrush="#E0E0E0" BorderThickness="1">
+            <!-- ═══ FINE CARDS LIST ═══ -->
+            <Border Grid.Row="4" Background="White" Margin="16,8,16,0"
+                CornerRadius="10" BorderBrush="#E0E0E0" BorderThickness="1">
+                <Border.Effect>
+                    <DropShadowEffect Color="#AAAAAA" Opacity="0.08" BlurRadius="10" ShadowDepth="1"/>
+                </Border.Effect>
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0"
-                               Text="📋 Fine Report — Live from Fee Collection Data"
-                               FontSize="16" FontWeight="SemiBold"
-                               Margin="20,16,20,8" Foreground="#333"/>
+                    <!-- Section header with column labels -->
+                    <Border Grid.Row="0" Background="#E65100" CornerRadius="10,10,0,0" Padding="16,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="6"/>
+                                <ColumnDefinition Width="50"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="120"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="2" Text="Student / Guardian"
+                                  FontSize="12" FontWeight="Bold" Foreground="White"
+                                  VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="3" Text="Sheet / Quarter"
+                                  FontSize="12" FontWeight="Bold" Foreground="White"
+                                  VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                            <TextBlock Grid.Column="4" Text="Prev Pending"
+                                  FontSize="12" FontWeight="Bold" Foreground="White"
+                                  VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                            <TextBlock Grid.Column="5" Text="Quarterly"
+                                  FontSize="12" FontWeight="Bold" Foreground="White"
+                                  VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                            <TextBlock Grid.Column="6" Text="Fine Amt"
+                                  FontSize="12" FontWeight="Bold" Foreground="White"
+                                  VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                            <TextBlock Grid.Column="7" Text="Total Due"
+                                  FontSize="12" FontWeight="Bold" Foreground="White"
+                                  VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                            <TextBlock Grid.Column="8" Text="Status"
+                                  FontSize="12" FontWeight="Bold" Foreground="White"
+                                  VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                        </Grid>
+                    </Border>
 
-                    <DataGrid Grid.Row="1"
-                              ItemsSource="{Binding FineReportView}"
-                              AutoGenerateColumns="True"
-                              IsReadOnly="True"
-                              AlternatingRowBackground="#FFF3E0"
-                              GridLinesVisibility="Horizontal"
-                              HeadersVisibility="Column"
-                              CanUserAddRows="False"
-                              CanUserDeleteRows="False"
-                              SelectionMode="Single"
-                              EnableRowVirtualization="False"
-                              EnableColumnVirtualization="False"
-                              VirtualizingPanel.IsVirtualizing="False"
-                              HorizontalScrollBarVisibility="Auto"
-                              VerticalScrollBarVisibility="Auto"
-                              FontSize="13" Margin="10,0,10,10">
-                        <DataGrid.ColumnHeaderStyle>
-                            <Style TargetType="DataGridColumnHeader">
-                                <Setter Property="Background"      Value="#FF9800"/>
-                                <Setter Property="Foreground"      Value="White"/>
-                                <Setter Property="FontWeight"      Value="Bold"/>
-                                <Setter Property="Padding"         Value="10"/>
-                                <Setter Property="BorderBrush"     Value="#F57C00"/>
-                                <Setter Property="BorderThickness" Value="0,0,1,0"/>
-                            </Style>
-                        </DataGrid.ColumnHeaderStyle>
-                        <DataGrid.RowStyle>
-                            <Style TargetType="DataGridRow">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding [Status]}" Value="Fine Applicable">
-                                        <Setter Property="Background" Value="#FFEBEE"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding [Status]}" Value="No Fine">
-                                        <Setter Property="Background" Value="#E8F5E9"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </DataGrid.RowStyle>
-                    </DataGrid>
+                    <!-- Fine cards -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                              MaxHeight="500" Padding="12,8" Background="#F8F9FA">
+                        <ItemsControl ItemsSource="{Binding FineReportView}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,8" CornerRadius="10"
+                                        Background="White" BorderThickness="1">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="BorderBrush" Value="#C8E6C9"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding [Status]}" Value="Fine Applicable">
+                                                        <Setter Property="BorderBrush" Value="#FFCDD2"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Border.Effect>
+                                            <DropShadowEffect Color="#AAAAAA" Opacity="0.07"
+                                                          BlurRadius="6" ShadowDepth="1"/>
+                                        </Border.Effect>
+
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="6"/>
+                                                <ColumnDefinition Width="50"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="150"/>
+                                                <ColumnDefinition Width="120"/>
+                                                <ColumnDefinition Width="110"/>
+                                                <ColumnDefinition Width="110"/>
+                                                <ColumnDefinition Width="110"/>
+                                                <ColumnDefinition Width="120"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <!-- Left stripe -->
+                                            <Border Grid.Column="0" CornerRadius="10,0,0,10">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="#4CAF50"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding [Status]}" Value="Fine Applicable">
+                                                                <Setter Property="Background" Value="#F44336"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                            </Border>
+
+                                            <!-- Avatar -->
+                                            <Border Grid.Column="1" Width="34" Height="34"
+                                                CornerRadius="17" VerticalAlignment="Center"
+                                                HorizontalAlignment="Center">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="#E8F5E9"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding [Status]}" Value="Fine Applicable">
+                                                                <Setter Property="Background" Value="#FFEBEE"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock Text="₹" FontSize="16" FontWeight="Bold"
+                                                      HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="#388E3C"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding [Status]}" Value="Fine Applicable">
+                                                                    <Setter Property="Foreground" Value="#C62828"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Border>
+
+                                            <!-- Student name + guardian -->
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center"
+                                                    Margin="8,12,8,12">
+                                                <TextBlock Text="{Binding [Student Name]}"
+                                                      FontSize="14" FontWeight="SemiBold"
+                                                      Foreground="#1A1A2E"/>
+                                                <TextBlock FontSize="12" Foreground="#78909C" Margin="0,2,0,0">
+                                                <Run Text="S/o "/>
+                                                <Run Text="{Binding [Guardian]}"/>
+                                                </TextBlock>
+                                            </StackPanel>
+
+                                            <!-- Sheet / Quarter -->
+                                            <StackPanel Grid.Column="3" VerticalAlignment="Center"
+                                                    HorizontalAlignment="Center" Margin="4,0">
+                                                <TextBlock Text="{Binding [Sheet / Class]}"
+                                                      FontSize="11" Foreground="#607D8B"
+                                                      HorizontalAlignment="Center" TextWrapping="Wrap"
+                                                      MaxWidth="140"/>
+                                                <TextBlock Text="{Binding [Quarter]}"
+                                                      FontSize="11" FontWeight="SemiBold"
+                                                      Foreground="#1565C0" HorizontalAlignment="Center"
+                                                      TextWrapping="Wrap" MaxWidth="140"/>
+                                            </StackPanel>
+
+                                            <!-- Previous Pending -->
+                                            <StackPanel Grid.Column="4" VerticalAlignment="Center"
+                                                    HorizontalAlignment="Center" Margin="4,0">
+                                                <TextBlock Text="Prev Pending" FontSize="10"
+                                                      Foreground="#90A4AE" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="{Binding [Previous Pending], StringFormat=₹{0:N0}}"
+                                                      FontSize="13" FontWeight="Bold"
+                                                      Foreground="#C62828" HorizontalAlignment="Center"/>
+                                            </StackPanel>
+
+                                            <!-- Quarterly Fees -->
+                                            <StackPanel Grid.Column="5" VerticalAlignment="Center"
+                                                    HorizontalAlignment="Center" Margin="4,0">
+                                                <TextBlock Text="Quarterly" FontSize="10"
+                                                      Foreground="#90A4AE" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="{Binding [Quarterly Fees], StringFormat=₹{0:N0}}"
+                                                      FontSize="13" FontWeight="Bold"
+                                                      Foreground="#1565C0" HorizontalAlignment="Center"/>
+                                            </StackPanel>
+
+                                            <!-- Fine Amount -->
+                                            <StackPanel Grid.Column="6" VerticalAlignment="Center"
+                                                    HorizontalAlignment="Center" Margin="4,0">
+                                                <TextBlock Text="Fine" FontSize="10"
+                                                      Foreground="#90A4AE" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="{Binding [Fine Amount], StringFormat=₹{0:N0}}"
+                                                      FontSize="14" FontWeight="Bold"
+                                                      HorizontalAlignment="Center">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="#9E9E9E"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding [Status]}" Value="Fine Applicable">
+                                                                    <Setter Property="Foreground" Value="#E65100"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </StackPanel>
+
+                                            <!-- Total Due -->
+                                            <StackPanel Grid.Column="7" VerticalAlignment="Center"
+                                                    HorizontalAlignment="Center" Margin="4,0">
+                                                <TextBlock Text="Total Due" FontSize="10"
+                                                      Foreground="#90A4AE" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="{Binding [Total Due], StringFormat=₹{0:N0}}"
+                                                      FontSize="14" FontWeight="Bold"
+                                                      HorizontalAlignment="Center">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="#388E3C"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding [Status]}" Value="Fine Applicable">
+                                                                    <Setter Property="Foreground" Value="#D32F2F"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </StackPanel>
+
+                                            <!-- Status badge -->
+                                            <Border Grid.Column="8" VerticalAlignment="Center"
+                                                CornerRadius="12" Padding="8,5"
+                                                Margin="4,0,10,0" HorizontalAlignment="Center">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="#E8F5E9"/>
+                                                        <Setter Property="BorderBrush" Value="#81C784"/>
+                                                        <Setter Property="BorderThickness" Value="1"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding [Status]}" Value="Fine Applicable">
+                                                                <Setter Property="Background" Value="#FFEBEE"/>
+                                                                <Setter Property="BorderBrush" Value="#EF9A9A"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock Text="{Binding [Status]}"
+                                                      FontSize="11" FontWeight="Bold"
+                                                      HorizontalAlignment="Center">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="#2E7D32"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding [Status]}" Value="Fine Applicable">
+                                                                    <Setter Property="Foreground" Value="#C62828"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Border>
+
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
                 </Grid>
             </Border>
 
-            <!-- ══════════════ ACTION BUTTONS ══════════════ -->
-            <StackPanel Grid.Row="5" Orientation="Horizontal"
-                        HorizontalAlignment="Center" Margin="0,20,0,20">
-                <Button Content="📥 Export Report"
-                        Command="{Binding ExportFineReportCommand}"
-                        Background="#4CAF50" Foreground="White"
-                        Padding="25,12" Margin="0,0,12,0"
-                        FontSize="15" FontWeight="SemiBold"
-                        BorderThickness="0" Cursor="Hand"
-                        Template="{StaticResource RoundBtn}"/>
-                <Button Content="📧 Send Reminders"
-                        Command="{Binding SendFineRemindersCommand}"
-                        Background="#9C27B0" Foreground="White"
-                        Padding="25,12" Margin="0,0,12,0"
-                        FontSize="15" FontWeight="SemiBold"
-                        BorderThickness="0" Cursor="Hand"
-                        Template="{StaticResource RoundBtn}"/>
-                <Button Content="🔄 Refresh Data"
-                        Command="{Binding RefreshDataCommand}"
-                        Background="#2196F3" Foreground="White"
-                        Padding="25,12" FontSize="15" FontWeight="SemiBold"
-                        BorderThickness="0" Cursor="Hand"
-                        Template="{StaticResource RoundBtn}"/>
-            </StackPanel>
-
+            <!-- ═══ ACTION BUTTONS ═══ -->
+            <Border Grid.Row="5" Background="White" Padding="16,12"
+                BorderBrush="#E0E0E0" BorderThickness="0,1,0,0">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <Button Command="{Binding ExportFineReportCommand}"
+                        Background="#388E3C" Foreground="White"
+                        Padding="22,11" Margin="0,0,10,0"
+                        FontSize="14" FontWeight="SemiBold"
+                        Style="{StaticResource FlatBtn}">
+                        <TextBlock Text="📥 Export Report" Foreground="White" FontWeight="SemiBold" FontSize="14"/>
+                    </Button>
+                    <Button Command="{Binding SendFineRemindersCommand}"
+                        Background="#7B1FA2" Foreground="White"
+                        Padding="22,11" Margin="0,0,10,0"
+                        FontSize="14" FontWeight="SemiBold"
+                        Style="{StaticResource FlatBtn}">
+                        <TextBlock Text="📧 Send Reminders" Foreground="White" FontWeight="SemiBold" FontSize="14"/>
+                    </Button>
+                    <Button Command="{Binding RefreshDataCommand}"
+                        Background="#1976D2" Foreground="White"
+                        Padding="22,11" FontSize="14" FontWeight="SemiBold"
+                        Style="{StaticResource FlatBtn}">
+                        <TextBlock Text="🔄 Refresh Data" Foreground="White" FontWeight="SemiBold" FontSize="14"/>
+                    </Button>
+                </StackPanel>
+            </Border>
         </Grid>
     </ScrollViewer>
 </UserControl>
