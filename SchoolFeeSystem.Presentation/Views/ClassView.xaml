@@ -5,6 +5,7 @@
 
     <UserControl.Resources>
         <converters:BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+        <converters:NonZeroToVisibilityConverter x:Key="NonZeroToVisibilityConverter"/>
 
         <Style x:Key="BackButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="#1976D2"/>
@@ -798,47 +799,6 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </ScrollViewer>
-
-            <!-- ── Bottom action bar ── -->
-            <Border Grid.Row="4" Background="White" Padding="16,10"
-                    BorderBrush="#E0E0E0" BorderThickness="0,1,0,0">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock Text="Quick Edit:" FontWeight="Bold" FontSize="13"
-                                  VerticalAlignment="Center" Margin="0,0,10,0" Foreground="#1565C0"/>
-                        <TextBlock Text="Column:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#424242"/>
-                        <ComboBox ItemsSource="{Binding Columns}"
-                                  SelectedItem="{Binding SelectedColumn}"
-                                  Width="160" Padding="7,5" Margin="0,0,10,0"
-                                  BorderBrush="#1976D2" BorderThickness="1" FontSize="12"/>
-                        <TextBlock Text="Value:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#424242"/>
-                        <TextBox Text="{Binding NewValue, UpdateSourceTrigger=PropertyChanged}"
-                                 Width="180" Padding="8,5" Margin="0,0,10,0"
-                                 BorderBrush="#1976D2" BorderThickness="1" FontSize="12"/>
-                        <Button Content="✔ Apply to Selected Row"
-                                Command="{Binding ApplyCellEditCommand}"
-                                Background="#1976D2" Foreground="White"
-                                Padding="12,6" BorderThickness="0" Cursor="Hand" FontSize="12"/>
-                    </StackPanel>
-
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button Content="➕ Add Row"
-                                Command="{Binding AddRowCommand}"
-                                Background="#43A047" Foreground="White"
-                                Padding="12,6" Margin="0,0,8,0"
-                                BorderThickness="0" Cursor="Hand" FontSize="12"/>
-                        <Button Content="🗑 Delete Row"
-                                Command="{Binding DeleteRowCommand}"
-                                Background="#E53935" Foreground="White"
-                                Padding="12,6" BorderThickness="0" Cursor="Hand" FontSize="12"/>
-                    </StackPanel>
-                </Grid>
-            </Border>
         </Grid>
 
     </Grid>

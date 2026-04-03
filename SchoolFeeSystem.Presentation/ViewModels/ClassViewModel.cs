@@ -302,32 +302,42 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             try
             {
-                // Parse sheet name and metadata to create CourseInfo
-                // Expected format: "ME-1-AugOct" or similar
                 string sheetName = sheet.TableName;
-
-                // Extract year and quarter from sheet name or metadata
                 int year = ExtractYear(sheet);
                 string quarter = ExtractQuarter(sheet);
                 string deptCode = ExtractDepartmentCode(sheet);
 
                 if (string.IsNullOrEmpty(deptCode)) return null;
 
+                // ── Read Semester stored by CsvDataService.LoadFile (Bug 2 fix) ──
+                int semester = 0;
+                if (sheet.ExtendedProperties.ContainsKey("Semester") &&
+                    int.TryParse(sheet.ExtendedProperties["Semester"]?.ToString(), out int s))
+                    semester = s;
+
+                // Build display labels — show semester number when available
+                string yearDisplay = semester > 0
+                    ? $"Sem {semester} (Year {year})"
+                    : $"Year {year}";
+
+                string courseName = semester > 0
+                    ? $"{GetDepartmentName(deptCode)} — Sem {semester}"
+                    : $"{GetDepartmentName(deptCode)} — Year {year}";
+
                 var courseInfo = new CourseInfo
                 {
                     SheetName = sheetName,
                     DepartmentCode = deptCode,
                     Year = year,
+                    Semester = semester,
                     Quarter = quarter,
-                    CourseName = $"{GetDepartmentName(deptCode)} - Year {year}",
-                    YearDisplay = $"Year {year}",
+                    CourseName = courseName,
+                    YearDisplay = yearDisplay,
                     QuarterDisplay = FormatQuarter(quarter),
                     DataTable = sheet
                 };
 
-                // Calculate statistics for this course
                 CalculateCourseStatistics(courseInfo);
-
                 return courseInfo;
             }
             catch
@@ -342,79 +352,77 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             course.LastUpdated = DateTime.Now.ToString("dd MMM yyyy");
 
-            // Find the Name column — only rows with a non-empty Name are real students.
-            // This correctly excludes gap rows, SUM rows, label rows, and the _Section tag.
-            var nameCol = course.DataTable.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.Equals("Name", StringComparison.OrdinalIgnoreCase));
+            // ── Helper: find a DataColumn by keyword(s), skipping internal _ columns ──
+            DataColumn ColFind(params string[] keywords) =>
+                course.DataTable.Columns.Cast<DataColumn>()
+                    .Where(c => !c.ColumnName.StartsWith("_"))
+                    .FirstOrDefault(c => keywords.All(k =>
+                        c.ColumnName.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0));
 
-            // Collect only genuine student rows
+            decimal SafeDec(DataRow r, DataColumn c)
+            {
+                if (c == null) return 0m;
+                string raw = r[c]?.ToString()?.Trim() ?? "";
+                raw = raw.Replace("₹", "").Replace(",", "");
+                return decimal.TryParse(raw,
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out decimal v) ? v : 0m;
+            }
+
+            // ── Column detection ──────────────────────────────────────────────────
+            var nameCol = ColFind("name");
+            var prevPendingCol = ColFind("previous", "pending")
+                              ?? ColFind("previous")
+                              ?? ColFind("pending");
+            var quarterlyCol = ColFind("quarterly") ?? ColFind("installment");
+            // Fallback: use the TOTAL fees column when there is no quarterly column
+            var totalFeesCol = ColFind("total") ?? ColFind("fees");
+
+            // ── Student row filter ──────────────────────────────────────────────
             var studentRows = course.DataTable.Rows.Cast<DataRow>()
                 .Where(r =>
                 {
-                    if (nameCol != null)
-                    {
-                        string name = r[nameCol]?.ToString()?.Trim() ?? "";
-                        // Empty name — gap, SUM, or formula row
-                        if (string.IsNullOrEmpty(name)) return false;
-                        // Repeated sub-header
-                        if (name.Equals("Name", StringComparison.OrdinalIgnoreCase)) return false;
-                        // Note/disclaimer rows — starts with "Note" or is a long sentence
-                        if (name.StartsWith("Note", StringComparison.OrdinalIgnoreCase)) return false;
-                        if (name.Length > 60 || name.Contains(":-") ||
-                            name.Contains("Per Day") || name.Contains("deposited")) return false;
-                    }
+                    if (nameCol == null) return true;
+                    string nm = r[nameCol]?.ToString()?.Trim() ?? "";
+                    if (string.IsNullOrEmpty(nm)) return false;
+                    if (nm.Equals("Name", StringComparison.OrdinalIgnoreCase)) return false;
+                    if (nm.StartsWith("Note", StringComparison.OrdinalIgnoreCase)) return false;
+                    if (nm.Length > 60 || nm.Contains(":-") ||
+                        nm.Contains("Per Day") || nm.Contains("deposited")) return false;
                     return true;
                 })
                 .ToList();
 
             course.TotalStudents = studentRows.Count;
 
-            // Find pending column (skip _Section column)
-            var pendingCol = course.DataTable.Columns.Cast<DataColumn>()
-                .Where(c => !c.ColumnName.StartsWith("_"))
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("previous") &&
-                                     c.ColumnName.ToLower().Contains("pending") ||
-                                     c.ColumnName.ToLower().Contains("balance") ||
-                                     c.ColumnName.Equals("TOTAL PENDING FEES", StringComparison.OrdinalIgnoreCase));
+            decimal totalPending = 0m;
+            int pendingCount = 0;
 
-            // Also fallback to any column named "pending" or "balance" if the above didn't match
-            if (pendingCol == null)
+            foreach (DataRow row in studentRows)
             {
-                pendingCol = course.DataTable.Columns.Cast<DataColumn>()
-                    .Where(c => !c.ColumnName.StartsWith("_"))
-                    .FirstOrDefault(c => c.ColumnName.ToLower().Contains("pending") ||
-                                         c.ColumnName.ToLower().Contains("balance"));
-            }
+                decimal prevPend = SafeDec(row, prevPendingCol);
+                decimal quarterly = SafeDec(row, quarterlyCol);
 
-            if (pendingCol != null)
-            {
-                decimal totalPending = 0;
-                int pendingCount = 0;
+                // When no quarterly column exists, fall back to the TOTAL fees column
+                if (quarterly == 0m && quarterlyCol == null)
+                    quarterly = SafeDec(row, totalFeesCol);
 
-                foreach (DataRow row in studentRows)
+                decimal due = prevPend + quarterly;
+
+                if (due > 0)
                 {
-                    string rawValue = row[pendingCol]?.ToString()?.Trim();
-                    if (decimal.TryParse(rawValue?.Replace("₹", "").Replace(",", ""),
-                            System.Globalization.NumberStyles.Any,
-                            System.Globalization.CultureInfo.InvariantCulture,
-                            out decimal pending) && pending > 0)
-                    {
-                        totalPending += pending;
-                        pendingCount++;
-                    }
+                    totalPending += due;
+                    pendingCount++;
                 }
-
-                course.PendingAmount = totalPending;
-                course.PendingStudents = pendingCount;
-                course.PaidStudents = course.TotalStudents - pendingCount;
-                course.HasPendingFees = pendingCount > 0;
-            }
-            else
-            {
-                course.PaidStudents = course.TotalStudents;
             }
 
-            // Set file status
+            course.PendingAmount = totalPending;
+            course.PendingStudents = pendingCount;
+            course.PaidStudents = course.TotalStudents - pendingCount;
+            course.HasPendingFees = pendingCount > 0;
+
+            // ── Status label ──────────────────────────────────────────────────────
             if (course.TotalStudents == 0)
             {
                 course.FileStatus = "No Data";
@@ -431,11 +439,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 course.StatusColor = "#2196F3";
             }
 
-            // Check if can promote
+            // ── CanPromote ────────────────────────────────────────────────────────
             var dept = Departments.FirstOrDefault(d => d.Code == course.DepartmentCode);
             course.CanPromote = dept != null && course.Year < dept.Years;
 
-            // Set color brush
             course.ColorBrush = new SolidColorBrush(
                 (Color)ColorConverter.ConvertFromString(dept?.Color ?? "#2196F3"));
         }
@@ -534,25 +541,52 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             UpdateRowCountDisplay();
             BuildStudentCards();
         }
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // BUILD STUDENT CARD ROWS
+        // Reads all fee component columns from the DataTable and populates
+        // StudentCardRow with every fee field so the XAML can display chips
+        // for each non-zero component.
+        // ─────────────────────────────────────────────────────────────────────────
         private void BuildStudentCards()
         {
             StudentCardRows.Clear();
             if (_originalData == null) return;
 
+            // ── Column finder helper ──────────────────────────────────────────────
             DataColumn ColFind(params string[] keywords) =>
                 _originalData.Columns.Cast<DataColumn>()
                     .FirstOrDefault(c => keywords.All(k =>
                         c.ColumnName.IndexOf(k, System.StringComparison.OrdinalIgnoreCase) >= 0));
 
-            decimal SafeDec(DataRow r, DataColumn c) =>
-                c != null && decimal.TryParse(r[c]?.ToString()?.Trim(), out decimal v) ? v : 0m;
+            // ── Safe decimal reader ───────────────────────────────────────────────
+            decimal SafeDec(DataRow r, DataColumn c)
+            {
+                if (c == null) return 0m;
+                string raw = r[c]?.ToString()?.Trim() ?? "";
+                raw = raw.Replace("₹", "").Replace(",", "");
+                return decimal.TryParse(raw,
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out decimal v) ? v : 0m;
+            }
 
+            // ── Locate all columns ────────────────────────────────────────────────
             var nameCol = ColFind("name");
             var fatherCol = ColFind("father");
             var categoryCol = ColFind("category");
+            var phoneCol = ColFind("phone") ?? ColFind("contact") ?? ColFind("mobile");
             var quarterlyCol = ColFind("quarterly") ?? ColFind("installment") ?? ColFind("fees");
             var prevPendCol = ColFind("previous", "pending") ?? ColFind("pending");
-            var phoneCol = ColFind("phone") ?? ColFind("contact") ?? ColFind("mobile");
+
+            // Fee components — each maps to a chip in the student card
+            var stationaryCol = ColFind("stationary");
+            var welfareCol = ColFind("welfare");
+            var studentActCol = ColFind("student", "activ");
+            var institutionalCol = ColFind("institutional") ?? ColFind("refundable");
+            var insuranceCol = ColFind("insurance") ?? ColFind("comprehensive");
+            var redCrossCol = ColFind("red", "cross");
+            var hostelCol = ColFind("hostel");
 
             int serial = 1;
             var view = CsvTableView ?? _originalData.DefaultView;
@@ -561,16 +595,27 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             {
                 DataRow row = drv.Row;
 
+                // ── Student row guard ─────────────────────────────────────────────
                 string nm = nameCol != null ? row[nameCol]?.ToString()?.Trim() ?? "" : "";
                 if (string.IsNullOrEmpty(nm)) continue;
                 if (nm.Equals("Name", System.StringComparison.OrdinalIgnoreCase)) continue;
                 if (nm.StartsWith("Note", System.StringComparison.OrdinalIgnoreCase)) continue;
                 if (nm.Length > 60 || nm.Contains(":-") || nm.Contains("Per Day")) continue;
 
+                // ── Fee values ────────────────────────────────────────────────────
                 decimal quarterly = SafeDec(row, quarterlyCol);
                 decimal prevPend = SafeDec(row, prevPendCol);
                 decimal totalDue = quarterly + prevPend;
 
+                decimal stationary = SafeDec(row, stationaryCol);
+                decimal welfare = SafeDec(row, welfareCol);
+                decimal studentAct = SafeDec(row, studentActCol);
+                decimal institutional = SafeDec(row, institutionalCol);
+                decimal insurance = SafeDec(row, insuranceCol);
+                decimal redCross = SafeDec(row, redCrossCol);
+                decimal hostel = SafeDec(row, hostelCol);
+
+                // ── Category normalisation ────────────────────────────────────────
                 string cat = categoryCol != null ? row[categoryCol]?.ToString()?.Trim() ?? "" : "";
                 cat = cat.ToUpper() switch
                 {
@@ -580,6 +625,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     "GEN" => "GEN",
                     "GENERAL" => "GEN",
                     "GEN FW" => "GEN FW",
+                    "BC" => "BC",
                     _ => cat.ToUpper()
                 };
 
@@ -593,6 +639,13 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     QuarterlyFee = quarterly,
                     PreviousPending = prevPend,
                     TotalDue = totalDue,
+                    Stationary = stationary,
+                    DevelopmentWelfare = welfare,
+                    StudentActivities = studentAct,
+                    InstitutionalSecurity = institutional,
+                    ComprehensiveInsurance = insurance,
+                    RedCrossFund = redCross,
+                    Hostel = hostel,
                     SourceRow = drv
                 });
 
@@ -626,6 +679,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
             System.Windows.Application.Current.MainWindow.Content = feeView;
         }
+
         [RelayCommand]
         public void PromoteCourse(CourseInfo course)
         {
@@ -691,7 +745,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
 
-                // Open the file
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = filePath,
@@ -746,7 +799,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             try
             {
-                // Build a safe filename from the view title
                 string safeName = string.Concat(CurrentViewTitle
                     .Split(System.IO.Path.GetInvalidFileNameChars()))
                     .Replace(" ", "_").Replace("•", "").Replace("🌸", "").Replace("🍂", "").Replace("❄️", "").Replace("☀️", "");
@@ -761,7 +813,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 {
                     var ws = workbook.Worksheets.Add("Students");
 
-                    // --- Visible columns only (skip _Section and Sr No. raw column) ---
                     var visibleCols = _originalData.Columns.Cast<System.Data.DataColumn>()
                         .Where(c => !c.ColumnName.StartsWith("_") &&
                                     !c.ColumnName.Equals("Sr No.", StringComparison.OrdinalIgnoreCase) &&
@@ -769,21 +820,16 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                                     !c.ColumnName.Equals("Sr.", StringComparison.OrdinalIgnoreCase))
                         .ToList();
 
-                    // --- Header row (row 1) ---
-                    // Column A = Sr No.
                     ws.Cell(1, 1).Value = "Sr No.";
                     for (int ci = 0; ci < visibleCols.Count; ci++)
                         ws.Cell(1, ci + 2).Value = visibleCols[ci].ColumnName;
 
-                    // Style header
                     var headerRange = ws.Range(1, 1, 1, visibleCols.Count + 1);
                     headerRange.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#1976D2");
                     headerRange.Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
                     headerRange.Style.Font.Bold = true;
                     headerRange.Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
 
-                    // --- Data rows ---
-                    // Only include real student rows (non-empty Name)
                     var nameCol = _originalData.Columns.Cast<System.Data.DataColumn>()
                         .FirstOrDefault(c => c.ColumnName.Equals("Name", StringComparison.OrdinalIgnoreCase));
 
@@ -791,7 +837,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     int srNo = 1;
                     foreach (System.Data.DataRow row in _originalData.Rows)
                     {
-                        // Apply same student-row filter as everywhere else
                         if (nameCol != null)
                         {
                             string nm = row[nameCol]?.ToString()?.Trim() ?? "";
@@ -804,7 +849,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                         for (int ci = 0; ci < visibleCols.Count; ci++)
                         {
                             string val = row[visibleCols[ci]]?.ToString() ?? "";
-                            // Write numeric values as numbers so Excel can sum them
                             if (decimal.TryParse(val, System.Globalization.NumberStyles.Any,
                                     System.Globalization.CultureInfo.InvariantCulture, out decimal num))
                                 ws.Cell(excelRow, ci + 2).Value = num;
@@ -812,7 +856,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                                 ws.Cell(excelRow, ci + 2).Value = val;
                         }
 
-                        // Alternate row colour
                         if (excelRow % 2 == 0)
                             ws.Row(excelRow).Style.Fill.BackgroundColor =
                                 ClosedXML.Excel.XLColor.FromHtml("#F5F5F5");
@@ -820,9 +863,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                         excelRow++;
                     }
 
-                    // Auto-fit columns
                     ws.Columns().AdjustToContents();
-
                     workbook.SaveAs(filePath);
                 }
 
@@ -991,7 +1032,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             if (CsvTableView == null) { RowCountDisplay = "0 students"; return; }
 
-            // Count only real student rows (non-empty Name)
             int CountStudents(System.Collections.IEnumerable rows)
             {
                 int count = 0;
@@ -1075,7 +1115,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [RelayCommand]
         public void ExportAllCourses()
         {
-            // Implement export functionality
             MessageBox.Show("Export feature coming soon!", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
@@ -1113,13 +1152,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
         private int ExtractYear(DataTable sheet)
         {
-            // First: trust the metadata CsvDataService extracted from header rows
             if (sheet.ExtendedProperties.ContainsKey("Year") &&
                 int.TryParse(sheet.ExtendedProperties["Year"]?.ToString(), out int metaYear) &&
                 metaYear >= 1)
                 return metaYear;
 
-            // Fallback: parse the sheet tab name
             string name = sheet.TableName.ToLower();
             for (int i = 1; i <= 4; i++)
             {
@@ -1134,19 +1171,16 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
         private string ExtractQuarter(DataTable sheet)
         {
-            // First: trust the metadata CsvDataService extracted from header rows
             string metaQuarter = sheet.ExtendedProperties["Quarter"]?.ToString();
             if (!string.IsNullOrEmpty(metaQuarter) && metaQuarter != "Unknown")
                 return metaQuarter;
 
-            // Fallback: parse the sheet tab name (unlikely to work for this school's naming)
             string name = sheet.TableName.ToLower();
             if (name.Contains("augoct") || name.Contains("aug-oct") || name.Contains("aug_oct")) return "Aug-Oct";
             if (name.Contains("novjan") || name.Contains("nov-jan") || name.Contains("nov_jan")) return "Nov-Jan";
             if (name.Contains("febapr") || name.Contains("feb-apr") || name.Contains("feb_apr")) return "Feb-Apr";
             if (name.Contains("mayjun") || name.Contains("may-jun") || name.Contains("may_jun")) return "May-Jun";
 
-            // Last resort: check CourseInfo / Period extended properties
             string period = sheet.ExtendedProperties["Period"]?.ToString() ?? "";
             if (!string.IsNullOrEmpty(period))
             {
@@ -1157,17 +1191,15 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 if (p.Contains("MAY") || p.Contains("JUN") || p.Contains("JUNE")) return "May-Jun";
             }
 
-            return "Aug-Oct"; // final fallback
+            return "Aug-Oct";
         }
 
         private string ExtractDepartmentCode(DataTable sheet)
         {
-            // First: trust the metadata CsvDataService extracted from header rows
             string metaDept = sheet.ExtendedProperties["Department"]?.ToString();
             if (!string.IsNullOrEmpty(metaDept) && metaDept != "General" && metaDept != "MISC")
                 return metaDept;
 
-            // Fallback: parse the sheet tab name (sheet names like "ME TD 2ND", "CSE 6th Sem", etc.)
             string name = sheet.TableName.ToUpper();
             if (name.Contains("PASSOUT") || name.Contains("PASS OUT") || name.Contains("PASS-OUT"))
                 return "PASSOUT";
@@ -1182,7 +1214,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             if (name.Contains("MISC"))
                 return "MISC";
 
-            // Last resort: read from metaDept even if MISC
             return metaDept ?? null;
         }
 
@@ -1221,6 +1252,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             public string SheetName { get; set; }
             public string DepartmentCode { get; set; }
             public int Year { get; set; }
+            public int Semester { get; set; }
             public string Quarter { get; set; }
             public string CourseName { get; set; }
             public string YearDisplay { get; set; }

@@ -65,24 +65,293 @@ namespace SchoolFeeSystem.Presentation.Services
 
             foreach (var worksheet in workbook.Worksheets)
             {
-                var table = WorksheetToDataTable(worksheet);
+                var allRows = worksheet.RowsUsed().ToList();
+                var headerRowNums = FindAllHeaderRows(allRows);
 
-                // Extract full metadata (department, year, quarter) from header rows
-                var metadata = ExtractMetadataFromSheet(worksheet);
+                if (headerRowNums.Count == 0) continue;
 
-                table.ExtendedProperties["Department"] = metadata.DepartmentCode;
-                table.ExtendedProperties["Year"] = metadata.Year;
-                table.ExtendedProperties["Quarter"] = metadata.Quarter;
-                table.ExtendedProperties["Period"] = metadata.Period;
-                table.ExtendedProperties["CourseInfo"] = metadata.CourseInfo;
-                table.ExtendedProperties["InstituteName"] = metadata.InstituteName;
-                table.ExtendedProperties["OriginalSheetName"] = worksheet.Name;
+                // ── One DataTable per sub-table block ───────────────────────────
+                // Previously every sub-table in a sheet was merged into one DataTable
+                // and only the worksheet's row-3 course title was read for metadata.
+                // That caused Ankush (5th Sem) to inherit "3RD SEM" Year=2 metadata
+                // because both sub-tables lived in one sheet whose row 3 described
+                // the first sub-table only.
+                //
+                // Now each block emits its own DataTable with its own Semester/Year,
+                // found by scanning upward from the block's own header row.
 
-                dataSet.Tables.Add(table);
+                for (int b = 0; b < headerRowNums.Count; b++)
+                {
+                    int headerNum = headerRowNums[b];
+                    int nextHeader = b + 1 < headerRowNums.Count
+                                         ? headerRowNums[b + 1] : int.MaxValue;
+
+                    // Course description row for THIS block
+                    string courseRow = ExtractSubTableCourseRow(allRows, headerNum, b == 0);
+
+                    // Metadata scoped to this block
+                    var metadata = ExtractMetadataFromSubTable(worksheet, allRows, headerNum, courseRow);
+
+                    // Build the DataTable for just this block
+                    DataTable table = BuildDataTableForBlock(allRows, headerNum, nextHeader, worksheet.Name);
+
+                    // ── Build a globally-unique table name ────────────────────────────
+                    // Rules:
+                    //   Single-block sheet  → worksheet name (e.g. "ME TD 2ND")
+                    //   Multi-block sheet   → worksheet name + block index + semester
+                    //                         (e.g. "ME TD 2ND_b0_Sem4", "ME TD 2ND_b1_Sem6")
+                    //                         Block index is always included so two blocks
+                    //                         with the same parsed semester never collide.
+                    //   Any remaining clash → append "_c{N}" until unique.
+                    string baseName = headerRowNums.Count == 1
+                        ? worksheet.Name
+                        : $"{worksheet.Name}_b{b}_Sem{metadata.Semester}";
+
+                    string uniqueName = baseName;
+                    int collision = 2;
+                    while (dataSet.Tables.Contains(uniqueName))
+                        uniqueName = $"{baseName}_c{collision++}";
+
+                    table.TableName = uniqueName;
+
+                    // Store all metadata in ExtendedProperties
+                    table.ExtendedProperties["Department"] = metadata.DepartmentCode;
+                    table.ExtendedProperties["Year"] = metadata.Year;
+                    table.ExtendedProperties["Semester"] = metadata.Semester.ToString();
+                    table.ExtendedProperties["Quarter"] = metadata.Quarter;
+                    table.ExtendedProperties["Period"] = metadata.Period;
+                    table.ExtendedProperties["CourseInfo"] = metadata.CourseInfo;
+                    table.ExtendedProperties["InstituteName"] = metadata.InstituteName;
+                    table.ExtendedProperties["OriginalSheetName"] = worksheet.Name;
+
+                    dataSet.Tables.Add(table);
+                }
             }
 
             _loadedFiles[fileKey] = dataSet;
             _filePaths[fileKey] = filePath;
+        }
+
+        // ── Find the "Diploma - ..." / "Sub:-" course-description row for one block ─
+        // For the first block: row 3 of the worksheet is the standard course title.
+        // For later blocks: scan up to 8 rows above the header for any row whose
+        //                   first cell mentions a course/diploma/semester keyword.
+        //                   Falls back to a guaranteed-unique placeholder so the
+        //                   collision-proof naming loop in LoadFile always works.
+        private string ExtractSubTableCourseRow(List<IXLRow> allRows, int headerRowNum, bool isFirstBlock)
+        {
+            if (isFirstBlock)
+            {
+                var r3 = allRows.FirstOrDefault(r => r.RowNumber() == 3);
+                return r3?.CellsUsed().FirstOrDefault()?.GetString()?.Trim() ?? "";
+            }
+
+            // Scan up to 8 rows above the header — widen the window so we catch
+            // course titles that sit further away (e.g. with a blank row between).
+            for (int offset = 1; offset <= 8; offset++)
+            {
+                int targetNum = headerRowNum - offset;
+                if (targetNum < 1) break;
+
+                var row = allRows.FirstOrDefault(r => r.RowNumber() == targetNum);
+                if (row == null) continue;
+
+                string val = row.CellsUsed().FirstOrDefault()?.GetString()?.Trim() ?? "";
+                if (string.IsNullOrEmpty(val)) continue;
+
+                // Accept any row that describes a course/section
+                if (val.StartsWith("Diploma", StringComparison.OrdinalIgnoreCase) ||
+                    val.StartsWith("Course", StringComparison.OrdinalIgnoreCase) ||
+                    val.StartsWith("Sub:-", StringComparison.OrdinalIgnoreCase) ||
+                    val.StartsWith("Sub :-", StringComparison.OrdinalIgnoreCase) ||
+                    val.IndexOf("Semester", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    val.IndexOf("Sem.", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    val.IndexOf("Year", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return val;
+            }
+
+            // If nothing useful found above, return empty string — the metadata
+            // extractor will fall back to Semester=0 and the naming loop will still
+            // generate a unique name via the _b{N} collision suffix.
+            return "";
+        }
+
+        // ── Metadata extraction scoped to one sub-table (Bug 2 fix) ─────────────
+        // Each block reads its own course-description row, so "5th Semester" yields
+        // Semester=5, Year=3 — independent of what other blocks in the sheet say.
+        private SheetMetadataExtended ExtractMetadataFromSubTable(
+            IXLWorksheet worksheet,
+            List<IXLRow> allRows,
+            int headerRowNum,
+            string courseRow)
+        {
+            var metadata = new SheetMetadataExtended();
+
+            // Institute name is always worksheet row 1
+            metadata.InstituteName = allRows.FirstOrDefault(r => r.RowNumber() == 1)
+                ?.CellsUsed().FirstOrDefault()?.GetString()?.Trim() ?? "";
+
+            // Period / quarter: scan all cells in the 5 rows above this block's header
+            string monthPattern =
+                @"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER" +
+                @"|JAN|FEB|MAR|APR|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{4}" +
+                @"\s+[Tt][Oo]\s+" +
+                @"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER" +
+                @"|JAN|FEB|MAR|APR|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{4}";
+
+            for (int offset = 5; offset >= 0; offset--)
+            {
+                int rowNum = headerRowNum - offset;
+                if (rowNum < 1) continue;
+
+                var row = allRows.FirstOrDefault(r => r.RowNumber() == rowNum);
+                if (row == null) continue;
+
+                foreach (var cell in row.CellsUsed())
+                {
+                    string cellText = cell.GetString()?.Trim() ?? "";
+                    var m = System.Text.RegularExpressions.Regex.Match(
+                        cellText, monthPattern,
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (m.Success)
+                    {
+                        metadata.Period = m.Value;
+                        metadata.Quarter = DeterminQuarter(m.Value);
+                        break;
+                    }
+                }
+                if (!string.IsNullOrEmpty(metadata.Period)) break;
+            }
+
+            // Department detection from this block's course-description row
+            metadata.CourseInfo = courseRow;
+            string courseText = courseRow.ToUpper();
+
+            if (courseText.Contains("PASSOUT") || courseText.Contains("PASS OUT")) metadata.DepartmentCode = "PASSOUT";
+            else if (courseText.Contains("MECHATRONICS")) metadata.DepartmentCode = "MECHATRONICS";
+            else if (courseText.Contains("MECHANICAL") || courseText.Contains("(T&D)") ||
+                     courseText.Contains("TOOL AND DIE") || courseText.Contains("TOOL & DIE") ||
+                     courseText.Contains(" ME ") || courseText.Contains("M.E")) metadata.DepartmentCode = "ME";
+            else if (courseText.Contains("ELECTRICAL")) metadata.DepartmentCode = "EE";
+            else if (courseText.Contains("COMPUTER") || courseText.Contains("CSE") ||
+                     courseText.Contains("C.S.E")) metadata.DepartmentCode = "CSE";
+            else metadata.DepartmentCode = "MISC";
+
+            // ── Semester → Year conversion (the key fix for Bug 2) ────────────────
+            // Parse "3RD SEM", "5th Semester", "2nd Year" from THIS block's course row.
+            // Formula: Year = ceil(Sem / 2)  →  Sem 3 = Year 2, Sem 5 = Year 3.
+            var semMatch = System.Text.RegularExpressions.Regex.Match(
+                courseRow,
+                @"(\d+)\s*(?:st|nd|rd|th)\s+(?:Sem(?:ester)?|Year)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            if (semMatch.Success)
+            {
+                int semNum = int.Parse(semMatch.Groups[1].Value);
+                metadata.Semester = semNum;
+                metadata.Year = ((semNum + 1) / 2).ToString();
+            }
+            else
+            {
+                // Try bare "Xth Year" / "Xnd Year" without the Sem/Semester keyword
+                var yrMatch = System.Text.RegularExpressions.Regex.Match(
+                    courseRow,
+                    @"(\d+)(?:st|nd|rd|th)\s+Year",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                if (yrMatch.Success)
+                {
+                    int yr = int.Parse(yrMatch.Groups[1].Value);
+                    metadata.Year = yr.ToString();
+                    metadata.Semester = yr * 2;   // approximate: 2nd Year ≈ Sem 4
+                }
+                else
+                {
+                    metadata.Year = "1";
+                    metadata.Semester = 1;
+                }
+            }
+
+            return metadata;
+        }
+
+        // ── Build a DataTable for exactly one block (from header row to next header) ─
+        private DataTable BuildDataTableForBlock(
+            List<IXLRow> allRows,
+            int headerRowNum,
+            int nextHeaderRowNum,
+            string worksheetName)
+        {
+            // Column list from this block's header row
+            var headerRow = allRows.First(r => r.RowNumber() == headerRowNum);
+            var blockCols = new List<(string Name, int ColAddr)>();
+            foreach (var cell in headerRow.CellsUsed())
+            {
+                string colName = cell.GetString().Trim();
+                if (string.IsNullOrWhiteSpace(colName))
+                    colName = $"Column{cell.Address.ColumnNumber}";
+                blockCols.Add((colName, cell.Address.ColumnNumber));
+            }
+
+            // Build DataTable with _Section tag + block columns (dedup)
+            var table = new DataTable();
+            table.Columns.Add("_Section");
+
+            var seenCols = new List<string>();
+            foreach (var (name, _) in blockCols)
+            {
+                string finalName = name;
+                int suffix = 2;
+                while (seenCols.Contains(finalName, StringComparer.OrdinalIgnoreCase))
+                    finalName = $"{name}_{suffix++}";
+                seenCols.Add(finalName);
+                table.Columns.Add(finalName);
+            }
+
+            string sectionLabel = DeriveSectionLabel(allRows, headerRowNum);
+            int nameColAddr = blockCols.Count > 1 ? blockCols[1].ColAddr : -1;
+
+            foreach (var row in allRows)
+            {
+                int rowNum = row.RowNumber();
+                if (rowNum <= headerRowNum) continue;
+                if (rowNum >= nextHeaderRowNum) break;
+
+                // Skip non-student rows
+                if (nameColAddr >= 0)
+                {
+                    string nameVal = row.Cell(nameColAddr).GetString().Trim();
+                    if (string.IsNullOrEmpty(nameVal)) continue;
+                    if (nameVal.Equals("Name", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (nameVal.StartsWith("Note", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (nameVal.Length > 60 || nameVal.Contains(":-") ||
+                        nameVal.Contains("Per Day")) continue;
+                }
+
+                var dataRow = table.NewRow();
+                dataRow["_Section"] = sectionLabel;
+
+                for (int ci = 0; ci < blockCols.Count; ci++)
+                {
+                    int colAddr = blockCols[ci].ColAddr;
+                    var cell = row.Cell(colAddr);
+                    string cellValue;
+                    if (cell.HasFormula)
+                    {
+                        try { cellValue = cell.CachedValue.ToString()?.Trim() ?? ""; }
+                        catch { cellValue = ""; }
+                    }
+                    else
+                    {
+                        cellValue = cell.GetString().Trim();
+                    }
+                    dataRow[ci + 1] = cellValue;   // +1: col 0 is _Section
+                }
+
+                table.Rows.Add(dataRow);
+            }
+
+            return table;
         }
 
         private string DetectDepartment(DataTable table)
@@ -1107,38 +1376,14 @@ namespace SchoolFeeSystem.Presentation.Services
         // ===========================================
 
         /// <summary>
-        /// Enhanced file loading with better course/year/quarter detection
+        /// Enhanced file loading with better course/year/quarter detection.
+        /// Delegates to LoadFile which now handles per-sub-table splitting.
         /// </summary>
         public void LoadFileEnhanced(string filePath)
         {
-            if (!File.Exists(filePath))
-                throw new FileNotFoundException($"File not found: {filePath}");
-
-            var workbook = new XLWorkbook(filePath);
-            var dataSet = new DataSet();
-            string fileKey = Path.GetFileName(filePath);
-
-            foreach (var worksheet in workbook.Worksheets)
-            {
-                var table = WorksheetToDataTable(worksheet);
-
-                // Extract metadata from sheet header (rows 1-3)
-                var metadata = ExtractMetadataFromSheet(worksheet);
-
-                // Apply metadata to table
-                table.ExtendedProperties["Department"] = metadata.DepartmentCode;
-                table.ExtendedProperties["Year"] = metadata.Year;
-                table.ExtendedProperties["Quarter"] = metadata.Quarter;
-                table.ExtendedProperties["InstituteName"] = metadata.InstituteName;
-                table.ExtendedProperties["Period"] = metadata.Period;
-                table.ExtendedProperties["CourseInfo"] = metadata.CourseInfo;
-                table.ExtendedProperties["OriginalSheetName"] = worksheet.Name;
-
-                dataSet.Tables.Add(table);
-            }
-
-            _loadedFiles[fileKey] = dataSet;
-            _filePaths[fileKey] = filePath;
+            // LoadFile now contains all the per-block splitting logic,
+            // so LoadFileEnhanced simply calls through to it.
+            LoadFile(filePath);
         }
 
         private SheetMetadataExtended ExtractMetadataFromSheet(IXLWorksheet worksheet)
@@ -1292,6 +1537,7 @@ namespace SchoolFeeSystem.Presentation.Services
             public string DepartmentCode { get; set; } = "";
             public string Year { get; set; } = "";
             public string Quarter { get; set; } = "";
+            public int Semester { get; set; } = 0;   // Bug 2 fix: per-block semester
         }
 
         // ===========================================

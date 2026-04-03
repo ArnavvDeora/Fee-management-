@@ -21,8 +21,8 @@ namespace SchoolFeeSystem.Presentation.Services
 
         // Fine schedule
         public const int GraceDays = 15;
-        public const decimal FineDay1Rate = 10m;   // days 16-45
-        public const decimal FineDay2Rate = 20m;   // days 46-75
+        public const decimal FineDay1Rate = 10m;     // days 16-45
+        public const decimal FineDay2Rate = 20m;     // days 46-75
         public const decimal FineFlatMonth3 = 750m;  // day 76+
 
         // ── Persisted state ─────────────────────────────────────────
@@ -104,6 +104,9 @@ namespace SchoolFeeSystem.Presentation.Services
 
         // ─── Main cycle check ───────────────────────────────────────
         // Call on app startup and on every file load.
+        // FIX: sq==cur check now runs BEFORE the persisted-state check,
+        //      so a current-quarter file is never accidentally advanced
+        //      just because the stored LastQuarter is stale.
         public List<TransitionResult> RunCycleCheck()
         {
             var results = new List<TransitionResult>();
@@ -116,14 +119,19 @@ namespace SchoolFeeSystem.Presentation.Services
                 string sq = sheet.ExtendedProperties["Quarter"]?.ToString() ?? "";
                 if (string.IsNullOrEmpty(sq)) continue;
 
-                _state.LastQuarter.TryGetValue(name, out string last);
-                if (last == cur) continue;         // already current
-
-                if (sq == cur)                     // file IS current quarter
+                // FIX: Check the file's own quarter tag first.
+                // If the file already belongs to the current quarter, just
+                // record it and move on — never advance it.
+                if (sq == cur)
                 {
                     RecordCurrent(name, cur, now);
                     continue;
                 }
+
+                // Now check persisted state — if we already processed this
+                // sheet in a previous run for the current quarter, skip.
+                _state.LastQuarter.TryGetValue(name, out string last);
+                if (last == cur) continue;
 
                 // File is from a past quarter → advance it
                 var r = Advance(sheet, cur);
@@ -207,6 +215,7 @@ namespace SchoolFeeSystem.Presentation.Services
                 var oldPrevPend = FC(old, "previous", "pending");
                 var oldQFee = FC(old, "quarterly");
                 var oldName = FC(old, "name");
+                var oldCat = FC(old, "category");
 
                 // New-sheet column references
                 var nsPrevPend = FC(ns, "previous", "pending");
@@ -218,7 +227,7 @@ namespace SchoolFeeSystem.Presentation.Services
 
                     DataRow nr = ns.NewRow();
 
-                    // Copy all columns; reset fee columns to "0"
+                    // ── Step 1: Copy identity columns; reset all fee cols to "0" ──
                     foreach (DataColumn oc in old.Columns)
                     {
                         string nc = MatchNewCol(ns, oc.ColumnName, newPeriod);
@@ -226,14 +235,19 @@ namespace SchoolFeeSystem.Presentation.Services
                         nr[nc] = IsId(oc.ColumnName) ? or[oc] : (object)"0";
                     }
 
-                    // Carry forward unpaid balance → Previous Quarter Pending Fees
+                    // ── Step 2: Carry forward unpaid balance → Previous Quarter Pending ──
+                    // We use the old TOTAL column because that is what the student
+                    // actually owed (quarterly + any previous carry already included).
                     decimal carry = 0m;
                     if (oldTotal != null)
+                    {
                         decimal.TryParse(or[oldTotal]?.ToString(),
                             System.Globalization.NumberStyles.Any,
                             System.Globalization.CultureInfo.InvariantCulture, out carry);
+                    }
                     else
                     {
+                        // Fallback: sum previous pending + quarterly from old sheet
                         decimal pp = 0m, qf = 0m;
                         if (oldPrevPend != null)
                             decimal.TryParse(or[oldPrevPend]?.ToString(),
@@ -249,7 +263,59 @@ namespace SchoolFeeSystem.Presentation.Services
                     if (nsPrevPend != null && carry > 0)
                         nr[nsPrevPend.ColumnName] = carry.ToString("F2");
 
-                    // Reset fine for new quarter
+                    // ── Step 3: Restore quarterly fee for the new quarter ──────────────
+                    // Rule: SC, ST, and any FW (fee-waiver) category → always ₹0.
+                    //       OBC, GEN, BC (non-FW) → carry forward the same quarterly amount.
+                    if (oldQFee != null)
+                    {
+                        var nsQFee = FC(ns, "quarterly");
+                        if (nsQFee != null)
+                        {
+                            // Read category from old row
+                            string cat = oldCat != null
+                                ? or[oldCat]?.ToString()?.Trim().ToUpper() ?? ""
+                                : "";
+
+                            bool isFreeCategory =
+                                cat == "SC" ||
+                                cat == "ST" ||
+                                cat.Contains("FW");  // covers BC(FW), OBC(FW), GEN(FW), FW BC, etc.
+
+                            if (isFreeCategory)
+                            {
+                                nr[nsQFee.ColumnName] = "0";
+                            }
+                            else
+                            {
+                                // Carry the same quarterly fee the student had last quarter
+                                decimal.TryParse(or[oldQFee]?.ToString(),
+                                    System.Globalization.NumberStyles.Any,
+                                    System.Globalization.CultureInfo.InvariantCulture,
+                                    out decimal oldQ);
+                                nr[nsQFee.ColumnName] = oldQ.ToString("F2");
+                            }
+                        }
+                    }
+
+                    // ── Step 4: Recalculate TOTAL = new quarterly + new previous pending ──
+                    var nsTotalCol = FC(ns, "total", "fees") ?? FC(ns, "total");
+                    if (nsTotalCol != null)
+                    {
+                        decimal newQAmt = 0m;
+                        decimal newPrev = 0m;
+                        var nsQFeeCol = FC(ns, "quarterly");
+                        if (nsQFeeCol != null)
+                            decimal.TryParse(nr[nsQFeeCol.ColumnName]?.ToString(),
+                                System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture, out newQAmt);
+                        if (nsPrevPend != null)
+                            decimal.TryParse(nr[nsPrevPend.ColumnName]?.ToString(),
+                                System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture, out newPrev);
+                        nr[nsTotalCol.ColumnName] = (newQAmt + newPrev).ToString("F2");
+                    }
+
+                    // ── Step 5: Reset fine for new quarter ────────────────────────────
                     if (nsFine != null) nr[nsFine.ColumnName] = "0";
 
                     ns.Rows.Add(nr);
@@ -345,13 +411,31 @@ namespace SchoolFeeSystem.Presentation.Services
                 && !nm.Contains(":-");
         }
 
+        // IsId controls which columns are preserved as-is during quarter advance
+        // (everything else gets reset to "0").
+        // Identity columns: student personal data + fixed per-student charges.
         private static bool IsId(string col)
         {
             string n = col.ToLower();
-            return n.Contains("name") || n.Contains("father") || n.Contains("mother")
-                || n.Contains("category") || n.Contains("section") || n.StartsWith("_")
-                || n.Contains("scholarship") || n.Contains("hostel")
-                || n.Contains("roll") || n.Contains("sr no") || n.Contains("sr.");
+            return n.Contains("name") ||
+                   n.Contains("father") ||
+                   n.Contains("mother") ||
+                   n.Contains("category") ||
+                   n.Contains("section") ||
+                   n.StartsWith("_") ||
+                   n.Contains("scholarship") ||
+                   n.Contains("hostel") ||
+                   n.Contains("roll") ||
+                   n.Contains("sr no") ||
+                   n.Contains("sr.") ||
+                   // Fixed per-student charges carried every quarter:
+                   n.Contains("stationary") ||
+                   n.Contains("welfare") ||
+                   n.Contains("insurance") ||
+                   n.Contains("red cross") ||
+                   n.Contains("student activ") ||
+                   n.Contains("institutional") ||
+                   n.Contains("refundable");
         }
 
         private static bool HasQText(string col)
