@@ -1,344 +1,353 @@
 ﻿<UserControl x:Class="SchoolFeeSystem.Presentation.Views.PaymentHistoryView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             mc:Ignorable="d" 
-             d:DesignHeight="800" d:DesignWidth="1200"
-             Background="#F5F5F5">
+             mc:Ignorable="d"
+             d:DesignHeight="800" d:DesignWidth="1300"
+             Background="#F0F2F5">
 
-    <Grid Margin="20">
+    <UserControl.Resources>
+
+        <!-- ── Shared flat button style (matches ReportsView) ── -->
+        <Style x:Key="FlatBtn" TargetType="Button">
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Opacity" Value="0.85"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.45"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <DropShadowEffect x:Key="CardShadow" BlurRadius="12" Color="#C0C0C0" Opacity="0.30" ShadowDepth="2"/>
+
+        <!-- ── DataGrid style (matches ReportsView.ReportGrid) ── -->
+        <Style x:Key="HistoryGrid" TargetType="DataGrid">
+            <Setter Property="Background"               Value="White"/>
+            <Setter Property="BorderThickness"          Value="0"/>
+            <Setter Property="GridLinesVisibility"      Value="Horizontal"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="#ECEFF1"/>
+            <Setter Property="RowBackground"            Value="White"/>
+            <Setter Property="AlternatingRowBackground" Value="#F5F9FF"/>
+            <Setter Property="ColumnHeaderHeight"       Value="40"/>
+            <Setter Property="RowHeight"                Value="46"/>
+            <Setter Property="FontSize"                 Value="13"/>
+            <Setter Property="SelectionMode"            Value="Single"/>
+            <Setter Property="IsReadOnly"               Value="True"/>
+            <Setter Property="CanUserAddRows"           Value="False"/>
+            <Setter Property="CanUserDeleteRows"        Value="False"/>
+            <Setter Property="EnableRowVirtualization"  Value="False"/>
+            <Setter Property="EnableColumnVirtualization" Value="False"/>
+            <Setter Property="VirtualizingPanel.IsVirtualizing" Value="False"/>
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility"   Value="Auto"/>
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
+        </Style>
+
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background"      Value="#1565C0"/>
+            <Setter Property="Foreground"      Value="White"/>
+            <Setter Property="FontWeight"      Value="SemiBold"/>
+            <Setter Property="FontSize"        Value="12"/>
+            <Setter Property="Padding"         Value="10,0"/>
+            <Setter Property="BorderThickness" Value="0,0,1,0"/>
+            <Setter Property="BorderBrush"     Value="#1976D2"/>
+        </Style>
+
+        <Style TargetType="DataGridRow">
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#BBDEFB"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#E3F2FD"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+    </UserControl.Resources>
+
+    <Grid>
         <Grid.RowDefinitions>
+            <!-- 0: Header bar -->
+            <RowDefinition Height="64"/>
+            <!-- 1: Stat chips -->
             <RowDefinition Height="Auto"/>
+            <!-- 2: Search + controls row -->
             <RowDefinition Height="Auto"/>
+            <!-- 3: Filter strip -->
             <RowDefinition Height="Auto"/>
+            <!-- 4: Main content (grid) -->
             <RowDefinition Height="*"/>
+            <!-- 5: Receipt preview + actions -->
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <Border Grid.Row="0" Background="#2196F3" CornerRadius="8" Padding="20" Margin="0,0,0,20">
+        <!-- ═══ ROW 0 — HEADER BAR ═══════════════════════════════════════════ -->
+        <Border Grid.Row="0" Background="#1565C0">
+            <Grid Margin="20,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <Button Grid.Column="0" Content="← Back"
+                        Command="{Binding GoBackCommand}"
+                        Style="{StaticResource FlatBtn}"
+                        Background="Transparent" Foreground="White"
+                        FontSize="13" Padding="10,8"/>
+
+                <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="💳 Payment History"
+                               FontSize="20" FontWeight="Bold" Foreground="White"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="Every transaction · every student · instant receipts"
+                               FontSize="11" Foreground="#90CAF9" HorizontalAlignment="Center"/>
+                </StackPanel>
+
+                <Button Grid.Column="2"
+                        Content="📥 Export Excel"
+                        Command="{Binding ExportToExcelCommand}"
+                        Style="{StaticResource FlatBtn}"
+                        Background="#FF8F00" Foreground="White"
+                        FontWeight="Bold" FontSize="13" Padding="16,8"/>
+
+                <Button Grid.Column="4"
+                        Content="🔄 Refresh"
+                        Command="{Binding RefreshDataCommand}"
+                        Style="{StaticResource FlatBtn}"
+                        Background="#43A047" Foreground="White"
+                        FontWeight="Bold" FontSize="13" Padding="16,8"/>
+            </Grid>
+        </Border>
+
+        <!-- ═══ ROW 1 — STAT CHIPS (matches Reports style) ═══════════════════ -->
+        <Border Grid.Row="1" Background="White"
+                BorderBrush="#E0E0E0" BorderThickness="0,0,0,1" Padding="20,14">
+            <StackPanel Orientation="Horizontal">
+
+                <!-- Total transactions -->
+                <Border Background="#E8F5E9" CornerRadius="10" Padding="16,10"
+                        Margin="0,0,12,0" Effect="{StaticResource CardShadow}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="💳" FontSize="20" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <StackPanel>
+                            <TextBlock Text="{Binding TotalPaidAmount}" FontSize="20"
+                                       FontWeight="Bold" Foreground="#2E7D32"/>
+                            <TextBlock Text="Total Collected" FontSize="11" Foreground="#546E7A"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Fine waivers -->
+                <Border Background="#FFF3E0" CornerRadius="10" Padding="16,10"
+                        Margin="0,0,12,0" Effect="{StaticResource CardShadow}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="⚠" FontSize="20" VerticalAlignment="Center"
+                                   Margin="0,0,10,0" Foreground="#E65100"/>
+                        <StackPanel>
+                            <TextBlock Text="{Binding TotalFineAmount}" FontSize="20"
+                                       FontWeight="Bold" Foreground="#E65100"/>
+                            <TextBlock Text="Fine Waivers" FontSize="11" Foreground="#546E7A"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Pending -->
+                <Border Background="#FFEBEE" CornerRadius="10" Padding="16,10"
+                        Margin="0,0,12,0" Effect="{StaticResource CardShadow}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="₹" FontSize="20" FontWeight="Bold"
+                                   VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#C62828"/>
+                        <StackPanel>
+                            <TextBlock Text="{Binding PendingAmount}" FontSize="20"
+                                       FontWeight="Bold" Foreground="#C62828"/>
+                            <TextBlock Text="Pending Amount" FontSize="11" Foreground="#546E7A"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Active quarter -->
+                <Border Background="#E8EAF6" CornerRadius="10" Padding="16,10"
+                        Effect="{StaticResource CardShadow}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="📅" FontSize="20" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <StackPanel>
+                            <TextBlock Text="Feb-Apr" FontSize="15" FontWeight="Bold" Foreground="#283593"/>
+                            <TextBlock Text="Active Quarter" FontSize="11" Foreground="#546E7A"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </Border>
+
+        <!-- ═══ ROW 2 — SEARCH + CONTROLS (matches Reports controls row) ═════ -->
+        <Border Grid.Row="2" Background="White"
+                BorderBrush="#E0E0E0" BorderThickness="0,0,0,1" Padding="20,12">
             <Grid>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="220"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Student Name search (primary) -->
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="👤 Search Student Name" FontSize="11" FontWeight="SemiBold"
+                               Foreground="#546E7A" Margin="0,0,0,4"/>
+                    <Grid>
+                        <TextBox Text="{Binding StudentNameFilter, UpdateSourceTrigger=PropertyChanged}"
+                                 Padding="10,6" FontSize="13"
+                                 BorderBrush="#90CAF9" BorderThickness="1.5"/>
+                    </Grid>
+                </StackPanel>
+
+                <!-- Student ID -->
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="🪪 Student ID" FontSize="11" FontWeight="SemiBold"
+                               Foreground="#546E7A" Margin="0,0,0,4"/>
+                    <TextBox Text="{Binding StudentIdFilter, UpdateSourceTrigger=PropertyChanged}"
+                             Padding="10,6" FontSize="13"
+                             BorderBrush="#90CAF9" BorderThickness="1.5"/>
+                </StackPanel>
+
+                <!-- Date range -->
+                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Bottom">
+                    <StackPanel Margin="0,0,12,0">
+                        <TextBlock Text="📅 Start Date" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="#546E7A" Margin="0,0,0,4"/>
+                        <DatePicker SelectedDate="{Binding StartDate}"
+                                    Padding="8,5" FontSize="13"
+                                    BorderBrush="#90CAF9" BorderThickness="1.5"
+                                    Width="160"/>
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="📅 End Date" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="#546E7A" Margin="0,0,0,4"/>
+                        <DatePicker SelectedDate="{Binding EndDate}"
+                                    Padding="8,5" FontSize="13"
+                                    BorderBrush="#90CAF9" BorderThickness="1.5"
+                                    Width="160"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Search button -->
+                <Button Grid.Column="6"
+                        Content="🔍 Search"
+                        Command="{Binding SearchByStudentCommand}"
+                        Style="{StaticResource FlatBtn}"
+                        Background="#1565C0" Foreground="White"
+                        FontWeight="Bold" FontSize="13"
+                        Padding="16,9" VerticalAlignment="Bottom"/>
+
+                <!-- Clear button -->
+                <Button Grid.Column="8"
+                        Content="✕ Clear"
+                        Command="{Binding ClearFiltersCommand}"
+                        Style="{StaticResource FlatBtn}"
+                        Background="#EF5350" Foreground="White"
+                        FontSize="13" Padding="14,9" VerticalAlignment="Bottom"/>
+
+                <!-- Date filter button -->
+                <Button Grid.Column="10"
+                        Content="📆 Apply Dates"
+                        Command="{Binding FilterByDateRangeCommand}"
+                        Style="{StaticResource FlatBtn}"
+                        Background="#546E7A" Foreground="White"
+                        FontSize="13" Padding="14,9" VerticalAlignment="Bottom"/>
+
+            </Grid>
+        </Border>
+
+        <!-- ═══ ROW 3 — FILTER STRIP (matches Reports filter strip) ══════════ -->
+        <Border Grid.Row="3" Background="#FAFAFA"
+                BorderBrush="#E0E0E0" BorderThickness="0,0,0,1" Padding="20,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0">
-                    <TextBlock Text="💳 Payment History" 
-                               FontSize="28" 
-                               FontWeight="Bold" 
-                               Foreground="White"/>
-                    <TextBlock Text="View and track all payment transactions" 
-                               FontSize="14" 
-                               Foreground="#E3F2FD" 
-                               Margin="0,5,0,0"/>
+                <TextBlock Grid.Column="0" Text="Filter:" FontSize="12" FontWeight="SemiBold"
+                           Foreground="#546E7A" VerticalAlignment="Center"/>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <TextBlock Text="Payment Type:" FontSize="12" Foreground="#546E7A"
+                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox ItemsSource="{Binding PaymentTypes}"
+                              SelectedItem="{Binding SelectedPaymentType}"
+                              Padding="8,4" FontSize="12" MinWidth="160"
+                              BorderBrush="#B0BEC5" BorderThickness="1"/>
                 </StackPanel>
 
-                <Button Grid.Column="1" 
-                        Content="← Back to Dashboard" 
-                        Command="{Binding GoBackCommand}"
-                        Background="#1976D2"
-                        Foreground="White"
-                        Padding="20,10"
-                        FontSize="14"
-                        BorderThickness="0"
-                        Cursor="Hand"
-                        VerticalAlignment="Center">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}" 
-                                                CornerRadius="6" 
-                                                Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter HorizontalAlignment="Center" 
-                                                            VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#1565C0"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
+                <!-- Receipt hint text -->
+                <TextBlock Grid.Column="4"
+                           Text="Click 🖨️ on any row to preview &amp; print a receipt"
+                           FontSize="12" Foreground="#90A4AE" VerticalAlignment="Center"
+                           FontStyle="Italic"/>
             </Grid>
         </Border>
 
-        <!-- Summary Cards -->
-        <Grid Grid.Row="1" Margin="0,0,0,20">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-
-            <!-- Total Paid -->
-            <Border Grid.Column="0" Background="White" CornerRadius="8" Padding="20" Margin="0,0,10,0"
-                    BorderBrush="#E0E0E0" BorderThickness="1">
-                <StackPanel>
-                    <TextBlock Text="💰 Total Paid" FontSize="14" Foreground="#666"/>
-                    <TextBlock Text="{Binding TotalPaidAmount, FallbackValue='₹0.00'}" 
-                               FontSize="24" 
-                               FontWeight="Bold" 
-                               Foreground="#4CAF50" 
-                               Margin="0,5,0,0"/>
-                </StackPanel>
-            </Border>
-
-            <!-- Total Fines -->
-            <Border Grid.Column="1" Background="White" CornerRadius="8" Padding="20" Margin="5,0"
-                    BorderBrush="#E0E0E0" BorderThickness="1">
-                <StackPanel>
-                    <TextBlock Text="⚠️ Total Fines" FontSize="14" Foreground="#666"/>
-                    <TextBlock Text="{Binding TotalFineAmount, FallbackValue='₹0.00'}" 
-                               FontSize="24" 
-                               FontWeight="Bold" 
-                               Foreground="#FF9800" 
-                               Margin="0,5,0,0"/>
-                </StackPanel>
-            </Border>
-
-            <!-- Pending Amount -->
-            <Border Grid.Column="2" Background="White" CornerRadius="8" Padding="20" Margin="10,0,0,0"
-                    BorderBrush="#E0E0E0" BorderThickness="1">
-                <StackPanel>
-                    <TextBlock Text="📊 Pending Amount" FontSize="14" Foreground="#666"/>
-                    <TextBlock Text="{Binding PendingAmount, FallbackValue='₹0.00'}" 
-                               FontSize="24" 
-                               FontWeight="Bold" 
-                               Foreground="#F44336" 
-                               Margin="0,5,0,0"/>
-                </StackPanel>
-            </Border>
-        </Grid>
-
-        <!-- Filter Section -->
-        <Border Grid.Row="2" Background="White" CornerRadius="8" Padding="20" Margin="0,0,0,20"
-                BorderBrush="#E0E0E0" BorderThickness="1">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-
-                <TextBlock Grid.Row="0" 
-                           Text="🔍 Filter Options" 
-                           FontSize="18" 
-                           FontWeight="SemiBold" 
-                           Margin="0,0,0,15"/>
-
-                <Grid Grid.Row="1">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-
-                    <!-- Student ID Filter -->
-                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
-                        <TextBlock Text="Student ID" FontSize="12" Foreground="#666" Margin="0,0,0,5"/>
-                        <TextBox Text="{Binding StudentIdFilter, UpdateSourceTrigger=PropertyChanged}"
-                                 Padding="10"
-                                 FontSize="14"
-                                 BorderBrush="#BDBDBD"
-                                 BorderThickness="1"/>
-                    </StackPanel>
-
-                    <!-- Student Name Filter -->
-                    <StackPanel Grid.Column="1" Margin="5,0">
-                        <TextBlock Text="Student Name" FontSize="12" Foreground="#666" Margin="0,0,0,5"/>
-                        <TextBox Text="{Binding StudentNameFilter, UpdateSourceTrigger=PropertyChanged}"
-                                 Padding="10"
-                                 FontSize="14"
-                                 BorderBrush="#BDBDBD"
-                                 BorderThickness="1"/>
-                    </StackPanel>
-
-                    <!-- Start Date -->
-                    <StackPanel Grid.Column="2" Margin="5,0">
-                        <TextBlock Text="Start Date" FontSize="12" Foreground="#666" Margin="0,0,0,5"/>
-                        <DatePicker SelectedDate="{Binding StartDate}"
-                                   Padding="10"
-                                   FontSize="14"
-                                   BorderBrush="#BDBDBD"
-                                   BorderThickness="1"/>
-                    </StackPanel>
-
-                    <!-- End Date -->
-                    <StackPanel Grid.Column="3" Margin="10,0,0,0">
-                        <TextBlock Text="End Date" FontSize="12" Foreground="#666" Margin="0,0,0,5"/>
-                        <DatePicker SelectedDate="{Binding EndDate}"
-                                   Padding="10"
-                                   FontSize="14"
-                                   BorderBrush="#BDBDBD"
-                                   BorderThickness="1"/>
-                    </StackPanel>
-
-                    <!-- Payment Type Filter -->
-                    <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,10,10,0">
-                        <TextBlock Text="Payment Type" FontSize="12" Foreground="#666" Margin="0,0,0,5"/>
-                        <ComboBox ItemsSource="{Binding PaymentTypes}"
-                                 SelectedItem="{Binding SelectedPaymentType}"
-                                 Padding="10"
-                                 FontSize="14"
-                                 BorderBrush="#BDBDBD"
-                                 BorderThickness="1"/>
-                    </StackPanel>
-
-                    <!-- Action Buttons -->
-                    <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" 
-                               Orientation="Horizontal" 
-                               HorizontalAlignment="Right"
-                               Margin="5,10,0,0">
-                        <Button Content="🔍 Search" 
-                                Command="{Binding SearchByStudentCommand}"
-                                Background="#2196F3"
-                                Foreground="White"
-                                Padding="20,10"
-                                Margin="0,0,10,0"
-                                FontSize="14"
-                                BorderThickness="0"
-                                Cursor="Hand">
-                            <Button.Style>
-                                <Style TargetType="Button">
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="Button">
-                                                <Border Background="{TemplateBinding Background}" 
-                                                        CornerRadius="6" 
-                                                        Padding="{TemplateBinding Padding}">
-                                                    <ContentPresenter HorizontalAlignment="Center" 
-                                                                    VerticalAlignment="Center"/>
-                                                </Border>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                    <Style.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter Property="Background" Value="#1976D2"/>
-                                        </Trigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Button.Style>
-                        </Button>
-
-                        <Button Content="🗑️ Clear Filters" 
-                                Command="{Binding ClearFiltersCommand}"
-                                Background="#9E9E9E"
-                                Foreground="White"
-                                Padding="20,10"
-                                Margin="0,0,10,0"
-                                FontSize="14"
-                                BorderThickness="0"
-                                Cursor="Hand">
-                            <Button.Style>
-                                <Style TargetType="Button">
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="Button">
-                                                <Border Background="{TemplateBinding Background}" 
-                                                        CornerRadius="6" 
-                                                        Padding="{TemplateBinding Padding}">
-                                                    <ContentPresenter HorizontalAlignment="Center" 
-                                                                    VerticalAlignment="Center"/>
-                                                </Border>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                    <Style.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter Property="Background" Value="#757575"/>
-                                        </Trigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Button.Style>
-                        </Button>
-
-                        <Button Content="🔄 Refresh" 
-                                Command="{Binding RefreshDataCommand}"
-                                Background="#4CAF50"
-                                Foreground="White"
-                                Padding="20,10"
-                                FontSize="14"
-                                BorderThickness="0"
-                                Cursor="Hand">
-                            <Button.Style>
-                                <Style TargetType="Button">
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="Button">
-                                                <Border Background="{TemplateBinding Background}" 
-                                                        CornerRadius="6" 
-                                                        Padding="{TemplateBinding Padding}">
-                                                    <ContentPresenter HorizontalAlignment="Center" 
-                                                                    VerticalAlignment="Center"/>
-                                                </Border>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                    <Style.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter Property="Background" Value="#388E3C"/>
-                                        </Trigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Button.Style>
-                        </Button>
-                    </StackPanel>
-                </Grid>
-            </Grid>
-        </Border>
-
-        <!-- Data Grid — TabControl REMOVED.
-             TabControl with hardcoded TabItem children + DataGrid.ItemsSource bindings
-             causes "Items collection must be empty before using ItemsSource" because
-             WPF's ConvertBackHelper tries to push the DataView back up through
-             ItemCollection which already has children.
-             Replaced with a plain Grid + ToggleButton tab bar + Visibility toggling. -->
-        <Grid Grid.Row="3">
+        <!-- ═══ ROW 4 — MAIN DATA GRID ════════════════════════════════════════ -->
+        <Grid Grid.Row="4" Margin="16,12,16,0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- ── Custom Tab Header Bar ── -->
-            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,0">
-
+            <!-- Tab strip -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal">
                 <ToggleButton x:Name="BtnTabHistory"
                               Content="📜  Payment History"
                               IsChecked="True"
-                              FontSize="14" FontWeight="SemiBold"
-                              Padding="20,10"
-                              Cursor="Hand"
-                              BorderThickness="0">
+                              FontSize="13" FontWeight="SemiBold"
+                              Padding="20,10" Cursor="Hand" BorderThickness="0">
                     <ToggleButton.Style>
                         <Style TargetType="ToggleButton">
                             <Setter Property="Background"  Value="#E3F2FD"/>
-                            <Setter Property="Foreground"  Value="#2196F3"/>
+                            <Setter Property="Foreground"  Value="#1565C0"/>
                             <Setter Property="Template">
                                 <Setter.Value>
                                     <ControlTemplate TargetType="ToggleButton">
-                                        <Border x:Name="Bd"
-                                                Background="{TemplateBinding Background}"
-                                                CornerRadius="8,8,0,0"
-                                                Padding="{TemplateBinding Padding}">
+                                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                                CornerRadius="8,8,0,0" Padding="{TemplateBinding Padding}">
                                             <ContentPresenter HorizontalAlignment="Center"
                                                               VerticalAlignment="Center"/>
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsChecked" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="#2196F3"/>
+                                                <Setter TargetName="Bd" Property="Background" Value="#1565C0"/>
                                                 <Setter Property="Foreground" Value="White"/>
                                             </Trigger>
                                             <Trigger Property="IsMouseOver" Value="True">
@@ -355,28 +364,24 @@
                 <ToggleButton x:Name="BtnTabSummary"
                               Content="📊  Financial Summary"
                               IsChecked="False"
-                              FontSize="14" FontWeight="SemiBold"
-                              Padding="20,10"
-                              Margin="4,0,0,0"
-                              Cursor="Hand"
-                              BorderThickness="0">
+                              FontSize="13" FontWeight="SemiBold"
+                              Padding="20,10" Margin="4,0,0,0"
+                              Cursor="Hand" BorderThickness="0">
                     <ToggleButton.Style>
                         <Style TargetType="ToggleButton">
                             <Setter Property="Background"  Value="#E8F5E9"/>
-                            <Setter Property="Foreground"  Value="#4CAF50"/>
+                            <Setter Property="Foreground"  Value="#2E7D32"/>
                             <Setter Property="Template">
                                 <Setter.Value>
                                     <ControlTemplate TargetType="ToggleButton">
-                                        <Border x:Name="Bd"
-                                                Background="{TemplateBinding Background}"
-                                                CornerRadius="8,8,0,0"
-                                                Padding="{TemplateBinding Padding}">
+                                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                                CornerRadius="8,8,0,0" Padding="{TemplateBinding Padding}">
                                             <ContentPresenter HorizontalAlignment="Center"
                                                               VerticalAlignment="Center"/>
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsChecked" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="#4CAF50"/>
+                                                <Setter TargetName="Bd" Property="Background" Value="#2E7D32"/>
                                                 <Setter Property="Foreground" Value="White"/>
                                             </Trigger>
                                             <Trigger Property="IsMouseOver" Value="True">
@@ -389,15 +394,14 @@
                         </Style>
                     </ToggleButton.Style>
                 </ToggleButton>
-
             </StackPanel>
 
-            <!-- ── Tab Content Area ── -->
+            <!-- Tab content -->
             <Grid Grid.Row="1">
 
-                <!-- ═══ PANEL 1: Payment History ═══ -->
+                <!-- ── PANEL 1: Payment History ── -->
                 <Border Background="White" CornerRadius="0,8,8,8"
-                        BorderBrush="#E0E0E0" BorderThickness="1">
+                        Effect="{StaticResource CardShadow}">
                     <Border.Style>
                         <Style TargetType="Border">
                             <Setter Property="Visibility" Value="Visible"/>
@@ -408,201 +412,201 @@
                             </Style.Triggers>
                         </Style>
                     </Border.Style>
-                    <!-- DataGrid must NOT be wrapped in an outer ScrollViewer.
-                         Doing so breaks the internal VirtualizingPanel viewport measurement,
-                         which causes "Items collection must be empty before using ItemsSource"
-                         whenever ItemsSource is rebound. The DataGrid has its own built-in scroll. -->
-                    <DataGrid x:Name="PaymentHistoryGrid"
-                                 SelectedItem="{Binding SelectedPaymentRow, Mode=TwoWay}"
-                                 AutoGenerateColumns="False"
-                                 IsReadOnly="True"
-                                 AlternatingRowBackground="#F0F7FF"
-                                 GridLinesVisibility="Horizontal"
-                                 HeadersVisibility="Column"
-                                 CanUserAddRows="False"
-                                 CanUserDeleteRows="False"
-                                 SelectionMode="Single"
-                                 EnableRowVirtualization="False"
-                                 EnableColumnVirtualization="False"
-                                 VirtualizingPanel.IsVirtualizing="False"
-                                 FontSize="13"
-                                 Margin="10"
-                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                 ScrollViewer.CanContentScroll="True">
 
-                        <DataGrid.ColumnHeaderStyle>
-                            <Style TargetType="DataGridColumnHeader">
-                                <Setter Property="Background"      Value="#2196F3"/>
-                                <Setter Property="Foreground"      Value="White"/>
-                                <Setter Property="FontWeight"      Value="Bold"/>
-                                <Setter Property="Padding"         Value="10,8"/>
-                                <Setter Property="BorderBrush"     Value="#1976D2"/>
-                                <Setter Property="BorderThickness" Value="0,0,1,0"/>
-                            </Style>
-                        </DataGrid.ColumnHeaderStyle>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
 
-                        <DataGrid.RowStyle>
-                            <Style TargetType="DataGridRow">
-                                <Setter Property="Cursor" Value="Hand"/>
-                                <Style.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Background" Value="#E3F2FD"/>
-                                    </Trigger>
-                                    <Trigger Property="IsSelected" Value="True">
-                                        <Setter Property="Background" Value="#BBDEFB"/>
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </DataGrid.RowStyle>
+                        <!-- Sub-header with result info -->
+                        <Border Grid.Row="0" Padding="16,10"
+                                BorderBrush="#ECEFF1" BorderThickness="0,0,0,1">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock FontSize="13" Foreground="#546E7A" VerticalAlignment="Center">
+                                    <Run Text="All payment transactions — click "/>
+                                    <Run Text="🖨️ Receipt" FontWeight="SemiBold" Foreground="#1565C0"/>
+                                    <Run Text=" on any row to preview and print"/>
+                                </TextBlock>
+                                <Border Grid.Column="1" Background="#E3F2FD" CornerRadius="6" Padding="10,3">
+                                    <TextBlock Text="Ordered newest first"
+                                               FontSize="11" FontWeight="SemiBold" Foreground="#1565C0"/>
+                                </Border>
+                            </Grid>
+                        </Border>
 
-                        <!-- ══ EXPLICIT COLUMNS ══════════════════════════════════════ -->
+                        <!-- Payment history DataGrid -->
+                        <DataGrid Grid.Row="1"
+                                  x:Name="PaymentHistoryGrid"
+                                  SelectedItem="{Binding SelectedPaymentRow, Mode=TwoWay}"
+                                  AutoGenerateColumns="False"
+                                  Style="{StaticResource HistoryGrid}"
+                                  Margin="0">
 
-                        <DataGridTextColumn Header="👤 Student Name"
-                                                Binding="{Binding [Student Name]}"
-                                                Width="180"
-                                                FontWeight="SemiBold">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Foreground" Value="#1565C0"/>
-                                    <Setter Property="VerticalAlignment" Value="Center"/>
-                                    <Setter Property="Padding" Value="6,4"/>
-                                </Style>
-                            </DataGridTextColumn.ElementStyle>
-                        </DataGridTextColumn>
+                            <!-- Explicit columns — every field from PaymentLogService -->
+                            <DataGrid.Columns>
 
-                        <DataGridTextColumn Header="🪪 Student ID"
-                                                Binding="{Binding [Student ID]}"
-                                                Width="120">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="VerticalAlignment" Value="Center"/>
-                                    <Setter Property="Padding" Value="6,4"/>
-                                </Style>
-                            </DataGridTextColumn.ElementStyle>
-                        </DataGridTextColumn>
+                                <DataGridTextColumn Header="👤 Student Name"
+                                                    Binding="{Binding [Student Name]}"
+                                                    Width="180" FontWeight="SemiBold">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="#1565C0"/>
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="Padding" Value="8,4"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
 
-                        <DataGridTextColumn Header="📅 Date"
-                                                Binding="{Binding [Payment Date]}"
-                                                Width="160">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="VerticalAlignment" Value="Center"/>
-                                    <Setter Property="Padding" Value="6,4"/>
-                                </Style>
-                            </DataGridTextColumn.ElementStyle>
-                        </DataGridTextColumn>
+                                <DataGridTextColumn Header="🪪 Student ID"
+                                                    Binding="{Binding [Student ID]}"
+                                                    Width="110">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="Padding" Value="8,4"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
 
-                        <DataGridTextColumn Header="💰 Amount"
-                                                Binding="{Binding [Amount]}"
-                                                Width="100">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Foreground"       Value="#2E7D32"/>
-                                    <Setter Property="FontWeight"       Value="Bold"/>
-                                    <Setter Property="VerticalAlignment" Value="Center"/>
-                                    <Setter Property="Padding" Value="6,4"/>
-                                </Style>
-                            </DataGridTextColumn.ElementStyle>
-                        </DataGridTextColumn>
+                                <DataGridTextColumn Header="📅 Date &amp; Time"
+                                                    Binding="{Binding [Payment Date]}"
+                                                    Width="155">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="Padding" Value="8,4"/>
+                                            <Setter Property="Foreground" Value="#546E7A"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
 
-                        <DataGridTextColumn Header="💳 Mode"
-                                                Binding="{Binding [Payment Mode]}"
-                                                Width="110">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="VerticalAlignment" Value="Center"/>
-                                    <Setter Property="Padding" Value="6,4"/>
-                                </Style>
-                            </DataGridTextColumn.ElementStyle>
-                        </DataGridTextColumn>
+                                <DataGridTextColumn Header="💰 Amount"
+                                                    Binding="{Binding [Amount]}"
+                                                    Width="100">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground"        Value="#2E7D32"/>
+                                            <Setter Property="FontWeight"        Value="Bold"/>
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="Padding"           Value="8,4"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
 
-                        <DataGridTextColumn Header="📆 Quarter"
-                                                Binding="{Binding [Quarter]}"
-                                                Width="160">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="VerticalAlignment" Value="Center"/>
-                                    <Setter Property="Padding" Value="6,4"/>
-                                </Style>
-                            </DataGridTextColumn.ElementStyle>
-                        </DataGridTextColumn>
+                                <DataGridTextColumn Header="💳 Mode"
+                                                    Binding="{Binding [Payment Mode]}"
+                                                    Width="100">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="Padding" Value="8,4"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
 
-                        <DataGridTextColumn Header="👨‍👧 Guardian"
-                                                Binding="{Binding [Guardian]}"
-                                                Width="140">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="VerticalAlignment" Value="Center"/>
-                                    <Setter Property="Padding" Value="6,4"/>
-                                </Style>
-                            </DataGridTextColumn.ElementStyle>
-                        </DataGridTextColumn>
+                                <DataGridTextColumn Header="📆 Quarter / Period"
+                                                    Binding="{Binding [Quarter]}"
+                                                    Width="160">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="Padding" Value="8,4"/>
+                                            <Setter Property="Foreground" Value="#3949AB"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
 
-                        <DataGridTextColumn Header="📝 Remarks"
-                                                Binding="{Binding [Remarks]}"
-                                                Width="220">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="VerticalAlignment" Value="Center"/>
-                                    <Setter Property="TextTrimming"      Value="CharacterEllipsis"/>
-                                    <Setter Property="Padding" Value="6,4"/>
-                                </Style>
-                            </DataGridTextColumn.ElementStyle>
-                        </DataGridTextColumn>
+                                <DataGridTextColumn Header="🏫 Course"
+                                                    Binding="{Binding [Course]}"
+                                                    Width="170">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="VerticalAlignment"  Value="Center"/>
+                                            <Setter Property="Padding"            Value="8,4"/>
+                                            <Setter Property="TextTrimming"       Value="CharacterEllipsis"/>
+                                            <Setter Property="Foreground"         Value="#4A4A4A"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
 
-                        <DataGridTemplateColumn Header="Receipt" Width="110" CanUserSort="False">
-                            <DataGridTemplateColumn.CellTemplate>
-                                <DataTemplate>
-                                    <Button Content="🖨️ Receipt"
-                                                Tag="{Binding}"
-                                                Command="{Binding DataContext.PrintReceiptForRowCommand,
-                                                          RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                CommandParameter="{Binding}"
-                                                Background="#E8F5E9"
-                                                Foreground="#2E7D32"
-                                                BorderBrush="#A5D6A7"
-                                                BorderThickness="1"
-                                                Padding="6,4"
-                                                FontSize="12"
-                                                FontWeight="SemiBold"
-                                                Cursor="Hand"
-                                                Margin="4,2"
-                                                HorizontalAlignment="Center">
-                                        <Button.Style>
-                                            <Style TargetType="Button">
-                                                <Setter Property="Template">
-                                                    <Setter.Value>
-                                                        <ControlTemplate TargetType="Button">
-                                                            <Border Background="{TemplateBinding Background}"
-                                                                        BorderBrush="{TemplateBinding BorderBrush}"
-                                                                        BorderThickness="{TemplateBinding BorderThickness}"
-                                                                        CornerRadius="4"
-                                                                        Padding="{TemplateBinding Padding}">
-                                                                <ContentPresenter HorizontalAlignment="Center"
-                                                                                      VerticalAlignment="Center"/>
-                                                            </Border>
-                                                        </ControlTemplate>
-                                                    </Setter.Value>
-                                                </Setter>
-                                                <Style.Triggers>
-                                                    <Trigger Property="IsMouseOver" Value="True">
-                                                        <Setter Property="Background" Value="#C8E6C9"/>
-                                                    </Trigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
-                                </DataTemplate>
-                            </DataGridTemplateColumn.CellTemplate>
-                        </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="👨‍👧 Guardian"
+                                                    Binding="{Binding [Guardian]}"
+                                                    Width="140">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="Padding" Value="8,4"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
 
-                    </DataGrid>
+                                <DataGridTextColumn Header="📝 Remarks"
+                                                    Binding="{Binding [Remarks]}"
+                                                    Width="200">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="TextTrimming"      Value="CharacterEllipsis"/>
+                                            <Setter Property="Padding"           Value="8,4"/>
+                                            <Setter Property="Foreground"        Value="#757575"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+
+                                <!-- Receipt action button column -->
+                                <DataGridTemplateColumn Header="Receipt" Width="110" CanUserSort="False">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="🖨️ Receipt"
+                                                    Command="{Binding DataContext.PrintReceiptForRowCommand,
+                                                              RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="{Binding}"
+                                                    Background="#E8F5E9" Foreground="#2E7D32"
+                                                    BorderBrush="#A5D6A7" BorderThickness="1"
+                                                    Padding="8,5" FontSize="12" FontWeight="SemiBold"
+                                                    Cursor="Hand" Margin="6,4"
+                                                    HorizontalAlignment="Center">
+                                                <Button.Style>
+                                                    <Style TargetType="Button">
+                                                        <Setter Property="Template">
+                                                            <Setter.Value>
+                                                                <ControlTemplate TargetType="Button">
+                                                                    <Border Background="{TemplateBinding Background}"
+                                                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                                                            CornerRadius="6"
+                                                                            Padding="{TemplateBinding Padding}">
+                                                                        <ContentPresenter HorizontalAlignment="Center"
+                                                                                          VerticalAlignment="Center"/>
+                                                                    </Border>
+                                                                </ControlTemplate>
+                                                            </Setter.Value>
+                                                        </Setter>
+                                                        <Style.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter Property="Background" Value="#C8E6C9"/>
+                                                            </Trigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                            </Button>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
                 </Border>
 
-                <!-- ═══ PANEL 2: Financial Summary ═══ -->
+                <!-- ── PANEL 2: Financial Summary ── -->
                 <Border Background="White" CornerRadius="0,8,8,8"
-                        BorderBrush="#E0E0E0" BorderThickness="1">
+                        Effect="{StaticResource CardShadow}">
                     <Border.Style>
                         <Style TargetType="Border">
                             <Setter Property="Visibility" Value="Collapsed"/>
@@ -613,245 +617,121 @@
                             </Style.Triggers>
                         </Style>
                     </Border.Style>
+
                     <Grid>
-                        <!-- DataGrid must NOT be wrapped in an outer ScrollViewer - it has built-in scrolling. -->
-                        <DataGrid x:Name="FinancialSummaryGrid"
-                                     AutoGenerateColumns="True"
-                                     IsReadOnly="True"
-                                     AlternatingRowBackground="#F1F8E9"
-                                     GridLinesVisibility="Horizontal"
-                                     HeadersVisibility="Column"
-                                     CanUserAddRows="False"
-                                     CanUserDeleteRows="False"
-                                     SelectionMode="Single"
-                                     EnableRowVirtualization="False"
-                                     EnableColumnVirtualization="False"
-                                     VirtualizingPanel.IsVirtualizing="False"
-                                     FontSize="14"
-                                     Margin="10"
-                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                     ScrollViewer.CanContentScroll="True">
-                            <DataGrid.ColumnHeaderStyle>
-                                <Style TargetType="DataGridColumnHeader">
-                                    <Setter Property="Background"      Value="#4CAF50"/>
-                                    <Setter Property="Foreground"      Value="White"/>
-                                    <Setter Property="FontWeight"      Value="Bold"/>
-                                    <Setter Property="Padding"         Value="10"/>
-                                    <Setter Property="BorderBrush"     Value="#388E3C"/>
-                                    <Setter Property="BorderThickness" Value="0,0,1,0"/>
-                                </Style>
-                            </DataGrid.ColumnHeaderStyle>
-                        </DataGrid>
-                        <TextBlock Text="🔍  Type a student name or ID and click Search"
-                                  FontSize="15"
-                                  Foreground="#9E9E9E"
-                                  HorizontalAlignment="Center"
-                                  VerticalAlignment="Center"
-                                  Visibility="{Binding FinancialSummaryEmptyVisibility}"/>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <Border Grid.Row="0" Background="#E8F5E9"
+                                Padding="16,12" CornerRadius="0,8,0,0">
+                            <TextBlock FontSize="13" Foreground="#2E7D32" FontWeight="SemiBold">
+                                <Run Text="📊 Financial Summary — "/>
+                                <Run Text="search a student name to see their full payment breakdown across all quarters"/>
+                            </TextBlock>
+                        </Border>
+
+                        <Grid Grid.Row="1">
+                            <DataGrid x:Name="FinancialSummaryGrid"
+                                      AutoGenerateColumns="True"
+                                      Style="{StaticResource HistoryGrid}">
+                                <DataGrid.ColumnHeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader">
+                                        <Setter Property="Background"      Value="#2E7D32"/>
+                                        <Setter Property="Foreground"      Value="White"/>
+                                        <Setter Property="FontWeight"      Value="SemiBold"/>
+                                        <Setter Property="FontSize"        Value="12"/>
+                                        <Setter Property="Padding"         Value="10,0"/>
+                                        <Setter Property="BorderThickness" Value="0,0,1,0"/>
+                                        <Setter Property="BorderBrush"     Value="#388E3C"/>
+                                    </Style>
+                                </DataGrid.ColumnHeaderStyle>
+                            </DataGrid>
+
+                            <!-- Empty state -->
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                                        Visibility="{Binding FinancialSummaryEmptyVisibility}">
+                                <TextBlock Text="📋" FontSize="48" HorizontalAlignment="Center" Margin="0,0,0,12"/>
+                                <TextBlock Text="Type a student name and click Search"
+                                           FontSize="15" Foreground="#546E7A" HorizontalAlignment="Center"/>
+                                <TextBlock Text="The full cross-quarter summary will appear here"
+                                           FontSize="12" Foreground="#90A4AE"
+                                           HorizontalAlignment="Center" Margin="0,6,0,0"/>
+                            </StackPanel>
+                        </Grid>
                     </Grid>
                 </Border>
 
             </Grid>
         </Grid>
 
-        <!-- Receipt Preview + Action Buttons -->
-        <Grid Grid.Row="4" Margin="0,16,0,0">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
+        <!-- ═══ ROW 5 — RECEIPT PREVIEW + PRINT ══════════════════════════════ -->
+        <Border Grid.Row="5" Margin="16,8,16,12"
+                Background="White" CornerRadius="10"
+                BorderBrush="#43A047" BorderThickness="2"
+                Padding="20,16"
+                Effect="{StaticResource CardShadow}"
+                Visibility="{Binding ReceiptPanelVisibility}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-            <!-- Receipt Preview — visible only when a payment row is selected -->
-            <Border Grid.Row="0"
-                    Background="White"
-                    CornerRadius="8"
-                    BorderBrush="#4CAF50"
-                    BorderThickness="2"
-                    Padding="24,18"
-                    Margin="0,0,0,14"
-                    Visibility="{Binding ReceiptPanelVisibility}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
+                <!-- Receipt label -->
+                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,24,0">
+                    <TextBlock Text="🧾 RECEIPT PREVIEW" FontSize="13" FontWeight="Bold"
+                               Foreground="#1565C0"/>
+                    <TextBlock Text="{Binding ReceiptNumber}" FontSize="11"
+                               Foreground="#90A4AE" Margin="0,3,0,0"/>
+                </StackPanel>
 
-                    <!-- Receipt details -->
-                    <StackPanel Grid.Column="0">
-                        <TextBlock Text="🧾  PAYMENT RECEIPT"
-                                   FontSize="17" FontWeight="Bold"
-                                   Foreground="#2196F3" Margin="0,0,0,10"/>
+                <!-- Column 1: student + date -->
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,16,0">
+                    <TextBlock Text="{Binding ReceiptStudentName}"
+                               FontSize="15" FontWeight="Bold" Foreground="#1A1A2E"/>
+                    <TextBlock FontSize="11" Foreground="#546E7A" Margin="0,3,0,0">
+                        <Run Text="ID: "/><Run Text="{Binding ReceiptStudentId}"/>
+                        <Run Text="  ·  "/><Run Text="{Binding ReceiptDate}"/>
+                    </TextBlock>
+                    <TextBlock Text="{Binding ReceiptGuardian}"
+                               FontSize="11" Foreground="#90A4AE" Margin="0,2,0,0"/>
+                </StackPanel>
 
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="160"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="160"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
+                <!-- Column 2: course + quarter -->
+                <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                    <TextBlock FontSize="11" Foreground="#546E7A">Quarter / Period</TextBlock>
+                    <TextBlock Text="{Binding ReceiptQuarter}"
+                               FontSize="13" FontWeight="SemiBold" Foreground="#3949AB" Margin="0,3,0,0"/>
+                    <TextBlock FontSize="11" Foreground="#546E7A" Margin="0,4,0,0">Mode</TextBlock>
+                    <TextBlock Text="{Binding ReceiptPaymentMode}"
+                               FontSize="13" FontWeight="SemiBold" Foreground="#546E7A" Margin="0,3,0,0"/>
+                </StackPanel>
 
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Receipt No:"
-                                       FontSize="12" Foreground="#666" Margin="0,2"/>
-                            <TextBlock Grid.Row="0" Grid.Column="1"
-                                       Text="{Binding ReceiptNumber}"
-                                       FontSize="12" FontWeight="SemiBold" Margin="0,2"/>
+                <!-- Column 3: amount + remarks -->
+                <StackPanel Grid.Column="3" VerticalAlignment="Center" Margin="0,0,24,0">
+                    <TextBlock Text="Amount Paid" FontSize="11" Foreground="#546E7A"/>
+                    <TextBlock Text="{Binding ReceiptAmount}"
+                               FontSize="22" FontWeight="Bold" Foreground="#2E7D32" Margin="0,3,0,0"/>
+                    <TextBlock Text="{Binding ReceiptRemarks}"
+                               FontSize="10" Foreground="#90A4AE" Margin="0,4,0,0"
+                               TextTrimming="CharacterEllipsis" MaxWidth="220"/>
+                </StackPanel>
 
-                            <TextBlock Grid.Row="0" Grid.Column="2" Text="Date:"
-                                       FontSize="12" Foreground="#666" Margin="0,2"/>
-                            <TextBlock Grid.Row="0" Grid.Column="3"
-                                       Text="{Binding ReceiptDate}"
-                                       FontSize="12" FontWeight="SemiBold" Margin="0,2"/>
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Student:"
-                                       FontSize="12" Foreground="#666" Margin="0,2"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1"
-                                       Text="{Binding ReceiptStudentName}"
-                                       FontSize="12" FontWeight="SemiBold" Margin="0,2"/>
-
-                            <TextBlock Grid.Row="1" Grid.Column="2" Text="Student ID:"
-                                       FontSize="12" Foreground="#666" Margin="0,2"/>
-                            <TextBlock Grid.Row="1" Grid.Column="3"
-                                       Text="{Binding ReceiptStudentId}"
-                                       FontSize="12" FontWeight="SemiBold" Margin="0,2"/>
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Payment Mode:"
-                                       FontSize="12" Foreground="#666" Margin="0,2"/>
-                            <TextBlock Grid.Row="2" Grid.Column="1"
-                                       Text="{Binding ReceiptPaymentMode}"
-                                       FontSize="12" FontWeight="SemiBold" Margin="0,2"/>
-
-                            <TextBlock Grid.Row="2" Grid.Column="2" Text="Amount Paid:"
-                                       FontSize="12" Foreground="#666" Margin="0,2"/>
-                            <TextBlock Grid.Row="2" Grid.Column="3"
-                                       Text="{Binding ReceiptAmount}"
-                                       FontSize="14" FontWeight="Bold"
-                                       Foreground="#4CAF50" Margin="0,2"/>
-                        </Grid>
-
-                        <TextBlock Text="{Binding ReceiptRemarks}"
-                                   FontSize="11" Foreground="#888"
-                                   TextWrapping="Wrap" Margin="0,8,0,0"/>
-                    </StackPanel>
-
-                    <!-- Print button inside receipt panel -->
-                    <Button Grid.Column="1"
-                            Content="🖨️ Print Receipt"
-                            Command="{Binding PrintReceiptCommand}"
-                            Background="#4CAF50"
-                            Foreground="White"
-                            Padding="18,10"
-                            FontSize="13"
-                            FontWeight="SemiBold"
-                            BorderThickness="0"
-                            Cursor="Hand"
-                            VerticalAlignment="Center"
-                            Margin="20,0,0,0">
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="Button">
-                                            <Border Background="{TemplateBinding Background}"
-                                                    CornerRadius="6"
-                                                    Padding="{TemplateBinding Padding}">
-                                                <ContentPresenter HorizontalAlignment="Center"
-                                                                  VerticalAlignment="Center"/>
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                                <Style.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Background" Value="#388E3C"/>
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-                </Grid>
-            </Border>
-
-            <!-- Bottom action buttons -->
-            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center">
-                <Button Content="📥 Export to Excel"
-                        Command="{Binding ExportToExcelCommand}"
-                        Background="#FF9800"
-                        Foreground="White"
-                        Padding="30,15"
-                        Margin="0,0,12,0"
-                        FontSize="16"
-                        FontWeight="SemiBold"
-                        BorderThickness="0"
-                        Cursor="Hand">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}"
-                                                CornerRadius="8"
-                                                Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter HorizontalAlignment="Center"
-                                                              VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#F57C00"/>
-                                </Trigger>
-                                <Trigger Property="IsEnabled" Value="False">
-                                    <Setter Property="Background" Value="#BDBDBD"/>
-                                    <Setter Property="Cursor" Value="Arrow"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-
-                <Button Content="🖨️ Print Selected Receipt"
+                <!-- Print button -->
+                <Button Grid.Column="4"
+                        Content="🖨️ Print Receipt"
                         Command="{Binding PrintReceiptCommand}"
-                        Background="#4CAF50"
-                        Foreground="White"
-                        Padding="30,15"
-                        FontSize="16"
-                        FontWeight="SemiBold"
-                        BorderThickness="0"
-                        Cursor="Hand">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}"
-                                                CornerRadius="8"
-                                                Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter HorizontalAlignment="Center"
-                                                              VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#388E3C"/>
-                                </Trigger>
-                                <Trigger Property="IsEnabled" Value="False">
-                                    <Setter Property="Background" Value="#BDBDBD"/>
-                                    <Setter Property="Cursor" Value="Arrow"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-            </StackPanel>
-        </Grid>
+                        Style="{StaticResource FlatBtn}"
+                        Background="#43A047" Foreground="White"
+                        FontWeight="Bold" FontSize="14"
+                        Padding="20,12" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
     </Grid>
 </UserControl>

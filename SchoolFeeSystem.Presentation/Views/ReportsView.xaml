@@ -1,111 +1,483 @@
 ﻿<UserControl x:Class="SchoolFeeSystem.Presentation.Views.ReportsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignHeight="800" d:DesignWidth="1300"
+             Background="#F0F2F5">
 
-    <Grid Margin="20">
+    <UserControl.Resources>
+
+        <Style x:Key="FlatBtn" TargetType="Button">
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Opacity" Value="0.85"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <DropShadowEffect x:Key="CardShadow" BlurRadius="12" Color="#C0C0C0" Opacity="0.35" ShadowDepth="2"/>
+
+        <Style x:Key="ReportGrid" TargetType="DataGrid">
+            <Setter Property="Background"               Value="White"/>
+            <Setter Property="BorderThickness"          Value="0"/>
+            <Setter Property="GridLinesVisibility"      Value="Horizontal"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="#ECEFF1"/>
+            <Setter Property="RowBackground"            Value="White"/>
+            <Setter Property="AlternatingRowBackground" Value="#FAFAFA"/>
+            <Setter Property="ColumnHeaderHeight"       Value="38"/>
+            <Setter Property="RowHeight"                Value="46"/>
+            <Setter Property="FontSize"                 Value="12"/>
+            <Setter Property="SelectionMode"            Value="Single"/>
+            <Setter Property="IsReadOnly"               Value="True"/>
+            <Setter Property="CanUserAddRows"           Value="False"/>
+        </Style>
+
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background"      Value="#ECEFF1"/>
+            <Setter Property="Foreground"      Value="#546E7A"/>
+            <Setter Property="FontWeight"      Value="SemiBold"/>
+            <Setter Property="FontSize"        Value="11"/>
+            <Setter Property="Padding"         Value="10,0"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+
+        <Style TargetType="DataGridRow">
+            <Setter Property="BorderThickness" Value="0"/>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#E3F2FD"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#F5F5F5"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+    </UserControl.Resources>
+
+    <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="64"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Title -->
-        <TextBlock Grid.Row="0" Text="📊 Generate Reports" 
-                   FontSize="24" FontWeight="Bold" Margin="0,0,0,20"/>
+        <!-- ═══ HEADER BAR ═══ -->
+        <Border Grid.Row="0" Background="#1565C0">
+            <Grid Margin="20,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-        <!-- Statistics Panel -->
-        <Border Grid.Row="1" Background="#E3F2FD" CornerRadius="8" Padding="15" Margin="0,0,0,15">
+                <Button Grid.Column="0" Content="← Back"
+                        Command="{Binding GoBackCommand}"
+                        Style="{StaticResource FlatBtn}"
+                        Background="Transparent" Foreground="White"
+                        FontSize="13" Padding="10,8"/>
+
+                <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="📊 Fee Reports &amp; Analytics"
+                               FontSize="20" FontWeight="Bold" Foreground="White"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="Quarter-wise · Department-wise · Student-wise"
+                               FontSize="11" Foreground="#90CAF9" HorizontalAlignment="Center"/>
+                </StackPanel>
+
+                <Button Grid.Column="2" Content="📄 Generate Report"
+                        Command="{Binding GenerateReportCommand}"
+                        Style="{StaticResource FlatBtn}"
+                        Background="#43A047" Foreground="White"
+                        FontWeight="Bold" FontSize="13" Padding="18,8"/>
+            </Grid>
+        </Border>
+
+        <!-- ═══ STAT CHIPS ═══ -->
+        <Border Grid.Row="1" Background="White"
+                BorderBrush="#E0E0E0" BorderThickness="0,0,0,1" Padding="20,14">
             <StackPanel Orientation="Horizontal">
-                <Border Background="#1976D2" CornerRadius="5" Padding="10" Margin="0,0,15,0">
-                    <StackPanel>
-                        <TextBlock Text="Total Students" Foreground="White" FontSize="11"/>
-                        <TextBlock Text="{Binding TotalStudents}" Foreground="White" FontSize="20" FontWeight="Bold"/>
+
+                <Border Background="#E3F2FD" CornerRadius="10" Padding="16,10"
+                        Margin="0,0,12,0" Effect="{StaticResource CardShadow}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="👥" FontSize="20" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <StackPanel>
+                            <TextBlock Text="{Binding TotalStudents}" FontSize="22" FontWeight="Bold" Foreground="#1565C0"/>
+                            <TextBlock Text="Total Students" FontSize="11" Foreground="#546E7A"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 
-                <Border Background="#F57C00" CornerRadius="5" Padding="10" Margin="0,0,15,0">
-                    <StackPanel>
-                        <TextBlock Text="With Pending Fees" Foreground="White" FontSize="11"/>
-                        <TextBlock Text="{Binding StudentsWithPending}" Foreground="White" FontSize="20" FontWeight="Bold"/>
+                <Border Background="#FFF3E0" CornerRadius="10" Padding="16,10"
+                        Margin="0,0,12,0" Effect="{StaticResource CardShadow}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="⚠" FontSize="20" VerticalAlignment="Center"
+                                   Margin="0,0,10,0" Foreground="#E65100"/>
+                        <StackPanel>
+                            <TextBlock Text="{Binding StudentsWithPending}" FontSize="22" FontWeight="Bold" Foreground="#E65100"/>
+                            <TextBlock Text="With Pending Fees" FontSize="11" Foreground="#546E7A"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 
-                <Border Background="#388E3C" CornerRadius="5" Padding="10">
-                    <StackPanel>
-                        <TextBlock Text="Total Pending Amount" Foreground="White" FontSize="11"/>
-                        <TextBlock Text="{Binding TotalPendingAmount}" Foreground="White" FontSize="20" FontWeight="Bold"/>
+                <Border Background="#FFEBEE" CornerRadius="10" Padding="16,10"
+                        Margin="0,0,12,0" Effect="{StaticResource CardShadow}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="₹" FontSize="20" FontWeight="Bold" VerticalAlignment="Center"
+                                   Margin="0,0,6,0" Foreground="#C62828"/>
+                        <StackPanel>
+                            <TextBlock Text="{Binding TotalPendingAmount}" FontSize="18" FontWeight="Bold" Foreground="#C62828"/>
+                            <TextBlock Text="Total Pending" FontSize="11" Foreground="#546E7A"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
+
+                <Border Background="#E8EAF6" CornerRadius="10" Padding="16,10"
+                        Margin="0,0,12,0" Effect="{StaticResource CardShadow}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="📅" FontSize="20" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <StackPanel>
+                            <TextBlock Text="{Binding ActiveQuarterLabel}" FontSize="15" FontWeight="Bold" Foreground="#283593"/>
+                            <TextBlock Text="Active Quarter" FontSize="11" Foreground="#546E7A"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Background="#E8F5E9" CornerRadius="10" Padding="16,10"
+                        Effect="{StaticResource CardShadow}"
+                        Visibility="{Binding PaymentLogsVisible}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="💳" FontSize="20" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <StackPanel>
+                            <TextBlock Text="{Binding TotalPaymentsCollected}" FontSize="18" FontWeight="Bold" Foreground="#2E7D32"/>
+                            <TextBlock Text="{Binding TotalTransactions, StringFormat={}{0} Transactions}" FontSize="11" Foreground="#546E7A"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
             </StackPanel>
         </Border>
 
-        <!-- Controls -->
-        <Grid Grid.Row="2" Margin="0,0,0,15">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
+        <!-- ═══ CONTROLS ROW ═══ -->
+        <Border Grid.Row="2" Background="White"
+                BorderBrush="#E0E0E0" BorderThickness="0,0,0,1" Padding="20,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="240"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="200"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-            <StackPanel Grid.Column="0" Margin="0,0,10,0">
-                <TextBlock Text="Select Sheet:" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                <ComboBox ItemsSource="{Binding SheetNames}" 
-                          SelectedItem="{Binding SelectedSheet}"
-                          Height="35"/>
-            </StackPanel>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="📋 Class / Sheet" FontSize="11" FontWeight="SemiBold"
+                               Foreground="#546E7A" Margin="0,0,0,4"/>
+                    <ComboBox ItemsSource="{Binding FilteredSheetNames}"
+                              SelectedItem="{Binding SelectedSheet}"
+                              Padding="10,6" FontSize="13"
+                              BorderBrush="#90CAF9" BorderThickness="1.5"/>
+                </StackPanel>
 
-            <StackPanel Grid.Column="1" Margin="0,0,10,0">
-                <TextBlock Text="Report Type:" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                <ComboBox ItemsSource="{Binding ReportTypes}" 
-                          SelectedItem="{Binding SelectedReportType}"
-                          Height="35"/>
-            </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="📄 Report Type" FontSize="11" FontWeight="SemiBold"
+                               Foreground="#546E7A" Margin="0,0,0,4"/>
+                    <ComboBox ItemsSource="{Binding ReportTypes}"
+                              SelectedItem="{Binding SelectedReportType}"
+                              Padding="10,6" FontSize="13"
+                              BorderBrush="#90CAF9" BorderThickness="1.5"/>
+                </StackPanel>
 
-            <StackPanel Grid.Column="2" Margin="0,0,10,0">
-                <TextBlock Text="Search Student:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                <StackPanel Grid.Column="4">
+                    <TextBlock Text="🔍 Search Student (across all quarters)" FontSize="11" FontWeight="SemiBold"
+                               Foreground="#546E7A" Margin="0,0,0,4"/>
+                    <Grid>
+                        <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 Padding="10,6" FontSize="13"
+                                 BorderBrush="#90CAF9" BorderThickness="1.5"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                                    VerticalAlignment="Center" Margin="0,0,4,0">
+                            <Button Content="🔍" Command="{Binding SearchStudentCommand}"
+                                    Style="{StaticResource FlatBtn}"
+                                    Background="#1565C0" Foreground="White"
+                                    Padding="8,4" Margin="0,0,4,0" FontSize="11"/>
+                            <Button Content="✕" Command="{Binding ClearSearchCommand}"
+                                    Style="{StaticResource FlatBtn}"
+                                    Background="#EF5350" Foreground="White"
+                                    Padding="8,4" FontSize="11"/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+
+                <Button Grid.Column="6" Content="📊 Export Excel"
+                        Command="{Binding ExportExcelCommand}"
+                        Style="{StaticResource FlatBtn}"
+                        Background="#1565C0" Foreground="White"
+                        FontWeight="Bold" FontSize="13"
+                        Padding="16,9" VerticalAlignment="Bottom"/>
+            </Grid>
+        </Border>
+
+        <!-- ═══ FILTER STRIP ═══ -->
+        <Border Grid.Row="3" Background="#FAFAFA"
+                BorderBrush="#E0E0E0" BorderThickness="0,0,0,1" Padding="20,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="Filter:" FontSize="12" FontWeight="SemiBold"
+                           Foreground="#546E7A" VerticalAlignment="Center"/>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <TextBlock Text="Quarter:" FontSize="12" Foreground="#546E7A"
+                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox ItemsSource="{Binding QuarterFilterOptions}"
+                              SelectedItem="{Binding SelectedQuarterFilter}"
+                              Padding="8,4" FontSize="12" MinWidth="120"
+                              BorderBrush="#B0BEC5" BorderThickness="1"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="4" Orientation="Horizontal">
+                    <TextBlock Text="Department:" FontSize="12" Foreground="#546E7A"
+                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox ItemsSource="{Binding DepartmentFilterOptions}"
+                              SelectedItem="{Binding SelectedDepartmentFilter}"
+                              Padding="8,4" FontSize="12" MinWidth="160"
+                              BorderBrush="#B0BEC5" BorderThickness="1"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="6" Orientation="Horizontal">
+                    <TextBlock Text="Status:" FontSize="12" Foreground="#546E7A"
+                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox ItemsSource="{Binding StatusFilterOptions}"
+                              SelectedItem="{Binding SelectedStatusFilter}"
+                              Padding="8,4" FontSize="12" MinWidth="120"
+                              BorderBrush="#B0BEC5" BorderThickness="1"/>
+                </StackPanel>
+
+                <TextBlock Grid.Column="8" Text="{Binding ResultCountLabel}"
+                           FontSize="12" Foreground="#78909C" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
+        <!-- ═══ MAIN CONTENT ═══ -->
+        <Grid Grid.Row="4" Margin="16,12,16,12">
+
+            <!-- Single-sheet DataGrid -->
+            <Border Visibility="{Binding SingleSheetVisible}"
+                    Background="White" CornerRadius="10"
+                    Effect="{StaticResource CardShadow}">
                 <Grid>
-                    <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" 
-                             Height="35" Padding="5"/>
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="5">
-                        <Button Content="🔍" Command="{Binding SearchStudentCommand}" 
-                                Width="30" Height="25" Margin="0,0,5,0"/>
-                        <Button Content="✖" Command="{Binding ClearSearchCommand}" 
-                                Width="30" Height="25"/>
-                    </StackPanel>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Padding="16,10"
+                            BorderBrush="#ECEFF1" BorderThickness="0,0,0,1">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="📋 " FontSize="14"/>
+                                <TextBlock Text="{Binding SelectedSheet}" FontSize="14"
+                                           FontWeight="Bold" Foreground="#1565C0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <Border Background="#E8EAF6" CornerRadius="6"
+                                        Padding="10,3" Margin="0,0,8,0">
+                                    <TextBlock Text="{Binding SheetQuarterLabel}"
+                                               FontSize="11" FontWeight="SemiBold" Foreground="#3949AB"/>
+                                </Border>
+                                <Border Background="#E8F5E9" CornerRadius="6" Padding="10,3">
+                                    <TextBlock Text="{Binding SheetDeptLabel}"
+                                               FontSize="11" FontWeight="SemiBold" Foreground="#2E7D32"/>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <DataGrid Grid.Row="1"
+                              ItemsSource="{Binding CurrentSheetView}"
+                              SelectedItem="{Binding SelectedRow}"
+                              Style="{StaticResource ReportGrid}"
+                              AutoGeneratingColumn="DataGrid_AutoGeneratingColumn"
+                              LoadingRow="DataGrid_LoadingRow"/>
                 </Grid>
-            </StackPanel>
+            </Border>
 
-            <Button Grid.Column="3" Content="📄 Generate Report" 
-                    Command="{Binding GenerateReportCommand}"
-                    Background="#4CAF50" Foreground="White"
-                    FontWeight="Bold" FontSize="14"
-                    Height="35" Padding="20,0"
-                    Margin="0,20,0,0"
-                    VerticalAlignment="Bottom"/>
+            <!-- Cross-quarter search results -->
+            <Border Visibility="{Binding CrossQuarterVisible}"
+                    Background="White" CornerRadius="10"
+                    Effect="{StaticResource CardShadow}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Background="#E3F2FD"
+                            Padding="16,12" CornerRadius="10,10,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock FontSize="14" FontWeight="Bold" Foreground="#1565C0">
+                                <Run Text="🔍 Results for: "/>
+                                <Run Text="{Binding SearchText}"/>
+                            </TextBlock>
+                            <TextBlock Grid.Column="1" Text="{Binding CrossQuarterResultCount}"
+                                       FontSize="13" Foreground="#546E7A" VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="16,12">
+                        <ItemsControl ItemsSource="{Binding CrossQuarterResults}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,10" CornerRadius="10" Background="White"
+                                            BorderThickness="1.5" BorderBrush="{Binding CardBorderColor}">
+                                        <Border.Effect>
+                                            <DropShadowEffect BlurRadius="8" Color="#BBBBBB"
+                                                              Opacity="0.2" ShadowDepth="1"/>
+                                        </Border.Effect>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="6"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <Border Grid.Column="0" Background="{Binding StripeColor}"
+                                                    CornerRadius="10,0,0,10"/>
+
+                                            <Grid Grid.Column="1" Margin="16,12,12,12">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="8"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                </Grid.RowDefinitions>
+
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="{Binding Name}"
+                                                               FontSize="15" FontWeight="Bold"
+                                                               Foreground="#1A1A2E" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding FatherNameDisplay}"
+                                                               FontSize="12" Foreground="#78909C"
+                                                               VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                                    <Border Background="{Binding CategoryBg}" CornerRadius="8"
+                                                            Padding="8,2" Margin="12,0,0,0">
+                                                        <TextBlock Text="{Binding Category}" FontSize="10"
+                                                                   FontWeight="Bold" Foreground="{Binding CategoryFg}"/>
+                                                    </Border>
+                                                    <Border Background="#E8EAF6" CornerRadius="8"
+                                                            Padding="8,2" Margin="6,0,0,0">
+                                                        <TextBlock Text="{Binding QuarterLabel}" FontSize="10"
+                                                                   FontWeight="SemiBold" Foreground="#3949AB"/>
+                                                    </Border>
+                                                    <Border Background="#E8F5E9" CornerRadius="8"
+                                                            Padding="8,2" Margin="6,0,0,0">
+                                                        <TextBlock Text="{Binding DeptLabel}" FontSize="10"
+                                                                   FontWeight="SemiBold" Foreground="#2E7D32"/>
+                                                    </Border>
+                                                    <Border Background="#E3F2FD" CornerRadius="8"
+                                                            Padding="8,2" Margin="6,0,0,0">
+                                                        <TextBlock Text="{Binding SemLabel}" FontSize="10"
+                                                                   FontWeight="SemiBold" Foreground="#1565C0"/>
+                                                    </Border>
+                                                </StackPanel>
+
+                                                <StackPanel Grid.Row="2" Orientation="Horizontal">
+                                                    <Border Background="#EDE7F6" CornerRadius="6"
+                                                            Padding="10,4" Margin="0,0,8,0">
+                                                        <StackPanel>
+                                                            <TextBlock Text="Quarterly Fee" FontSize="10" Foreground="#6A1B9A"/>
+                                                            <TextBlock Text="{Binding QuarterlyDisplay}" FontSize="13"
+                                                                       FontWeight="Bold" Foreground="#6A1B9A"/>
+                                                        </StackPanel>
+                                                    </Border>
+                                                    <Border Background="#FFEBEE" CornerRadius="6"
+                                                            Padding="10,4" Margin="0,0,8,0">
+                                                        <StackPanel>
+                                                            <TextBlock Text="Carried Forward" FontSize="10" Foreground="#C62828"/>
+                                                            <TextBlock Text="{Binding PrevPendingDisplay}" FontSize="13"
+                                                                       FontWeight="Bold" Foreground="#C62828"/>
+                                                        </StackPanel>
+                                                    </Border>
+                                                    <Border Background="{Binding TotalDueBg}" CornerRadius="6"
+                                                            Padding="10,4" Margin="0,0,8,0">
+                                                        <StackPanel>
+                                                            <TextBlock Text="Total Due" FontSize="10"
+                                                                       Foreground="{Binding TotalDueFg}"/>
+                                                            <TextBlock Text="{Binding TotalDueDisplay}" FontSize="14"
+                                                                       FontWeight="Bold" Foreground="{Binding TotalDueFg}"/>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </StackPanel>
+                                            </Grid>
+
+                                            <Border Grid.Column="2"
+                                                    Background="{Binding StatusBg}"
+                                                    BorderBrush="{Binding StatusBorder}"
+                                                    BorderThickness="1" CornerRadius="8"
+                                                    Padding="12,6" Margin="0,12,16,12"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding StatusText}" FontSize="12"
+                                                           FontWeight="Bold" Foreground="{Binding StatusFg}"/>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <!-- Empty state -->
+            <Border Visibility="{Binding EmptyStateVisible}"
+                    Background="White" CornerRadius="10"
+                    Effect="{StaticResource CardShadow}">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="📋" FontSize="56" HorizontalAlignment="Center" Margin="0,0,0,16"/>
+                    <TextBlock Text="Select a class / sheet to view data"
+                               FontSize="16" Foreground="#546E7A" HorizontalAlignment="Center"/>
+                    <TextBlock Text="or type a student name above to search across all quarters"
+                               FontSize="13" Foreground="#90A4AE"
+                               HorizontalAlignment="Center" Margin="0,6,0,0"/>
+                </StackPanel>
+            </Border>
+
         </Grid>
-
-        <!-- Data Grid -->
-        <Border Grid.Row="3" BorderBrush="#BDBDBD" BorderThickness="1" CornerRadius="5">
-            <DataGrid ItemsSource="{Binding CurrentSheetView}" 
-                      SelectedItem="{Binding SelectedRow}"
-                      AutoGenerateColumns="True"
-                      IsReadOnly="True"
-                      AlternatingRowBackground="#F5F5F5"
-                      GridLinesVisibility="Horizontal"
-                      HeadersVisibility="Column"
-                      CanUserResizeColumns="True"
-                      CanUserSortColumns="True"
-                      SelectionMode="Single"/>
-        </Border>
-
-        <!-- Back Button -->
-        <Button Grid.Row="4" Content="← Back to Dashboard" 
-                Command="{Binding GoBackCommand}"
-                HorizontalAlignment="Left"
-                Margin="0,15,0,0"
-                Padding="15,8"/>
     </Grid>
 </UserControl>

@@ -3,24 +3,69 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.DependencyInjection;
 using SchoolFeeSystem.Presentation.Services;
 using SchoolFeeSystem.Presentation.Views;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Data;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Windows;
 
 namespace SchoolFeeSystem.Presentation.ViewModels
 {
+    // ── Typed card — XAML binds to these properties, never to raw column names ──
+    public class ScholarshipStudentCard
+    {
+        public string SerialNumber { get; set; }
+        public string Name { get; set; }
+        public string FatherName { get; set; }
+        public string Category { get; set; }
+        public decimal QuarterlyFees { get; set; }
+        public decimal PrevPending { get; set; }
+        public decimal ScholarshipPct { get; set; }
+
+        public string QuarterlyDisplay => $"₹{QuarterlyFees:N0}";
+        public string PrevDisplay => $"₹{PrevPending:N0}";
+        public string ScholarshipDisplay => ScholarshipPct > 0 ? $"{ScholarshipPct:N0}%" : "None";
+        public string ScholarshipColor => ScholarshipPct > 0 ? "#E65100" : "#9E9E9E";
+
+        public string CategoryBackground => Category?.ToUpper() switch
+        {
+            "SC" => "#E3F2FD",
+            "ST" => "#E8EAF6",
+            "OBC" => "#FFF8E1",
+            "GEN" or "GENERAL" => "#E8F5E9",
+            "BC" => "#F3E5F5",
+            "GEN FW" => "#E0F2F1",
+            "FW BC" => "#FCE4EC",
+            "OBC FW" => "#FFF3E0",
+            _ => "#F5F5F5"
+        };
+
+        public string CategoryForeground => Category?.ToUpper() switch
+        {
+            "SC" => "#1565C0",
+            "ST" => "#283593",
+            "OBC" => "#F57F17",
+            "GEN" or "GENERAL" => "#2E7D32",
+            "BC" => "#6A1B9A",
+            "GEN FW" => "#00695C",
+            "FW BC" => "#880E4F",
+            "OBC FW" => "#E65100",
+            _ => "#424242"
+        };
+
+        public DataRowView SourceRow { get; set; }
+    }
+
     public partial class ScholarshipViewModel : ObservableObject
     {
         private readonly CsvDataService _csvService;
+        private readonly AcademicCycleService _cycleService;
         private DataTable _fullSheetData;
-        private string _currentSheetName; // Store actual sheet name (not display name)
+        private string _currentSheetName;
 
         public ObservableCollection<string> SheetNames { get; } = new();
         public ObservableCollection<string> FilteredSheetNames { get; } = new();
 
-        // Filter options
         public ObservableCollection<string> ScholarshipFilterOptions { get; } = new()
         {
             "All Students",
@@ -28,59 +73,40 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         };
 
         [ObservableProperty]
-        private string selectedSheet;
+        private ObservableCollection<ScholarshipStudentCard> studentCards = new();
 
-        [ObservableProperty]
-        private string sheetSearchText;
+        [ObservableProperty] private string selectedSheet;
+        [ObservableProperty] private string sheetSearchText;
+        [ObservableProperty] private DataView studentView;
+        [ObservableProperty] private DataRowView selectedRow;
+        [ObservableProperty] private string selectedScholarshipFilter = "All Students";
+        [ObservableProperty] private string searchText;
 
-        [ObservableProperty]
-        private DataView studentView;
+        [ObservableProperty] private string studentName;
+        [ObservableProperty] private string phoneNumber;
+        [ObservableProperty] private decimal previousPending;
+        [ObservableProperty] private decimal quarterlyFees;
+        [ObservableProperty] private decimal scholarshipPercentage;
+        [ObservableProperty] private decimal scholarshipDiscount;
+        [ObservableProperty] private decimal adjustedQuarterly;
+        [ObservableProperty] private decimal totalFees;
 
-        [ObservableProperty]
-        private DataRowView selectedRow;
+        [ObservableProperty] private int totalStudentsWithScholarship;
+        [ObservableProperty] private decimal totalScholarshipAmount;
+        [ObservableProperty] private string currentQuarterLabel = "";
 
-        [ObservableProperty]
-        private string selectedScholarshipFilter = "All Students";
-
-        [ObservableProperty]
-        private string searchText;
-
-        // Student Details
-        [ObservableProperty]
-        private string studentName;
-
-        [ObservableProperty]
-        private string phoneNumber;
-
-        [ObservableProperty]
-        private decimal previousPending;
-
-        [ObservableProperty]
-        private decimal quarterlyFees;
-
-        [ObservableProperty]
-        private decimal scholarshipPercentage;
-
-        [ObservableProperty]
-        private decimal scholarshipDiscount;
-
-        [ObservableProperty]
-        private decimal adjustedQuarterly;
-
-        [ObservableProperty]
-        private decimal totalFees;
-
-        [ObservableProperty]
-        private int totalStudentsWithScholarship;
-
-        [ObservableProperty]
-        private decimal totalScholarshipAmount;
-
-        public ScholarshipViewModel(CsvDataService csvService)
+        // ════════════════════════════════════════════════════════════════════
+        // CONSTRUCTOR
+        // ════════════════════════════════════════════════════════════════════
+        public ScholarshipViewModel(CsvDataService csvService,
+                                    AcademicCycleService cycleService)
         {
             _csvService = csvService;
+            _cycleService = cycleService;
 
-            // Use display names that include the time period
+            _cycleService.RunCycleCheck();
+            CurrentQuarterLabel = $"Current quarter: {AcademicCycleService.CurrentQuarter()}";
+
             foreach (var displayName in _csvService.GetSheetDisplayNames())
             {
                 SheetNames.Add(displayName);
@@ -88,49 +114,42 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
         }
 
+        // ════════════════════════════════════════════════════════════════════
+        // PROPERTY CHANGE HANDLERS
+        // ════════════════════════════════════════════════════════════════════
+
         partial void OnSheetSearchTextChanged(string value)
         {
             FilteredSheetNames.Clear();
-
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                foreach (var name in SheetNames)
-                    FilteredSheetNames.Add(name);
-            }
-            else
-            {
-                foreach (var name in SheetNames)
-                {
-                    if (name.ToLower().Contains(value.ToLower()))
-                        FilteredSheetNames.Add(name);
-                }
-            }
+            IEnumerable<string> src = string.IsNullOrWhiteSpace(value)
+                ? SheetNames
+                : SheetNames.Where(n => n.ToLower().Contains(value.ToLower()));
+            foreach (var n in src) FilteredSheetNames.Add(n);
         }
 
         partial void OnSelectedSheetChanged(string value)
         {
-            if (!string.IsNullOrEmpty(value))
-            {
-                LoadSheetData(value);
-            }
+            if (!string.IsNullOrEmpty(value)) LoadSheetData(value);
         }
 
-        partial void OnSelectedScholarshipFilterChanged(string value)
+        partial void OnSelectedScholarshipFilterChanged(string value) => ApplyFilter();
+
+        partial void OnScholarshipPercentageChanged(decimal value) => CalculateFees();
+
+        partial void OnSelectedRowChanged(DataRowView value)
         {
-            ApplyFilter();
+            if (value != null) UpdateStudentDetails();
+            else ClearStudentDetails();
         }
 
-        partial void OnScholarshipPercentageChanged(decimal value)
-        {
-            CalculateFees();
-        }
+        // ════════════════════════════════════════════════════════════════════
+        // DATA LOADING
+        // ════════════════════════════════════════════════════════════════════
 
         private void LoadSheetData(string displayName)
         {
-            // Convert display name to actual sheet name
             _currentSheetName = _csvService.GetSheetNameFromDisplay(displayName);
             _fullSheetData = _csvService.GetSheet(_currentSheetName);
-
             ApplyFilter();
             CalculateStatistics();
         }
@@ -139,29 +158,76 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             if (_fullSheetData == null) return;
 
-            if (SelectedScholarshipFilter == "All Students")
-            {
-                StudentView = _fullSheetData.DefaultView;
-            }
-            else if (SelectedScholarshipFilter == "With Scholarship Only")
-            {
-                StudentView = _csvService.GetScholarshipView(_currentSheetName);
-            }
+            StudentView = SelectedScholarshipFilter == "With Scholarship Only"
+                ? _csvService.GetScholarshipView(_currentSheetName)
+                : _fullSheetData.DefaultView;
 
+            RebuildCards();
             CalculateStatistics();
         }
 
-        partial void OnSelectedRowChanged(DataRowView value)
+        // ════════════════════════════════════════════════════════════════════
+        // CARD LIST — keyword-based column search, no hardcoded column names
+        // ════════════════════════════════════════════════════════════════════
+
+        private void RebuildCards()
         {
-            if (value != null)
+            StudentCards.Clear();
+            if (_fullSheetData == null) return;
+
+            var table = _fullSheetData;
+
+            DataColumn ColFind(params string[] keywords) =>
+                table.Columns.Cast<DataColumn>()
+                    .Where(c => !c.ColumnName.StartsWith("_"))
+                    .FirstOrDefault(c => keywords.All(k =>
+                        c.ColumnName.IndexOf(k, System.StringComparison.OrdinalIgnoreCase) >= 0));
+
+            decimal SafeDec(DataRow r, DataColumn c) =>
+                c == null ? 0m : ParseDecimal(r[c]?.ToString()?.Trim());
+
+            var nameCol = ColFind("name");
+            var fatherCol = ColFind("father");
+            var categoryCol = ColFind("category");
+            var quarterlyCol = ColFind("quarterly") ?? ColFind("installment");
+            var prevPendingCol = ColFind("previous", "pending") ?? ColFind("pending");
+            var scholarshipCol = ColFind("scholarship");
+
+            var sourceRows = (StudentView ?? _fullSheetData.DefaultView)
+                .Cast<DataRowView>().ToList();
+
+            int serial = 1;
+            foreach (var drv in sourceRows)
             {
-                UpdateStudentDetails();
-            }
-            else
-            {
-                ClearStudentDetails();
+                DataRow row = drv.Row;
+                string nm = nameCol != null ? row[nameCol]?.ToString()?.Trim() ?? "" : "";
+                if (string.IsNullOrEmpty(nm)) continue;
+                if (nm.Equals("Name", System.StringComparison.OrdinalIgnoreCase)) continue;
+                if (nm.StartsWith("Note", System.StringComparison.OrdinalIgnoreCase)) continue;
+                if (nm.Length > 60 || nm.Contains(":-") || nm.Contains("Per Day")) continue;
+
+                string cat = (categoryCol != null
+                    ? row[categoryCol]?.ToString()?.Trim() ?? "" : "").ToUpper();
+
+                StudentCards.Add(new ScholarshipStudentCard
+                {
+                    SerialNumber = serial.ToString(),
+                    Name = nm,
+                    FatherName = fatherCol != null
+                                       ? row[fatherCol]?.ToString()?.Trim() ?? "–" : "–",
+                    Category = cat,
+                    QuarterlyFees = SafeDec(row, quarterlyCol),
+                    PrevPending = SafeDec(row, prevPendingCol),
+                    ScholarshipPct = SafeDec(row, scholarshipCol),
+                    SourceRow = drv
+                });
+                serial++;
             }
         }
+
+        // ════════════════════════════════════════════════════════════════════
+        // STUDENT DETAILS PANEL
+        // ════════════════════════════════════════════════════════════════════
 
         private void UpdateStudentDetails()
         {
@@ -169,108 +235,62 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             var table = SelectedRow.Row.Table;
 
-            // Get student name
+            DataColumn ColFind(params string[] keywords) =>
+                table.Columns.Cast<DataColumn>()
+                    .Where(c => !c.ColumnName.StartsWith("_"))
+                    .FirstOrDefault(c => keywords.All(k =>
+                        c.ColumnName.IndexOf(k, System.StringComparison.OrdinalIgnoreCase) >= 0));
+
             var nameCol = table.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("name") &&
-                                   !c.ColumnName.ToLower().Contains("father"));
+                                    .FirstOrDefault(c =>
+                                        c.ColumnName.ToLower().Contains("name") &&
+                                        !c.ColumnName.ToLower().Contains("father"));
+            var phoneCol = ColFind("phone") ?? ColFind("mobile");
+            var previousCol = ColFind("previous", "pending") ?? ColFind("pending");
+            var quarterlyCol = ColFind("quarterly") ?? ColFind("installment");
+            var scholarshipCol = ColFind("scholarship");
 
-            if (nameCol != null)
-                StudentName = SelectedRow[nameCol.ColumnName]?.ToString()?.Trim() ?? "Unknown";
+            if (nameCol != null) StudentName = SelectedRow[nameCol.ColumnName]?.ToString()?.Trim() ?? "";
+            if (phoneCol != null) PhoneNumber = SelectedRow[phoneCol.ColumnName]?.ToString()?.Trim() ?? "";
+            if (previousCol != null) PreviousPending = ParseDecimal(SelectedRow[previousCol.ColumnName]?.ToString());
+            if (quarterlyCol != null) QuarterlyFees = ParseDecimal(SelectedRow[quarterlyCol.ColumnName]?.ToString());
 
-            // Get phone number
-            var phoneCol = table.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("phone") ||
-                                   c.ColumnName.ToLower().Contains("mobile"));
-
-            if (phoneCol != null)
-                PhoneNumber = SelectedRow[phoneCol.ColumnName]?.ToString()?.Trim() ?? "";
-
-            // Get previous/pending fees
-            var previousCol = table.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("previous") ||
-                                   c.ColumnName.ToLower().Contains("pending"));
-
-            if (previousCol != null)
-            {
-                string raw = SelectedRow[previousCol.ColumnName]?.ToString()?.Trim();
-                PreviousPending = ParseDecimal(raw);
-            }
-
-            // Get quarterly fees
-            var quarterlyCol = table.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("quarterly") ||
-                                   c.ColumnName.ToLower().Contains("current"));
-
-            if (quarterlyCol != null)
-            {
-                string raw = SelectedRow[quarterlyCol.ColumnName]?.ToString()?.Trim();
-                QuarterlyFees = ParseDecimal(raw);
-            }
-
-            // Get scholarship percentage
-            var scholarshipCol = table.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("scholarship"));
-
-            if (scholarshipCol != null)
-            {
-                string raw = SelectedRow[scholarshipCol.ColumnName]?.ToString()?.Trim();
-                ScholarshipPercentage = ParseDecimal(raw);
-            }
-            else
-            {
-                ScholarshipPercentage = 0;
-            }
+            ScholarshipPercentage = scholarshipCol != null
+                ? ParseDecimal(SelectedRow[scholarshipCol.ColumnName]?.ToString()) : 0m;
 
             CalculateFees();
         }
 
         private void CalculateFees()
         {
-            // Calculate scholarship discount on quarterly fees
             ScholarshipDiscount = QuarterlyFees * (ScholarshipPercentage / 100);
-
-            // Adjusted quarterly after scholarship
             AdjustedQuarterly = QuarterlyFees - ScholarshipDiscount;
-
-            // Total = Previous Pending + Adjusted Quarterly
             TotalFees = PreviousPending + AdjustedQuarterly;
-        }
-
-        private decimal ParseDecimal(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-                return 0;
-
-            value = value.Trim().Replace("₹", "").Replace(",", "");
-
-            if (decimal.TryParse(value, out decimal result))
-                return result;
-
-            return 0;
         }
 
         private void ClearStudentDetails()
         {
-            StudentName = string.Empty;
-            PhoneNumber = string.Empty;
-            PreviousPending = 0;
-            QuarterlyFees = 0;
-            ScholarshipPercentage = 0;
-            ScholarshipDiscount = 0;
-            AdjustedQuarterly = 0;
-            TotalFees = 0;
+            StudentName = PhoneNumber = "";
+            PreviousPending = QuarterlyFees = ScholarshipPercentage =
+                ScholarshipDiscount = AdjustedQuarterly = TotalFees = 0m;
         }
+
+        // ════════════════════════════════════════════════════════════════════
+        // STATISTICS
+        // ════════════════════════════════════════════════════════════════════
 
         private void CalculateStatistics()
         {
             if (_fullSheetData == null) return;
 
-            var scholarshipCol = _fullSheetData.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("scholarship"));
+            DataColumn ColFind(params string[] keywords) =>
+                _fullSheetData.Columns.Cast<DataColumn>()
+                    .Where(c => !c.ColumnName.StartsWith("_"))
+                    .FirstOrDefault(c => keywords.All(k =>
+                        c.ColumnName.IndexOf(k, System.StringComparison.OrdinalIgnoreCase) >= 0));
 
-            var quarterlyCol = _fullSheetData.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("quarterly") ||
-                                   c.ColumnName.ToLower().Contains("current"));
+            var scholarshipCol = ColFind("scholarship");
+            var quarterlyCol = ColFind("quarterly") ?? ColFind("installment");
 
             if (scholarshipCol == null || quarterlyCol == null)
             {
@@ -279,28 +299,24 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 return;
             }
 
-            int count = 0;
-            decimal totalDiscount = 0;
-
+            int count = 0; decimal totalDiscount = 0m;
             foreach (DataRow row in _fullSheetData.Rows)
             {
-                string scholarshipStr = row[scholarshipCol]?.ToString()?.Trim() ?? "";
-                decimal scholarshipPercent = ParseDecimal(scholarshipStr);
-
-                if (scholarshipPercent > 0)
+                decimal pct = ParseDecimal(row[scholarshipCol]?.ToString());
+                if (pct > 0)
                 {
                     count++;
-
-                    string quarterlyStr = row[quarterlyCol]?.ToString()?.Trim();
-                    decimal quarterly = ParseDecimal(quarterlyStr);
-
-                    totalDiscount += quarterly * (scholarshipPercent / 100);
+                    totalDiscount += ParseDecimal(row[quarterlyCol]?.ToString()) * (pct / 100);
                 }
             }
 
             TotalStudentsWithScholarship = count;
             TotalScholarshipAmount = totalDiscount;
         }
+
+        // ════════════════════════════════════════════════════════════════════
+        // COMMANDS
+        // ════════════════════════════════════════════════════════════════════
 
         [RelayCommand]
         public void ApplyScholarship()
@@ -311,45 +327,33 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-
             if (ScholarshipPercentage < 0 || ScholarshipPercentage > 100)
             {
-                MessageBox.Show("Scholarship percentage must be between 0 and 100.", "Invalid Percentage",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Scholarship percentage must be between 0 and 100.",
+                    "Invalid Percentage", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             try
             {
-                // Apply scholarship using the service
                 _csvService.ApplyScholarship(_currentSheetName, SelectedRow.Row, ScholarshipPercentage);
 
                 MessageBox.Show(
                     $"✅ Scholarship Applied!\n\n" +
-                    $"Student: {StudentName}\n" +
-                    $"Previous Pending: ₹{PreviousPending:F2}\n" +
-                    $"Quarterly Fees: ₹{QuarterlyFees:F2}\n" +
-                    $"Scholarship: {ScholarshipPercentage}%\n" +
-                    $"Discount: ₹{ScholarshipDiscount:F2}\n" +
-                    $"Adjusted Quarterly: ₹{AdjustedQuarterly:F2}\n" +
-                    $"Total Fees: ₹{TotalFees:F2}\n\n" +
-                    $"Formula: Previous ({PreviousPending:F2}) + Adjusted Quarterly ({AdjustedQuarterly:F2}) = Total ({TotalFees:F2})\n\n" +
-                    $"Note: Save changes to persist the scholarship.",
-                    "Scholarship Applied",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
+                    $"Student        : {StudentName}\n" +
+                    $"Quarterly Fees : ₹{QuarterlyFees:F2}\n" +
+                    $"Scholarship    : {ScholarshipPercentage}%\n" +
+                    $"Discount       : ₹{ScholarshipDiscount:F2}\n" +
+                    $"Adjusted Fee   : ₹{AdjustedQuarterly:F2}\n" +
+                    $"Total Due      : ₹{TotalFees:F2}",
+                    "Scholarship Applied", MessageBoxButton.OK, MessageBoxImage.Information);
 
-                // Refresh the view
                 LoadSheetData(SelectedSheet);
-                CalculateStatistics();
             }
             catch (System.Exception ex)
             {
-                MessageBox.Show(
-                    $"Failed to apply scholarship: {ex.Message}",
-                    "Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
+                MessageBox.Show($"Failed to apply scholarship:\n{ex.Message}",
+                    "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -366,84 +370,51 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             var table = _fullSheetData;
             var phoneCol = table.Columns.Cast<DataColumn>()
                 .FirstOrDefault(c => c.ColumnName.ToLower().Contains("phone") ||
-                                   c.ColumnName.ToLower().Contains("mobile"));
+                                     c.ColumnName.ToLower().Contains("mobile"));
 
             if (phoneCol == null)
             {
-                MessageBox.Show("Phone number column not found in the sheet.", "Column Not Found",
+                MessageBox.Show("Phone number column not found.", "Column Not Found",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            // Find the row in the table
-            DataRow targetRow = null;
             foreach (DataRow row in table.Rows)
             {
                 bool match = true;
-                for (int i = 0; i < Math.Min(row.ItemArray.Length, SelectedRow.Row.ItemArray.Length); i++)
-                {
-                    if (!row[i].Equals(SelectedRow.Row[i]))
-                    {
-                        match = false;
-                        break;
-                    }
-                }
-
-                if (match)
-                {
-                    targetRow = row;
-                    break;
-                }
+                int len = System.Math.Min(row.ItemArray.Length, SelectedRow.Row.ItemArray.Length);
+                for (int i = 0; i < len; i++)
+                    if (!row[i].Equals(SelectedRow.Row[i])) { match = false; break; }
+                if (match) { row[phoneCol] = PhoneNumber; break; }
             }
 
-            if (targetRow != null)
-            {
-                targetRow[phoneCol] = PhoneNumber;
-                MessageBox.Show(
-                    $"Phone number updated to: {PhoneNumber}",
-                    "Updated",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-            }
+            MessageBox.Show($"Phone number updated to: {PhoneNumber}",
+                "Updated", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         [RelayCommand]
         public void SearchStudent()
         {
             if (_fullSheetData == null) return;
-
-            if (string.IsNullOrWhiteSpace(SearchText))
-            {
-                ApplyFilter();
-                return;
-            }
+            if (string.IsNullOrWhiteSpace(SearchText)) { ApplyFilter(); return; }
 
             try
             {
-                var table = StudentView.Table;
+                var table = StudentView?.Table ?? _fullSheetData;
                 var filtered = table.Clone();
-
                 foreach (DataRow row in table.Rows)
-                {
                     foreach (var item in row.ItemArray)
-                    {
-                        if (item != null && item.ToString().Contains(SearchText, System.StringComparison.OrdinalIgnoreCase))
-                        {
-                            filtered.ImportRow(row);
-                            break;
-                        }
-                    }
-                }
+                        if (item != null && item.ToString()
+                                .Contains(SearchText, System.StringComparison.OrdinalIgnoreCase))
+                        { filtered.ImportRow(row); break; }
 
                 StudentView = filtered.DefaultView;
+                RebuildCards();
             }
             catch (System.Exception ex)
             {
-                MessageBox.Show(
-                    $"Search failed: {ex.Message}",
-                    "Search Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
+                MessageBox.Show($"Search failed: {ex.Message}",
+                    "Search Error", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
@@ -455,33 +426,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         }
 
         [RelayCommand]
-        public void SaveChanges()
+        public void SelectStudentRow(object parameter)
         {
-            try
-            {
-                _csvService.SaveFile();
-                MessageBox.Show(
-                    "✅ Changes saved successfully!",
-                    "Saved",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-            }
-            catch (System.Exception ex)
-            {
-                MessageBox.Show(
-                    $"❌ Failed to save changes:\n\n{ex.Message}",
-                    "Save Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
-            }
-        }
-
-
-        // ── NEW: called by card list "Select" button ──────────────────────────
-        [RelayCommand]
-        public void SelectStudentRow(object row)
-        {
-            if (row is System.Data.DataRowView drv)
+            if (parameter is ScholarshipStudentCard card && card.SourceRow != null)
+                SelectedRow = card.SourceRow;
+            else if (parameter is DataRowView drv)
                 SelectedRow = drv;
         }
 
@@ -490,6 +439,20 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             var dashboard = App.Current.Services.GetRequiredService<DashboardView>();
             Application.Current.MainWindow.Content = dashboard;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // HELPERS
+        // ════════════════════════════════════════════════════════════════════
+
+        private static decimal ParseDecimal(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return 0m;
+            raw = raw.Replace("₹", "").Replace(",", "").Trim();
+            return decimal.TryParse(raw,
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out decimal v) ? v : 0m;
         }
     }
 }

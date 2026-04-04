@@ -142,7 +142,11 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<StudentListView>();
             services.AddTransient<StudentListViewModel>();
             // Scholarship
-            services.AddTransient<ScholarshipViewModel>();
+            services.AddTransient<ScholarshipViewModel>(sp =>
+    new ScholarshipViewModel(
+        sp.GetRequiredService<CsvDataService>(),
+        sp.GetRequiredService<AcademicCycleService>()
+    ));
             services.AddTransient<ScholarshipView>();
 
             // Staff & Payroll Features

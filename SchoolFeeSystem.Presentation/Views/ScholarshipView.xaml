@@ -200,7 +200,7 @@
 
                     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                                   Padding="12,8" Background="#F8F9FA">
-                        <ItemsControl ItemsSource="{Binding StudentView}">
+                        <ItemsControl ItemsSource="{Binding StudentCards}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Border Margin="0,0,0,8" CornerRadius="10"
@@ -209,11 +209,6 @@
                                         <Border.Style>
                                             <Style TargetType="Border">
                                                 <Setter Property="BorderBrush" Value="#E8ECF0"/>
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding [Scholarship %]}" Value="0">
-                                                        <Setter Property="BorderBrush" Value="#E8ECF0"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
                                             </Style>
                                         </Border.Style>
                                         <Border.Effect>
@@ -240,20 +235,15 @@
                                                 <ColumnDefinition Width="100"/>
                                             </Grid.ColumnDefinitions>
 
-                                            <!-- Stripe: orange = has scholarship, grey = none -->
-                                            <Border Grid.Column="0" CornerRadius="10,0,0,10">
-                                                <Border.Style>
-                                                    <Style TargetType="Border">
-                                                        <Setter Property="Background" Value="#E0E0E0"/>
-                                                    </Style>
-                                                </Border.Style>
-                                            </Border>
+                                            <!-- Stripe -->
+                                            <Border Grid.Column="0" CornerRadius="10,0,0,10"
+                                                    Background="#E0E0E0"/>
 
-                                            <!-- Avatar -->
+                                            <!-- Avatar / Sr No. -->
                                             <Border Grid.Column="1" Width="34" Height="34"
                                                     CornerRadius="17" Background="#FFF3E0"
                                                     VerticalAlignment="Center" HorizontalAlignment="Center">
-                                                <TextBlock Text="{Binding [Sr No.]}"
+                                                <TextBlock Text="{Binding SerialNumber}"
                                                           FontSize="12" FontWeight="Bold"
                                                           Foreground="#E65100"
                                                           HorizontalAlignment="Center"
@@ -263,30 +253,30 @@
                                             <!-- Name + Father Name -->
                                             <StackPanel Grid.Column="2" VerticalAlignment="Center"
                                                         Margin="8,12,8,12">
-                                                <TextBlock Text="{Binding [Name]}"
+                                                <TextBlock Text="{Binding Name}"
                                                           FontSize="14" FontWeight="SemiBold"
                                                           Foreground="#1A1A2E"/>
                                                 <TextBlock FontSize="12" Foreground="#78909C" Margin="0,2,0,0">
                                                     <Run Text="S/o "/>
-                                                    <Run Text="{Binding [Father Name]}"/>
+                                                    <Run Text="{Binding FatherName}"/>
                                                 </TextBlock>
                                             </StackPanel>
 
                                             <!-- Category pill -->
                                             <Border Grid.Column="3" VerticalAlignment="Center"
-                                                    Background="#F3E5F5" CornerRadius="10"
-                                                    Padding="8,4" Margin="4,0">
-                                                <TextBlock Text="{Binding [Category]}"
+                                                    Background="{Binding CategoryBackground}"
+                                                    CornerRadius="10" Padding="8,4" Margin="4,0">
+                                                <TextBlock Text="{Binding Category}"
                                                           FontSize="11" FontWeight="Bold"
-                                                          Foreground="#6A1B9A"/>
+                                                          Foreground="{Binding CategoryForeground}"/>
                                             </Border>
 
-                                            <!-- Quarterly Fees -->
+                                            <!-- Quarterly Fees — bound to typed property, NOT column name -->
                                             <StackPanel Grid.Column="4" VerticalAlignment="Center"
                                                         HorizontalAlignment="Center" Margin="4,0">
                                                 <TextBlock Text="Quarterly" FontSize="10"
                                                           Foreground="#90A4AE" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="{Binding [Quarterly Fees (AUG 2024 to OCT 2024)], StringFormat=₹{0:N0}}"
+                                                <TextBlock Text="{Binding QuarterlyDisplay}"
                                                           FontSize="13" FontWeight="Bold"
                                                           Foreground="#1565C0" HorizontalAlignment="Center"/>
                                             </StackPanel>
@@ -296,7 +286,7 @@
                                                         HorizontalAlignment="Center" Margin="4,0">
                                                 <TextBlock Text="Prev Pending" FontSize="10"
                                                           Foreground="#90A4AE" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="{Binding [Previous Quarter Pending Fees], StringFormat=₹{0:N0}}"
+                                                <TextBlock Text="{Binding PrevDisplay}"
                                                           FontSize="13" FontWeight="Bold"
                                                           Foreground="#C62828" HorizontalAlignment="Center"/>
                                             </StackPanel>
@@ -306,18 +296,13 @@
                                                         HorizontalAlignment="Center" Margin="4,0">
                                                 <TextBlock Text="Scholarship" FontSize="10"
                                                           Foreground="#90A4AE" HorizontalAlignment="Center"/>
-                                                <TextBlock FontSize="13" FontWeight="Bold"
-                                                          HorizontalAlignment="Center">
-                                                    <TextBlock.Style>
-                                                        <Style TargetType="TextBlock">
-                                                            <Setter Property="Text" Value="None"/>
-                                                            <Setter Property="Foreground" Value="#9E9E9E"/>
-                                                        </Style>
-                                                    </TextBlock.Style>
-                                                </TextBlock>
+                                                <TextBlock Text="{Binding ScholarshipDisplay}"
+                                                          FontSize="13" FontWeight="Bold"
+                                                          Foreground="{Binding ScholarshipColor}"
+                                                          HorizontalAlignment="Center"/>
                                             </StackPanel>
 
-                                            <!-- Apply button -->
+                                            <!-- Select button -->
                                             <Button Grid.Column="7"
                                                     Command="{Binding DataContext.SelectStudentRowCommand,
                                                               RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -527,3 +512,4 @@
         </Grid>
     </Grid>
 </UserControl>
+

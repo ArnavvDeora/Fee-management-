@@ -512,11 +512,6 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal">
-                        <Button Content="💾 Save Changes"
-                                Command="{Binding SaveChangesCommand}"
-                                Background="#43A047" Foreground="White"
-                                Padding="12,7" Margin="0,0,8,0"
-                                BorderThickness="0" Cursor="Hand" FontSize="13"/>
                         <Button Content="📤 Export"
                                 Command="{Binding ExportCurrentSheetCommand}"
                                 Background="#FB8C00" Foreground="White"

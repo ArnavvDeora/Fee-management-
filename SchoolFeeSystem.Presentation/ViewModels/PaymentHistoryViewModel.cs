@@ -9,7 +9,6 @@ using System.Data;
 using System.Linq;
 using System.Windows;
 using System.Windows.Documents;
-using System.Windows.Threading;
 
 namespace SchoolFeeSystem.Presentation.ViewModels
 {
@@ -18,13 +17,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         private readonly CsvDataService _csvService;
         private readonly PaymentLogService _paymentLogService;
 
-        // Guard flag: prevents OnSelectedPaymentTypeChanged from firing
-        // during construction before the DataGrid is ready.
+        // Guard: prevents filter callbacks from firing before the DataGrid is ready.
         private bool _isInitializing = true;
 
         // ── Filters ───────────────────────────────────────────────────────────
-        // Initialize to string.Empty so WPF binding never triggers a null→""
-        // change notification during DataGrid initialization.
         [ObservableProperty] private string studentIdFilter = string.Empty;
         [ObservableProperty] private string studentNameFilter = string.Empty;
         [ObservableProperty] private DateTime? startDate;
@@ -35,12 +31,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
         [ObservableProperty] private string selectedPaymentType = "All";
 
-        // ── Grid data ─────────────────────────────────────────────────────────
-        // Manually implemented so we can ensure PropertyChanged is only ever
-        // raised on the UI thread at DispatcherPriority.Loaded — this prevents
-        // the DataGrid from receiving a new ItemsSource before its internal
-        // ItemCollection is ready, which would throw:
-        //   "Items collection must be empty before using ItemsSource."
+        // ── Grid data — manually notified so DataGrid is always ready first ──
         private DataView _paymentHistoryView;
         public DataView PaymentHistoryView
         {
@@ -68,7 +59,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         // ── Row selection → receipt preview ──────────────────────────────────
         [ObservableProperty] private DataRowView selectedPaymentRow;
 
-        // Receipt panel fields (bound in XAML receipt preview border)
+        // Receipt fields
         [ObservableProperty] private string receiptNumber = "";
         [ObservableProperty] private string receiptDate = "";
         [ObservableProperty] private string receiptStudentName = "";
@@ -77,6 +68,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty] private string receiptPaymentMode = "";
         [ObservableProperty] private string receiptAmount = "";
         [ObservableProperty] private string receiptQuarter = "";
+        [ObservableProperty] private string receiptCourse = "";
         [ObservableProperty] private string receiptRemarks = "";
 
         [ObservableProperty] private Visibility receiptPanelVisibility = Visibility.Collapsed;
@@ -90,18 +82,18 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty] private bool isExporting;
 
         // ─────────────────────────────────────────────────────────────────────
+
         public PaymentHistoryViewModel(CsvDataService csvService,
                                        PaymentLogService paymentLogService)
         {
             _csvService = csvService;
             _paymentLogService = paymentLogService;
-            // Do NOT load data here. The View calls Initialize() from its
-            // Loaded event, guaranteeing the DataGrid is fully ready first.
+            // Data is loaded by the View calling Initialize() from its
+            // Loaded event — guaranteeing the DataGrid is ready first.
         }
 
         /// <summary>
-        /// Called by PaymentHistoryView.Loaded — at this point the DataGrid's
-        /// ItemCollection is empty and ready to accept an ItemsSource.
+        /// Called by PaymentHistoryView.Loaded after the DataGrid is fully ready.
         /// </summary>
         public void Initialize()
         {
@@ -110,27 +102,17 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         }
 
         // ═════════════════════════════════════════════════════════════════════
-        // HELPERS — all DataView assignments go through the Dispatcher so the
-        // DataGrid's ItemCollection is fully ready before the swap occurs.
+        // INTERNAL HELPERS
         // ═════════════════════════════════════════════════════════════════════
 
-        /// <summary>
-        /// Assigns a new DataView to PaymentHistoryView. The property setter
-        /// automatically dispatches the PropertyChanged notification at
-        /// DispatcherPriority.Loaded so the DataGrid is always ready first.
-        /// </summary>
         private void SetPaymentHistoryView(DataView newView, DataTable summarySource = null)
         {
             PaymentHistoryView = null;
             PaymentHistoryView = newView;
             if (summarySource != null)
-                UpdateSummary(summarySource);
+                UpdateSummaryCards(summarySource);
         }
 
-        /// <summary>
-        /// Assigns a new DataView to FinancialSummaryView. Same dispatch
-        /// guarantee as SetPaymentHistoryView.
-        /// </summary>
         private void SetFinancialSummaryView(DataView newView, bool isEmpty)
         {
             FinancialSummaryView = null;
@@ -145,14 +127,13 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         private void LoadAllPayments()
         {
             var all = _paymentLogService.GetPaymentHistory();
-            var newView = new DataView(all);
-            SetPaymentHistoryView(newView, all);
+            SetPaymentHistoryView(new DataView(all), all);
         }
 
         /// <summary>
-        /// Filters on the dedicated "Student Name" and "Student ID" columns
-        /// that PaymentLogService now writes for every transaction.
-        /// Both filters support partial / case-insensitive matching.
+        /// Searches by student name and/or ID across all recorded transactions.
+        /// Partial, case-insensitive match on both fields.
+        /// Also populates the Financial Summary tab for the same student.
         /// </summary>
         [RelayCommand]
         public void SearchByStudent()
@@ -182,12 +163,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             SetPaymentHistoryView(new DataView(filtered), filtered);
 
-            // Financial summary uses the same search key
+            // Populate financial summary for the matched student
             string key = hasName ? StudentNameFilter : StudentIdFilter;
             var summary = _paymentLogService.GetStudentFinancialSummary(key);
-            bool isEmpty = (summary == null || summary.Rows.Count == 0);
-            var summaryDv = isEmpty ? null : new DataView(summary);
-            SetFinancialSummaryView(summaryDv, isEmpty);
+            bool isEmpty = summary == null || summary.Rows.Count == 0;
+            SetFinancialSummaryView(isEmpty ? null : new DataView(summary), isEmpty);
         }
 
         [RelayCommand]
@@ -212,9 +192,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
         partial void OnSelectedPaymentTypeChanged(string value)
         {
-            // Skip during constructor — DataGrid is not ready yet
             if (_isInitializing) return;
-
             if (value == "All") { LoadAllPayments(); return; }
 
             var all = _paymentLogService.GetPaymentHistory();
@@ -235,11 +213,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             SetPaymentHistoryView(new DataView(filtered), filtered);
         }
 
-        // These partial methods intentionally do nothing.
-        // Filtering is driven explicitly by the Search button only.
-        // Without these, the source generator fires a change callback when
-        // WPF first binds the TextBoxes (null → ""), which crashes the
-        // DataGrid with "Items collection must be empty before using ItemsSource".
+        // Suppress spurious change callbacks during DataGrid initialisation
         partial void OnStudentIdFilterChanged(string value) { }
         partial void OnStudentNameFilterChanged(string value) { }
         partial void OnStartDateChanged(DateTime? value) { }
@@ -253,8 +227,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             StartDate = null;
             EndDate = null;
 
-            // Temporarily suppress the type-change handler to avoid a
-            // redundant reload — LoadAllPayments() below covers it.
             _isInitializing = true;
             SelectedPaymentType = "All";
             _isInitializing = false;
@@ -274,8 +246,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             PopulateReceiptFields(value.Row);
         }
 
-        // Per-row 🖨️ button calls this with CommandParameter="{Binding}"
-        // which is the DataRowView for that exact row.
+        /// <summary>
+        /// Called by the per-row 🖨️ Receipt button via CommandParameter="{Binding}".
+        /// Populates the receipt panel and immediately opens the print dialog.
+        /// </summary>
         [RelayCommand]
         public void PrintReceiptForRow(object parameter)
         {
@@ -297,6 +271,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             ReceiptPaymentMode = row["Payment Mode"]?.ToString() ?? "";
             ReceiptQuarter = row["Quarter"]?.ToString() ?? "";
             ReceiptRemarks = row["Remarks"]?.ToString() ?? "";
+
+            // Course column — may not exist in older log files
+            ReceiptCourse = row.Table.Columns.Contains("Course")
+                ? row["Course"]?.ToString() ?? ""
+                : "";
 
             string rawAmt = row["Amount"]?.ToString() ?? "";
             ReceiptAmount = decimal.TryParse(rawAmt, out decimal amt) ? $"₹{amt:N2}" : rawAmt;
@@ -332,10 +311,9 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 $"Receipt – {ReceiptStudentName} – {ReceiptDate}");
         }
 
-        private System.Windows.Documents.FlowDocument BuildReceiptDocument(
-            double pageWidth, double pageHeight)
+        private FlowDocument BuildReceiptDocument(double pageWidth, double pageHeight)
         {
-            var doc = new System.Windows.Documents.FlowDocument
+            var doc = new FlowDocument
             {
                 FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
                 FontSize = 13,
@@ -345,17 +323,18 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 ColumnWidth = pageWidth
             };
 
-            doc.Blocks.Add(new System.Windows.Documents.Paragraph(
-                new System.Windows.Documents.Run("SCHOOL FEE MANAGEMENT SYSTEM"))
+            // ── Institution name (you can replace this with a binding later) ──
+            doc.Blocks.Add(new Paragraph(
+                new Run("CENTRAL INSTITUTE OF HAND TOOLS, JALANDHAR"))
             {
-                FontSize = 22,
+                FontSize = 18,
                 FontWeight = FontWeights.Bold,
                 TextAlignment = TextAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 4)
+                Margin = new Thickness(0, 0, 0, 2)
             });
 
-            doc.Blocks.Add(new System.Windows.Documents.Paragraph(
-                new System.Windows.Documents.Run("Official Fee Payment Receipt"))
+            doc.Blocks.Add(new Paragraph(
+                new Run("Official Fee Payment Receipt"))
             {
                 FontSize = 14,
                 Foreground = System.Windows.Media.Brushes.Gray,
@@ -365,18 +344,19 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             doc.Blocks.Add(HRule());
 
-            var tbl = new System.Windows.Documents.Table();
-            tbl.Columns.Add(new System.Windows.Documents.TableColumn { Width = new GridLength(160) });
-            tbl.Columns.Add(new System.Windows.Documents.TableColumn { Width = new GridLength(1, GridUnitType.Star) });
-            tbl.Columns.Add(new System.Windows.Documents.TableColumn { Width = new GridLength(160) });
-            tbl.Columns.Add(new System.Windows.Documents.TableColumn { Width = new GridLength(1, GridUnitType.Star) });
+            // ── Receipt details table ──
+            var tbl = new Table();
+            tbl.Columns.Add(new TableColumn { Width = new GridLength(160) });
+            tbl.Columns.Add(new TableColumn { Width = new GridLength(1, GridUnitType.Star) });
+            tbl.Columns.Add(new TableColumn { Width = new GridLength(160) });
+            tbl.Columns.Add(new TableColumn { Width = new GridLength(1, GridUnitType.Star) });
 
-            var rg = new System.Windows.Documents.TableRowGroup();
+            var rg = new TableRowGroup();
             tbl.RowGroups.Add(rg);
 
             void AddRow(string l1, string v1, string l2 = "", string v2 = "")
             {
-                var tr = new System.Windows.Documents.TableRow();
+                var tr = new TableRow();
                 tr.Cells.Add(LabelCell(l1)); tr.Cells.Add(ValueCell(v1));
                 tr.Cells.Add(LabelCell(l2)); tr.Cells.Add(ValueCell(v2));
                 rg.Rows.Add(tr);
@@ -385,22 +365,24 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             AddRow("Receipt No:", ReceiptNumber, "Date:", ReceiptDate);
             AddRow("Student Name:", ReceiptStudentName, "Student ID:", ReceiptStudentId);
             AddRow("Guardian:", ReceiptGuardian, "Quarter:", ReceiptQuarter);
-            AddRow("Mode:", ReceiptPaymentMode, "Amount Paid:", ReceiptAmount);
+            AddRow("Course / Dept:", ReceiptCourse, "Payment Mode:", ReceiptPaymentMode);
+
             doc.Blocks.Add(tbl);
 
             if (!string.IsNullOrWhiteSpace(ReceiptRemarks))
-                doc.Blocks.Add(new System.Windows.Documents.Paragraph(
-                    new System.Windows.Documents.Run($"Remarks: {ReceiptRemarks}"))
+                doc.Blocks.Add(new Paragraph(
+                    new Run($"Remarks: {ReceiptRemarks}"))
                 {
                     FontSize = 11,
                     Foreground = System.Windows.Media.Brushes.Gray,
-                    Margin = new Thickness(0, 10, 0, 0)
+                    Margin = new Thickness(0, 8, 0, 0)
                 });
 
             doc.Blocks.Add(HRule());
 
-            doc.Blocks.Add(new System.Windows.Documents.Paragraph(
-                new System.Windows.Documents.Run($"AMOUNT PAID:  {ReceiptAmount}"))
+            // ── Big amount ──
+            doc.Blocks.Add(new Paragraph(
+                new Run($"AMOUNT PAID:  {ReceiptAmount}"))
             {
                 FontSize = 26,
                 FontWeight = FontWeights.Bold,
@@ -411,8 +393,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             doc.Blocks.Add(HRule());
 
-            doc.Blocks.Add(new System.Windows.Documents.Paragraph(
-                new System.Windows.Documents.Run(
+            doc.Blocks.Add(new Paragraph(
+                new Run(
                     $"Computer-generated receipt. Printed: {DateTime.Now:dd-MM-yyyy HH:mm}"))
             {
                 FontSize = 10,
@@ -423,7 +405,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             return doc;
         }
 
-        private static System.Windows.Documents.BlockUIContainer HRule()
+        private static BlockUIContainer HRule()
         {
             var r = new System.Windows.Shapes.Rectangle
             {
@@ -431,21 +413,19 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 Fill = System.Windows.Media.Brushes.LightGray,
                 Margin = new Thickness(0, 6, 0, 6)
             };
-            return new System.Windows.Documents.BlockUIContainer(r);
+            return new BlockUIContainer(r);
         }
 
-        private static System.Windows.Documents.TableCell LabelCell(string t) =>
-            new(new System.Windows.Documents.Paragraph(
-                new System.Windows.Documents.Run(t))
+        private static TableCell LabelCell(string t) =>
+            new(new Paragraph(new Run(t))
             {
                 FontSize = 11,
                 Foreground = System.Windows.Media.Brushes.Gray,
                 Margin = new Thickness(0, 4, 8, 4)
             });
 
-        private static System.Windows.Documents.TableCell ValueCell(string t) =>
-            new(new System.Windows.Documents.Paragraph(
-                new System.Windows.Documents.Run(t ?? ""))
+        private static TableCell ValueCell(string t) =>
+            new(new Paragraph(new Run(t ?? ""))
             {
                 FontSize = 12,
                 FontWeight = FontWeights.SemiBold,
@@ -453,10 +433,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             });
 
         // ═════════════════════════════════════════════════════════════════════
-        // SUMMARY
+        // SUMMARY CARDS
         // ═════════════════════════════════════════════════════════════════════
 
-        private void UpdateSummary(DataTable payments)
+        private void UpdateSummaryCards(DataTable payments)
         {
             decimal totalPaid = 0m, totalFines = 0m;
             foreach (DataRow row in payments.Rows)
@@ -472,7 +452,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         }
 
         // ═════════════════════════════════════════════════════════════════════
-        // EXPORT
+        // EXPORT TO EXCEL
         // ═════════════════════════════════════════════════════════════════════
 
         [RelayCommand]
@@ -509,11 +489,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     ws.Columns().AdjustToContents();
                 }
 
-                FillSheet("Payment History", PaymentHistoryView, "#2196F3");
-                FillSheet("Financial Summary", FinancialSummaryView, "#4CAF50");
+                FillSheet("Payment History", PaymentHistoryView, "#1565C0");
+                FillSheet("Financial Summary", FinancialSummaryView, "#2E7D32");
 
                 wb.SaveAs(dlg.FileName);
-                MessageBox.Show($"✅ Exported!\n\n{dlg.FileName}",
+                MessageBox.Show($"✅ Exported successfully!\n\n{dlg.FileName}",
                     "Exported", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
@@ -535,8 +515,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                           || !string.IsNullOrWhiteSpace(StudentIdFilter);
             if (hasFilter) SearchByStudent();
             else LoadAllPayments();
-            MessageBox.Show("Payment history refreshed!",
-                "Refreshed", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         [RelayCommand]

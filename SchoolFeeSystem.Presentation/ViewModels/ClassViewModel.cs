@@ -772,23 +772,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         // ==========================
 
         [RelayCommand]
-        public void SaveChanges()
-        {
-            try
-            {
-                if (string.IsNullOrEmpty(_currentSheetName)) return;
-                _csvService.SaveFile();
-                MessageBox.Show("Changes saved successfully!", "Saved",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error saving: {ex.Message}", "Save Error",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        [RelayCommand]
         public void ExportCurrentSheet()
         {
             if (_originalData == null || _originalData.Rows.Count == 0)
