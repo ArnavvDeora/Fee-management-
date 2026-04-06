@@ -34,34 +34,35 @@ namespace SchoolFeeSystem.Presentation.Views
         {
             Loaded -= OnViewLoaded;
 
-            // Defer everything to after ALL layout/render passes complete.
-            // DispatcherPriority.ContextIdle fires only when the message queue
-            // is fully drained — guaranteed after every binding, layout, and
-            // render pass. This is later than Loaded, Render, or DataBind.
+            // DispatcherPriority.ContextIdle fires after ALL layout/render/binding
+            // passes complete — the safest moment to touch ItemsSource.
             Dispatcher.InvokeAsync(InitializeView, DispatcherPriority.ContextIdle);
         }
 
         private void InitializeView()
         {
-            // Explicitly clear both DataGrids before touching ItemsSource.
-            // This ensures ItemCollection.IsUsingItemsSource == false and
-            // _internalView is null, so SetItemsSource never throws.
+            // Null out ItemsSource FIRST so ItemCollection.IsUsingItemsSource is
+            // false before we call Clear(). Calling Items.Clear() while ItemsSource
+            // is non-null throws InvalidOperationException (line 1160 in
+            // ItemCollection.cs: "Operation is not valid while ItemsSource is in use").
+            PaymentHistoryGrid.ItemsSource = null;
+            FinancialSummaryGrid.ItemsSource = null;
+
+            // Now safe to clear the internal item stores.
             PaymentHistoryGrid.Items.Clear();
             FinancialSummaryGrid.Items.Clear();
 
-            // Set DataContext — all XAML bindings (TextBlocks, Buttons,
-            // ComboBox) resolve now. DataGrids have no ItemsSource binding
-            // in XAML so they are unaffected.
+            // Resolve all XAML bindings (TextBlocks, Buttons, ComboBox, etc.)
             DataContext = _viewModel;
 
             // Load data — PropertyChanged fires but we are not subscribed yet.
             _viewModel.Initialize();
 
-            // Set ItemsSource directly in code — bypasses DataBindEngine.
+            // Wire ItemsSource directly — bypasses DataBindEngine entirely.
             PaymentHistoryGrid.ItemsSource = _viewModel.PaymentHistoryView;
             FinancialSummaryGrid.ItemsSource = _viewModel.FinancialSummaryView;
 
-            // Subscribe NOW so future Search/Filter/Refresh updates flow through.
+            // Subscribe NOW so future Search / Filter / Refresh / Clear updates flow through.
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         }
 
@@ -70,11 +71,17 @@ namespace SchoolFeeSystem.Presentation.Views
             switch (e.PropertyName)
             {
                 case nameof(PaymentHistoryViewModel.PaymentHistoryView):
+                    // Always null ItemsSource before clearing — this is the root
+                    // cause of the crash you saw. The DataGrid's internal
+                    // ItemCollection checks IsUsingItemsSource and throws if you
+                    // call Clear() while a source is attached.
+                    PaymentHistoryGrid.ItemsSource = null;
                     PaymentHistoryGrid.Items.Clear();
                     PaymentHistoryGrid.ItemsSource = _viewModel.PaymentHistoryView;
                     break;
 
                 case nameof(PaymentHistoryViewModel.FinancialSummaryView):
+                    FinancialSummaryGrid.ItemsSource = null;
                     FinancialSummaryGrid.Items.Clear();
                     FinancialSummaryGrid.ItemsSource = _viewModel.FinancialSummaryView;
                     break;

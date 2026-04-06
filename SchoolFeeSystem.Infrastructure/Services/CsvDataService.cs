@@ -4,14 +4,14 @@ using System.Collections.Generic;
 using System.Data;
 using System.IO;
 using System.Linq;
-
+using System.Text.Json;
 namespace SchoolFeeSystem.Presentation.Services
 {
     public class CsvDataService
     {
         private readonly Dictionary<string, DataSet> _loadedFiles = new();
         private readonly Dictionary<string, string> _filePaths = new();
-
+        private readonly string _persistenceFile;
         // Department mapping based on branch names
         private readonly Dictionary<string, string> _departmentMapping = new()
         {
@@ -34,10 +34,20 @@ namespace SchoolFeeSystem.Presentation.Services
         private const int SECOND_MONTH_MAX_DAYS = 30;
         private const decimal SECOND_MONTH_MAX_FINE = 600m;
         private const decimal THIRD_MONTH_BASE_FINE = 750m;
-
+        public AcademicCycleService CycleService { private get; set; }
         public CsvDataService()
         {
             InitializeFeeStructure();
+
+            // Persistence file lives in the same AppData folder as the payment log
+            string appDataDir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "SchoolFeeSystem");
+            Directory.CreateDirectory(appDataDir);
+            _persistenceFile = System.IO.Path.Combine(appDataDir, "loaded_files.json");
+
+            // Auto-reload any Excel files the admin previously imported
+            AutoLoadPersistedFiles();
         }
 
         private void InitializeFeeStructure()
@@ -59,9 +69,29 @@ namespace SchoolFeeSystem.Presentation.Services
             if (!File.Exists(filePath))
                 throw new FileNotFoundException($"File not found: {filePath}");
 
+            LoadFileInternal(filePath);
+
+            // Persist the path so this file auto-loads on next startup
+            SavePersistedFiles();
+        }
+
+        // Shared loader used by both LoadFile() and AutoLoadPersistedFiles().
+        // Does NOT call SavePersistedFiles() to avoid redundant writes during startup.
+        private void LoadFileInternal(string filePath)
+        {
+            if (!File.Exists(filePath))
+                throw new FileNotFoundException($"File not found: {filePath}");
+
             var workbook = new XLWorkbook(filePath);
             var dataSet = new DataSet();
             string fileKey = Path.GetFileName(filePath);
+
+            // If already loaded (e.g. re-import), replace the old copy
+            if (_loadedFiles.ContainsKey(fileKey))
+            {
+                _loadedFiles.Remove(fileKey);
+                _filePaths.Remove(fileKey);
+            }
 
             foreach (var worksheet in workbook.Worksheets)
             {
@@ -70,39 +100,16 @@ namespace SchoolFeeSystem.Presentation.Services
 
                 if (headerRowNums.Count == 0) continue;
 
-                // ── One DataTable per sub-table block ───────────────────────────
-                // Previously every sub-table in a sheet was merged into one DataTable
-                // and only the worksheet's row-3 course title was read for metadata.
-                // That caused Ankush (5th Sem) to inherit "3RD SEM" Year=2 metadata
-                // because both sub-tables lived in one sheet whose row 3 described
-                // the first sub-table only.
-                //
-                // Now each block emits its own DataTable with its own Semester/Year,
-                // found by scanning upward from the block's own header row.
-
                 for (int b = 0; b < headerRowNums.Count; b++)
                 {
                     int headerNum = headerRowNums[b];
                     int nextHeader = b + 1 < headerRowNums.Count
                                          ? headerRowNums[b + 1] : int.MaxValue;
 
-                    // Course description row for THIS block
                     string courseRow = ExtractSubTableCourseRow(allRows, headerNum, b == 0);
-
-                    // Metadata scoped to this block
                     var metadata = ExtractMetadataFromSubTable(worksheet, allRows, headerNum, courseRow);
-
-                    // Build the DataTable for just this block
                     DataTable table = BuildDataTableForBlock(allRows, headerNum, nextHeader, worksheet.Name);
 
-                    // ── Build a globally-unique table name ────────────────────────────
-                    // Rules:
-                    //   Single-block sheet  → worksheet name (e.g. "ME TD 2ND")
-                    //   Multi-block sheet   → worksheet name + block index + semester
-                    //                         (e.g. "ME TD 2ND_b0_Sem4", "ME TD 2ND_b1_Sem6")
-                    //                         Block index is always included so two blocks
-                    //                         with the same parsed semester never collide.
-                    //   Any remaining clash → append "_c{N}" until unique.
                     string baseName = headerRowNums.Count == 1
                         ? worksheet.Name
                         : $"{worksheet.Name}_b{b}_Sem{metadata.Semester}";
@@ -114,7 +121,6 @@ namespace SchoolFeeSystem.Presentation.Services
 
                     table.TableName = uniqueName;
 
-                    // Store all metadata in ExtendedProperties
                     table.ExtendedProperties["Department"] = metadata.DepartmentCode;
                     table.ExtendedProperties["Year"] = metadata.Year;
                     table.ExtendedProperties["Semester"] = metadata.Semester.ToString();
@@ -125,6 +131,7 @@ namespace SchoolFeeSystem.Presentation.Services
                     table.ExtendedProperties["OriginalSheetName"] = worksheet.Name;
 
                     dataSet.Tables.Add(table);
+                    CycleService?.RecordFileImport(table);
                 }
             }
 
@@ -951,6 +958,7 @@ namespace SchoolFeeSystem.Presentation.Services
             string fileKey = Path.GetFileName(filePath);
             _loadedFiles.Remove(fileKey);
             _filePaths.Remove(fileKey);
+            SavePersistedFiles();   // keep persistence list in sync
         }
 
         public List<string> GetSheetDisplayNames()
@@ -1918,7 +1926,80 @@ namespace SchoolFeeSystem.Presentation.Services
                 row[pendingCol] = Math.Max(0, totalFee - totalPaid);
             }
         }
+        private void SavePersistedFiles()
+        {
+            try
+            {
+                var paths = _filePaths.Values
+                    .Where(p => File.Exists(p))
+                    .Distinct()
+                    .ToList();
 
+                string json = System.Text.Json.JsonSerializer.Serialize(paths,
+                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(_persistenceFile, json);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CsvDataService] SavePersistedFiles failed: {ex.Message}");
+            }
+        }
+
+        // ── PERSISTENCE: reload previously imported files on startup ─────────
+        private void AutoLoadPersistedFiles()
+        {
+            if (!File.Exists(_persistenceFile)) return;
+
+            try
+            {
+                string json = File.ReadAllText(_persistenceFile);
+                var paths = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json);
+                if (paths == null || paths.Count == 0) return;
+
+                bool anyRemoved = false;
+                var validPaths = new List<string>();
+
+                foreach (string path in paths)
+                {
+                    if (!File.Exists(path))
+                    {
+                        // File was moved or deleted — drop it from the list
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[CsvDataService] AutoLoad: skipping missing file: {path}");
+                        anyRemoved = true;
+                        continue;
+                    }
+
+                    try
+                    {
+                        LoadFileInternal(path);
+                        validPaths.Add(path);
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[CsvDataService] AutoLoad: loaded {path}");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[CsvDataService] AutoLoad: failed on {path}: {ex.Message}");
+                        anyRemoved = true;
+                    }
+                }
+
+                // Clean up the JSON if any paths were invalid
+                if (anyRemoved)
+                {
+                    string cleaned = System.Text.Json.JsonSerializer.Serialize(validPaths,
+                        new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                    File.WriteAllText(_persistenceFile, cleaned);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CsvDataService] AutoLoadPersistedFiles failed: {ex.Message}");
+            }
+        }
         /// <summary>
         /// Save all changes to files
         /// </summary>

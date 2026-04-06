@@ -6,6 +6,9 @@
     <UserControl.Resources>
         <converters:BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
         <converters:NonZeroToVisibilityConverter x:Key="NonZeroToVisibilityConverter"/>
+        <!-- BLOCK A / C requirement: these two converters must be registered in Converters.cs -->
+        <converters:NullOrEmptyToCollapsedConverter x:Key="NullOrEmptyToCollapsed"/>
+        <converters:BoolToBlueConverter x:Key="BoolToBlue"/>
 
         <Style x:Key="BackButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="#1976D2"/>
@@ -233,7 +236,7 @@
         </Grid>
 
         <!-- ══════════════════════════════════════════════
-             VIEW 2 — DEPARTMENT COURSE CARDS (unchanged)
+             VIEW 2 — DEPARTMENT COURSE CARDS
              ══════════════════════════════════════════════ -->
         <Grid x:Name="DepartmentManagementView"
               Visibility="{Binding IsDepartmentManagementMode, Converter={StaticResource BoolToVisibility}}">
@@ -396,6 +399,7 @@
                                                 </StackPanel>
                                             </StackPanel>
                                         </StackPanel>
+                                        <!-- Course card action buttons — History button added per Block C note -->
                                         <StackPanel Grid.Column="2" Orientation="Horizontal">
                                             <Button Content="👁️ View Students"
                                                     Command="{Binding DataContext.ViewCourseDataCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -419,7 +423,35 @@
                                                     Command="{Binding DataContext.GenerateReportCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                     CommandParameter="{Binding}"
                                                     Background="#4CAF50" Foreground="White"
-                                                    Padding="12,7" BorderThickness="0" Cursor="Hand" FontSize="13"/>
+                                                    Padding="12,7" Margin="0,0,8,0"
+                                                    BorderThickness="0" Cursor="Hand" FontSize="13"/>
+                                            <!-- BLOCK C (course card note): 📋 History button -->
+                                            <Button Content="📋 History"
+                                                    Command="{Binding DataContext.OpenHistoryCommand,
+                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    Background="#E3F2FD" Foreground="#1565C0"
+                                                    Padding="12,7"
+                                                    BorderThickness="1" BorderBrush="#90CAF9"
+                                                    Cursor="Hand" FontSize="13">
+                                                <Button.Template>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border Background="{TemplateBinding Background}"
+                                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                                CornerRadius="4"
+                                                                Padding="{TemplateBinding Padding}">
+                                                            <ContentPresenter HorizontalAlignment="Center"
+                                                                              VerticalAlignment="Center"/>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter Property="Background" Value="#BBDEFB"/>
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Button.Template>
+                                            </Button>
                                         </StackPanel>
                                     </Grid>
                                     <Grid Grid.Row="2">
@@ -473,328 +505,762 @@
         </Grid>
 
         <!-- ══════════════════════════════════════════════
-             VIEW 3 — STUDENT LIST AS CARDS (replaces DataGrid)
+             VIEW 3 — STUDENT LIST WITH HISTORY DRAWER
+             Outer Grid has 2 columns: col 0 = data panel,
+             col 1 = collapsible history timeline (Block C)
              ══════════════════════════════════════════════ -->
         <Grid x:Name="DataView"
               Visibility="{Binding IsDataViewMode, Converter={StaticResource BoolToVisibility}}">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <!-- header bar -->
-                <RowDefinition Height="Auto"/>
-                <!-- stats strip -->
-                <RowDefinition Height="Auto"/>
-                <!-- search/filter bar -->
-                <RowDefinition Height="*"/>
-                <!-- student card list -->
-                <RowDefinition Height="Auto"/>
-                <!-- bottom action bar -->
-            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <!-- main data panel -->
+                <ColumnDefinition Width="Auto"/>
+                <!-- BLOCK C: history drawer (collapses when not visible) -->
+            </Grid.ColumnDefinitions>
 
-            <!-- ── Header ── -->
-            <Border Grid.Row="0" Background="#1565C0" Padding="20,14">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
+            <!-- ─────────────────────────────────────────────────
+                 COL 0 — the main data panel (rows unchanged)
+                 ───────────────────────────────────────────────── -->
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <!-- header bar -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- BLOCK B: snapshot warning banner -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- stats strip -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- search/filter bar -->
+                    <RowDefinition Height="*"/>
+                    <!-- student card list -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- bottom action bar -->
+                </Grid.RowDefinitions>
 
-                    <Button Grid.Column="0" Content="← Back to Courses"
-                            Command="{Binding GoBackToDashboardCommand}"
-                            Style="{StaticResource BackButtonStyle}"/>
+                <!-- ── Header (Row 0) ── -->
+                <Border Grid.Row="0" Background="#1565C0" Padding="20,14">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
 
-                    <StackPanel Grid.Column="1" HorizontalAlignment="Center">
-                        <TextBlock Text="{Binding CurrentViewTitle}"
-                                  FontSize="22" FontWeight="Bold" Foreground="White"
-                                  HorizontalAlignment="Center"/>
-                        <TextBlock Text="Click on a student card to collect fees"
-                                  FontSize="11" Foreground="#90CAF9" HorizontalAlignment="Center"/>
-                    </StackPanel>
+                        <Button Grid.Column="0" Content="← Back to Courses"
+                                Command="{Binding GoBackToDashboardCommand}"
+                                Style="{StaticResource BackButtonStyle}"/>
 
-                    <StackPanel Grid.Column="2" Orientation="Horizontal">
-                        <Button Content="📤 Export"
-                                Command="{Binding ExportCurrentSheetCommand}"
-                                Background="#FB8C00" Foreground="White"
-                                Padding="12,7" Margin="0,0,8,0"
-                                BorderThickness="0" Cursor="Hand" FontSize="13"/>
-                        <Button Content="🖨️ Print Report"
-                                Command="{Binding PrintReportCommand}"
-                                Background="#8E24AA" Foreground="White"
-                                Padding="12,7" BorderThickness="0" Cursor="Hand" FontSize="13"/>
-                    </StackPanel>
-                </Grid>
-            </Border>
+                        <!-- BLOCK A: title area with badges + History button -->
+                        <DockPanel Grid.Column="1" LastChildFill="False"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center">
 
-            <!-- ── Stats strip ── -->
-            <Border Grid.Row="1" Background="White" Padding="16,12"
-                    BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                            <StackPanel DockPanel.Dock="Left" HorizontalAlignment="Center">
+                                <TextBlock Text="{Binding CurrentViewTitle}"
+                                          FontSize="22" FontWeight="Bold" Foreground="White"
+                                          HorizontalAlignment="Center"/>
+                                <TextBlock Text="Click on a student card to collect fees"
+                                          FontSize="11" Foreground="#90CAF9" HorizontalAlignment="Center"/>
+                            </StackPanel>
 
-                    <!-- Total -->
-                    <Border Background="#E3F2FD" CornerRadius="8" Padding="20,10" Margin="0,0,10,0">
-                        <StackPanel HorizontalAlignment="Center">
-                            <TextBlock Text="{Binding DataViewTotalStudents}"
-                                      FontSize="26" FontWeight="Bold" Foreground="#1976D2" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Total Students" FontSize="11" Foreground="#607D8B" HorizontalAlignment="Center"/>
+                            <!-- Original-file-added badge -->
+                            <TextBlock DockPanel.Dock="Left"
+                                Text="{Binding OriginalFileAddedBadge}"
+                                Foreground="#90CAF9"
+                                FontSize="11"
+                                VerticalAlignment="Center"
+                                Margin="12,0,0,0"
+                                Visibility="{Binding OriginalFileAddedBadge,
+                                    Converter={StaticResource NullOrEmptyToCollapsed}}"/>
+
+                            <!-- Current-quarter badge -->
+                            <TextBlock DockPanel.Dock="Left"
+                                Text="{Binding CurrentQuarterBadge}"
+                                Foreground="White"
+                                FontSize="11"
+                                FontWeight="SemiBold"
+                                VerticalAlignment="Center"
+                                Margin="12,0,0,0"
+                                Visibility="{Binding CurrentQuarterBadge,
+                                    Converter={StaticResource NullOrEmptyToCollapsed}}"/>
+
+                            <!-- 📋 History button -->
+                            <Button DockPanel.Dock="Left"
+                                Content="📋 History"
+                                Command="{Binding OpenHistoryCommand}"
+                                CommandParameter="{Binding CurrentCourse}"
+                                VerticalAlignment="Center"
+                                Margin="16,0,0,0"
+                                Padding="10,4"
+                                FontSize="12"
+                                Cursor="Hand">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Background"   Value="#E3F2FD"/>
+                                        <Setter Property="Foreground"   Value="#1565C0"/>
+                                        <Setter Property="BorderBrush"  Value="#90CAF9"/>
+                                        <Setter Property="BorderThickness" Value="1"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}"
+                                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                                            CornerRadius="4"
+                                                            Padding="{TemplateBinding Padding}">
+                                                        <ContentPresenter HorizontalAlignment="Center"
+                                                                          VerticalAlignment="Center"/>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Background" Value="#BBDEFB"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </DockPanel>
+
+                        <StackPanel Grid.Column="2" Orientation="Horizontal">
+                            <Button Content="📤 Export"
+                                    Command="{Binding ExportCurrentSheetCommand}"
+                                    Background="#FB8C00" Foreground="White"
+                                    Padding="12,7" Margin="0,0,8,0"
+                                    BorderThickness="0" Cursor="Hand" FontSize="13"/>
+                            <Button Content="🖨️ Print Report"
+                                    Command="{Binding PrintReportCommand}"
+                                    Background="#8E24AA" Foreground="White"
+                                    Padding="12,7" BorderThickness="0" Cursor="Hand" FontSize="13"/>
                         </StackPanel>
-                    </Border>
+                    </Grid>
+                </Border>
 
-                    <!-- Paid -->
-                    <Border Background="#E8F5E9" CornerRadius="8" Padding="20,10" Margin="0,0,10,0">
-                        <StackPanel HorizontalAlignment="Center">
-                            <TextBlock Text="{Binding DataViewPaidStudents}"
-                                      FontSize="26" FontWeight="Bold" Foreground="#388E3C" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Fees Cleared" FontSize="11" Foreground="#607D8B" HorizontalAlignment="Center"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Pending -->
-                    <Border Background="#FFF3E0" CornerRadius="8" Padding="20,10" Margin="0,0,10,0">
-                        <StackPanel HorizontalAlignment="Center">
-                            <TextBlock Text="{Binding DataViewPendingStudents}"
-                                      FontSize="26" FontWeight="Bold" Foreground="#F57C00" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Pending Fees" FontSize="11" Foreground="#607D8B" HorizontalAlignment="Center"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Amount -->
-                    <Border Background="#FFEBEE" CornerRadius="8" Padding="20,10">
-                        <StackPanel HorizontalAlignment="Center">
-                            <TextBlock Text="{Binding DataViewPendingAmount, StringFormat=₹{0:N0}}"
-                                      FontSize="26" FontWeight="Bold" Foreground="#C62828" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Total Due Amount" FontSize="11" Foreground="#607D8B" HorizontalAlignment="Center"/>
-                        </StackPanel>
-                    </Border>
-
-                </StackPanel>
-            </Border>
-
-            <!-- ── Search and filter bar ── -->
-            <Border Grid.Row="2" Background="White" Padding="16,12"
-                    BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="280"/>
-                        <ColumnDefinition Width="16"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="200"/>
-                        <ColumnDefinition Width="16"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <TextBlock Grid.Column="0" Text="🔍" FontSize="18"
-                              VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBox Grid.Column="1"
-                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                             Padding="10,7" FontSize="13"
-                             BorderBrush="#1976D2" BorderThickness="2"/>
-
-                    <TextBlock Grid.Column="3" Text="Search in:" FontWeight="SemiBold"
-                              VerticalAlignment="Center" Margin="0,0,8,0" Foreground="#424242"/>
-                    <ComboBox Grid.Column="4"
-                              ItemsSource="{Binding Columns}"
-                              SelectedItem="{Binding SelectedColumn}"
-                              Padding="8,5" FontSize="13"
-                              BorderBrush="#1976D2" BorderThickness="2"/>
-
-                    <TextBlock Grid.Column="6" Text="Filter:" FontWeight="SemiBold"
-                              VerticalAlignment="Center" Margin="0,0,10,0" Foreground="#424242"/>
-                    <StackPanel Grid.Column="7" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button Content="All" Padding="10,5" Margin="0,0,6,0"
-                                Command="{Binding ShowAllRowsCommand}"
-                                Background="#E3F2FD" Foreground="#1565C0"
-                                BorderThickness="1" BorderBrush="#1976D2"
-                                Cursor="Hand" FontSize="12" FontWeight="SemiBold"/>
-                        <Button Content="⚠️ Pending" Padding="10,5" Margin="0,0,6,0"
-                                Command="{Binding ShowPendingOnlyCommand}"
-                                Background="#FFF3E0" Foreground="#E65100"
-                                BorderThickness="1" BorderBrush="#FF9800"
-                                Cursor="Hand" FontSize="12" FontWeight="SemiBold"/>
-                        <Button Content="✅ Paid" Padding="10,5"
-                                Command="{Binding ShowPaidOnlyCommand}"
-                                Background="#E8F5E9" Foreground="#2E7D32"
-                                BorderThickness="1" BorderBrush="#4CAF50"
-                                Cursor="Hand" FontSize="12" FontWeight="SemiBold"/>
-                    </StackPanel>
-
-                    <Border Grid.Column="8" Background="#E3F2FD" Padding="10,5"
-                            CornerRadius="12" Margin="10,0,0,0" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding RowCountDisplay}" FontSize="12"
-                                  Foreground="#1565C0" FontWeight="SemiBold"/>
-                    </Border>
-                </Grid>
-            </Border>
-
-            <!-- ══════════════════════════════════════
-                 STUDENT CARD LIST — The main new UI
-                 ══════════════════════════════════════ -->
-            <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"
-                          Padding="20,16,20,4" Background="#F5F7FA">
-                <ItemsControl ItemsSource="{Binding StudentCardRows}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <!-- Each card has a left colour stripe that changes with fee status -->
-                            <Border Margin="0,0,0,10" CornerRadius="10"
-                                    Background="White"
-                                    BorderBrush="{Binding CardBorderColor}"
-                                    BorderThickness="1">
-                                <Border.Effect>
-                                    <DropShadowEffect Color="#AAAAAA" Opacity="0.10"
-                                                      BlurRadius="10" ShadowDepth="1"/>
-                                </Border.Effect>
-
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="6"/>
-                                        <!-- status stripe -->
-                                        <ColumnDefinition Width="60"/>
-                                        <!-- serial / avatar -->
-                                        <ColumnDefinition Width="*"/>
-                                        <!-- name + meta -->
-                                        <ColumnDefinition Width="Auto"/>
-                                        <!-- category pill -->
-                                        <ColumnDefinition Width="120"/>
-                                        <!-- quarterly fee -->
-                                        <ColumnDefinition Width="120"/>
-                                        <!-- prev pending -->
-                                        <ColumnDefinition Width="120"/>
-                                        <!-- total due -->
-                                        <ColumnDefinition Width="110"/>
-                                        <!-- status badge -->
-                                        <ColumnDefinition Width="110"/>
-                                        <!-- action button -->
-                                    </Grid.ColumnDefinitions>
-
-                                    <!-- Left colour stripe (red=overdue, amber=current, green=paid) -->
-                                    <Border Grid.Column="0"
-                                            Background="{Binding StripeColor}"
-                                            CornerRadius="10,0,0,10"/>
-
-                                    <!-- Serial number circle -->
-                                    <Border Grid.Column="1"
-                                            Width="36" Height="36" CornerRadius="18"
-                                            Background="{Binding AvatarBackground}"
-                                            VerticalAlignment="Center"
-                                            HorizontalAlignment="Center"
-                                            Margin="4,0">
-                                        <TextBlock Text="{Binding SerialNumber}"
-                                                  FontSize="13" FontWeight="Bold"
-                                                  Foreground="{Binding AvatarForeground}"
-                                                  HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center"/>
-                                    </Border>
-
-                                    <!-- Name + father name -->
-                                    <StackPanel Grid.Column="2"
-                                                VerticalAlignment="Center"
-                                                Margin="8,12,8,12">
-                                        <TextBlock Text="{Binding Name}"
-                                                  FontSize="14" FontWeight="SemiBold"
-                                                  Foreground="#1A1A2E"/>
-                                        <TextBlock FontSize="12" Foreground="#78909C" Margin="0,2,0,0">
-                                            <Run Text="S/o "/>
-                                            <Run Text="{Binding FatherName}"/>
-                                        </TextBlock>
-                                        <TextBlock Text="{Binding PhoneNumber}"
-                                                  FontSize="11" Foreground="#90A4AE" Margin="0,2,0,0"/>
-                                    </StackPanel>
-
-                                    <!-- Category pill -->
-                                    <Border Grid.Column="3" VerticalAlignment="Center"
-                                            Background="{Binding CategoryBackground}"
-                                            CornerRadius="10" Padding="10,4" Margin="4,0">
-                                        <TextBlock Text="{Binding Category}"
-                                                  FontSize="11" FontWeight="Bold"
-                                                  Foreground="{Binding CategoryForeground}"/>
-                                    </Border>
-
-                                    <!-- Quarterly Fee -->
-                                    <StackPanel Grid.Column="4" VerticalAlignment="Center"
-                                                Margin="4,0" HorizontalAlignment="Center">
-                                        <TextBlock Text="Quarterly Fee" FontSize="10"
-                                                  Foreground="#90A4AE" HorizontalAlignment="Center"/>
-                                        <TextBlock Text="{Binding QuarterlyFee, StringFormat=₹{0:N0}}"
-                                                  FontSize="14" FontWeight="Bold"
-                                                  Foreground="#1565C0" HorizontalAlignment="Center"/>
-                                    </StackPanel>
-
-                                    <!-- Previous Pending -->
-                                    <StackPanel Grid.Column="5" VerticalAlignment="Center"
-                                                Margin="4,0" HorizontalAlignment="Center">
-                                        <TextBlock Text="Prev Pending" FontSize="10"
-                                                  Foreground="#90A4AE" HorizontalAlignment="Center"/>
-                                        <TextBlock Text="{Binding PreviousPending, StringFormat=₹{0:N0}}"
-                                                  FontSize="14" FontWeight="Bold"
-                                                  Foreground="{Binding PendingAmountColor}"
-                                                  HorizontalAlignment="Center"/>
-                                    </StackPanel>
-
-                                    <!-- Total Due -->
-                                    <StackPanel Grid.Column="6" VerticalAlignment="Center"
-                                                Margin="4,0" HorizontalAlignment="Center">
-                                        <TextBlock Text="Total Due" FontSize="10"
-                                                  Foreground="#90A4AE" HorizontalAlignment="Center"/>
-                                        <TextBlock Text="{Binding TotalDue, StringFormat=₹{0:N0}}"
-                                                  FontSize="15" FontWeight="Bold"
-                                                  Foreground="{Binding TotalDueColor}"
-                                                  HorizontalAlignment="Center"/>
-                                    </StackPanel>
-
-                                    <!-- Status badge -->
-                                    <Border Grid.Column="7" VerticalAlignment="Center"
-                                            Background="{Binding StatusBackground}"
-                                            BorderBrush="{Binding StatusBorderColor}"
-                                            BorderThickness="1"
-                                            CornerRadius="12" Padding="10,5"
-                                            Margin="4,0" HorizontalAlignment="Center">
-                                        <TextBlock Text="{Binding StatusText}"
-                                                  FontSize="12" FontWeight="Bold"
-                                                  Foreground="{Binding StatusForeground}"
-                                                  HorizontalAlignment="Center"/>
-                                    </Border>
-
-                                    <!-- Collect Fee button -->
-                                    <Button Grid.Column="8"
-                                            Content="💳 Collect"
-                                            Command="{Binding DataContext.CollectFeeForRowCommand,
-                                                      RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="{Binding}"
-                                            Background="#1565C0" Foreground="White"
-                                            Padding="10,7" Margin="8,0,12,0"
-                                            BorderThickness="0" Cursor="Hand"
-                                            FontSize="12" FontWeight="SemiBold"
-                                            VerticalAlignment="Center">
-                                        <Button.Template>
+                <!-- ── BLOCK B: Snapshot warning banner (Row 1) ── -->
+                <Border Grid.Row="1"
+                        Background="#FFF8E1"
+                        BorderBrush="#FFB300"
+                        BorderThickness="0,0,0,2"
+                        Padding="14,7"
+                        Visibility="{Binding IsShowingSnapshot, Converter={StaticResource BoolToVisibility}}">
+                    <DockPanel LastChildFill="True">
+                        <!-- "↩ Return to Live" button on the right -->
+                        <Button
+                            DockPanel.Dock="Right"
+                            Content="↩ Return to Live"
+                            Command="{Binding CloseHistoryCommand}"
+                            Margin="12,0,0,0"
+                            Padding="10,3"
+                            FontSize="11"
+                            Cursor="Hand">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Background"   Value="#E65100"/>
+                                    <Setter Property="Foreground"   Value="White"/>
+                                    <Setter Property="BorderThickness" Value="0"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
                                             <ControlTemplate TargetType="Button">
                                                 <Border Background="{TemplateBinding Background}"
-                                                        CornerRadius="8" Padding="{TemplateBinding Padding}">
+                                                        CornerRadius="4"
+                                                        Padding="{TemplateBinding Padding}">
                                                     <ContentPresenter HorizontalAlignment="Center"
                                                                       VerticalAlignment="Center"/>
                                                 </Border>
-                                            </ControlTemplate>
-                                        </Button.Template>
-                                        <Button.Style>
-                                            <Style TargetType="Button">
-                                                <Style.Triggers>
+                                                <ControlTemplate.Triggers>
                                                     <Trigger Property="IsMouseOver" Value="True">
-                                                        <Setter Property="Background" Value="#0D47A1"/>
-                                                        <Setter Property="Cursor" Value="Hand"/>
+                                                        <Setter Property="Background" Value="#BF360C"/>
                                                     </Trigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Button.Style>
-                                    </Button>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                        <!-- Warning text -->
+                        <TextBlock
+                            Text="{Binding SnapshotBanner}"
+                            Foreground="#E65100"
+                            FontWeight="SemiBold"
+                            FontSize="12"
+                            TextWrapping="Wrap"
+                            VerticalAlignment="Center"/>
+                    </DockPanel>
+                </Border>
 
+                <!-- ── Stats strip (Row 2) ── -->
+                <Border Grid.Row="2" Background="White" Padding="16,12"
+                        BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+
+                        <!-- Total -->
+                        <Border Background="#E3F2FD" CornerRadius="8" Padding="20,10" Margin="0,0,10,0">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="{Binding DataViewTotalStudents}"
+                                          FontSize="26" FontWeight="Bold" Foreground="#1976D2" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Total Students" FontSize="11" Foreground="#607D8B" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Paid -->
+                        <Border Background="#E8F5E9" CornerRadius="8" Padding="20,10" Margin="0,0,10,0">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="{Binding DataViewPaidStudents}"
+                                          FontSize="26" FontWeight="Bold" Foreground="#388E3C" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Fees Cleared" FontSize="11" Foreground="#607D8B" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Pending -->
+                        <Border Background="#FFF3E0" CornerRadius="8" Padding="20,10" Margin="0,0,10,0">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="{Binding DataViewPendingStudents}"
+                                          FontSize="26" FontWeight="Bold" Foreground="#F57C00" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Pending Fees" FontSize="11" Foreground="#607D8B" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Amount -->
+                        <Border Background="#FFEBEE" CornerRadius="8" Padding="20,10">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="{Binding DataViewPendingAmount, StringFormat=₹{0:N0}}"
+                                          FontSize="26" FontWeight="Bold" Foreground="#C62828" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Total Due Amount" FontSize="11" Foreground="#607D8B" HorizontalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+
+                    </StackPanel>
+                </Border>
+
+                <!-- ── Search and filter bar (Row 3) ── -->
+                <Border Grid.Row="3" Background="White" Padding="16,12"
+                        BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="280"/>
+                            <ColumnDefinition Width="16"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="200"/>
+                            <ColumnDefinition Width="16"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0" Text="🔍" FontSize="18"
+                                  VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 Padding="10,7" FontSize="13"
+                                 BorderBrush="#1976D2" BorderThickness="2"/>
+
+                        <TextBlock Grid.Column="3" Text="Search in:" FontWeight="SemiBold"
+                                  VerticalAlignment="Center" Margin="0,0,8,0" Foreground="#424242"/>
+                        <ComboBox Grid.Column="4"
+                                  ItemsSource="{Binding Columns}"
+                                  SelectedItem="{Binding SelectedColumn}"
+                                  Padding="8,5" FontSize="13"
+                                  BorderBrush="#1976D2" BorderThickness="2"/>
+
+                        <TextBlock Grid.Column="6" Text="Filter:" FontWeight="SemiBold"
+                                  VerticalAlignment="Center" Margin="0,0,10,0" Foreground="#424242"/>
+                        <StackPanel Grid.Column="7" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Content="All" Padding="10,5" Margin="0,0,6,0"
+                                    Command="{Binding ShowAllRowsCommand}"
+                                    Background="#E3F2FD" Foreground="#1565C0"
+                                    BorderThickness="1" BorderBrush="#1976D2"
+                                    Cursor="Hand" FontSize="12" FontWeight="SemiBold"/>
+                            <Button Content="⚠️ Pending" Padding="10,5" Margin="0,0,6,0"
+                                    Command="{Binding ShowPendingOnlyCommand}"
+                                    Background="#FFF3E0" Foreground="#E65100"
+                                    BorderThickness="1" BorderBrush="#FF9800"
+                                    Cursor="Hand" FontSize="12" FontWeight="SemiBold"/>
+                            <Button Content="✅ Paid" Padding="10,5"
+                                    Command="{Binding ShowPaidOnlyCommand}"
+                                    Background="#E8F5E9" Foreground="#2E7D32"
+                                    BorderThickness="1" BorderBrush="#4CAF50"
+                                    Cursor="Hand" FontSize="12" FontWeight="SemiBold"/>
+                        </StackPanel>
+
+                        <Border Grid.Column="8" Background="#E3F2FD" Padding="10,5"
+                                CornerRadius="12" Margin="10,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding RowCountDisplay}" FontSize="12"
+                                      Foreground="#1565C0" FontWeight="SemiBold"/>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- ══════════════════════════════════════
+                     STUDENT CARD LIST (Row 4)
+                     ══════════════════════════════════════ -->
+                <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto"
+                              Padding="20,16,20,4" Background="#F5F7FA">
+                    <ItemsControl ItemsSource="{Binding StudentCardRows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <!-- Each card has a left colour stripe that changes with fee status -->
+                                <Border Margin="0,0,0,10" CornerRadius="10"
+                                        Background="White"
+                                        BorderBrush="{Binding CardBorderColor}"
+                                        BorderThickness="1">
+                                    <Border.Effect>
+                                        <DropShadowEffect Color="#AAAAAA" Opacity="0.10"
+                                                          BlurRadius="10" ShadowDepth="1"/>
+                                    </Border.Effect>
+
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="6"/>
+                                            <!-- status stripe -->
+                                            <ColumnDefinition Width="60"/>
+                                            <!-- serial / avatar -->
+                                            <ColumnDefinition Width="*"/>
+                                            <!-- name + meta -->
+                                            <ColumnDefinition Width="Auto"/>
+                                            <!-- category pill -->
+                                            <ColumnDefinition Width="120"/>
+                                            <!-- quarterly fee -->
+                                            <ColumnDefinition Width="120"/>
+                                            <!-- prev pending -->
+                                            <ColumnDefinition Width="120"/>
+                                            <!-- total due -->
+                                            <ColumnDefinition Width="110"/>
+                                            <!-- status badge -->
+                                            <ColumnDefinition Width="110"/>
+                                            <!-- action button -->
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- Left colour stripe (red=overdue, amber=current, green=paid) -->
+                                        <Border Grid.Column="0"
+                                                Background="{Binding StripeColor}"
+                                                CornerRadius="10,0,0,10"/>
+
+                                        <!-- Serial number circle -->
+                                        <Border Grid.Column="1"
+                                                Width="36" Height="36" CornerRadius="18"
+                                                Background="{Binding AvatarBackground}"
+                                                VerticalAlignment="Center"
+                                                HorizontalAlignment="Center"
+                                                Margin="4,0">
+                                            <TextBlock Text="{Binding SerialNumber}"
+                                                      FontSize="13" FontWeight="Bold"
+                                                      Foreground="{Binding AvatarForeground}"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"/>
+                                        </Border>
+
+                                        <!-- Name + father name -->
+                                        <StackPanel Grid.Column="2"
+                                                    VerticalAlignment="Center"
+                                                    Margin="8,12,8,12">
+                                            <TextBlock Text="{Binding Name}"
+                                                      FontSize="14" FontWeight="SemiBold"
+                                                      Foreground="#1A1A2E"/>
+                                            <TextBlock FontSize="12" Foreground="#78909C" Margin="0,2,0,0">
+                                                <Run Text="S/o "/>
+                                                <Run Text="{Binding FatherName}"/>
+                                            </TextBlock>
+                                            <TextBlock Text="{Binding PhoneNumber}"
+                                                      FontSize="11" Foreground="#90A4AE" Margin="0,2,0,0"/>
+                                        </StackPanel>
+
+                                        <!-- Category pill -->
+                                        <Border Grid.Column="3" VerticalAlignment="Center"
+                                                Background="{Binding CategoryBackground}"
+                                                CornerRadius="10" Padding="10,4" Margin="4,0">
+                                            <TextBlock Text="{Binding Category}"
+                                                      FontSize="11" FontWeight="Bold"
+                                                      Foreground="{Binding CategoryForeground}"/>
+                                        </Border>
+
+                                        <!-- Quarterly Fee -->
+                                        <StackPanel Grid.Column="4" VerticalAlignment="Center"
+                                                    Margin="4,0" HorizontalAlignment="Center">
+                                            <TextBlock Text="Quarterly Fee" FontSize="10"
+                                                      Foreground="#90A4AE" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding QuarterlyFee, StringFormat=₹{0:N0}}"
+                                                      FontSize="14" FontWeight="Bold"
+                                                      Foreground="#1565C0" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+
+                                        <!-- Previous Pending -->
+                                        <StackPanel Grid.Column="5" VerticalAlignment="Center"
+                                                    Margin="4,0" HorizontalAlignment="Center">
+                                            <TextBlock Text="Prev Pending" FontSize="10"
+                                                      Foreground="#90A4AE" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding PreviousPending, StringFormat=₹{0:N0}}"
+                                                      FontSize="14" FontWeight="Bold"
+                                                      Foreground="{Binding PendingAmountColor}"
+                                                      HorizontalAlignment="Center"/>
+                                        </StackPanel>
+
+                                        <!-- Total Due -->
+                                        <StackPanel Grid.Column="6" VerticalAlignment="Center"
+                                                    Margin="4,0" HorizontalAlignment="Center">
+                                            <TextBlock Text="Total Due" FontSize="10"
+                                                      Foreground="#90A4AE" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding TotalDue, StringFormat=₹{0:N0}}"
+                                                      FontSize="15" FontWeight="Bold"
+                                                      Foreground="{Binding TotalDueColor}"
+                                                      HorizontalAlignment="Center"/>
+                                        </StackPanel>
+
+                                        <!-- Status badge -->
+                                        <Border Grid.Column="7" VerticalAlignment="Center"
+                                                Background="{Binding StatusBackground}"
+                                                BorderBrush="{Binding StatusBorderColor}"
+                                                BorderThickness="1"
+                                                CornerRadius="12" Padding="10,5"
+                                                Margin="4,0" HorizontalAlignment="Center">
+                                            <TextBlock Text="{Binding StatusText}"
+                                                      FontSize="12" FontWeight="Bold"
+                                                      Foreground="{Binding StatusForeground}"
+                                                      HorizontalAlignment="Center"/>
+                                        </Border>
+
+                                        <!-- Collect Fee button -->
+                                        <Button Grid.Column="8"
+                                                Content="💳 Collect"
+                                                Command="{Binding DataContext.CollectFeeForRowCommand,
+                                                          RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"
+                                                Background="#1565C0" Foreground="White"
+                                                Padding="10,7" Margin="8,0,12,0"
+                                                BorderThickness="0" Cursor="Hand"
+                                                FontSize="12" FontWeight="SemiBold"
+                                                VerticalAlignment="Center">
+                                            <Button.Template>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}"
+                                                            CornerRadius="8" Padding="{TemplateBinding Padding}">
+                                                        <ContentPresenter HorizontalAlignment="Center"
+                                                                          VerticalAlignment="Center"/>
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Button.Template>
+                                            <Button.Style>
+                                                <Style TargetType="Button">
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Background" Value="#0D47A1"/>
+                                                            <Setter Property="Cursor" Value="Hand"/>
+                                                        </Trigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
+
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+            </Grid>
+            <!-- end col 0 data panel -->
+
+            <!-- ─────────────────────────────────────────────────
+                 BLOCK C — History Timeline Drawer (Col 1)
+                 Visible only when Timeline.IsVisible is true.
+                 Width=340, collapses to Auto (0) when hidden.
+                 ───────────────────────────────────────────────── -->
+            <Border Grid.Column="1"
+                    Width="340"
+                    Background="White"
+                    BorderBrush="#E0E0E0"
+                    BorderThickness="1,0,0,0"
+                    Visibility="{Binding Timeline.IsVisible, Converter={StaticResource BoolToVisibility}}">
+
+                <DockPanel LastChildFill="True">
+
+                    <!-- Panel header -->
+                    <Border DockPanel.Dock="Top"
+                            Background="#F5F5F5"
+                            BorderBrush="#E0E0E0"
+                            BorderThickness="0,0,0,1"
+                            Padding="14,10">
+                        <DockPanel>
+                            <!-- Close X button -->
+                            <Button DockPanel.Dock="Right"
+                                    Content="✕"
+                                    Command="{Binding CloseHistoryCommand}"
+                                    Padding="6,2"
+                                    Cursor="Hand"
+                                    FontSize="13"
+                                    VerticalAlignment="Center">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Background"      Value="Transparent"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Setter Property="Foreground"      Value="#757575"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}"
+                                                            Padding="{TemplateBinding Padding}">
+                                                        <ContentPresenter/>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Background" Value="#EEEEEE"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+
+                            <StackPanel>
+                                <TextBlock Text="📋 Quarter History"
+                                           FontWeight="Bold"
+                                           FontSize="13"
+                                           Foreground="#212121"/>
+                                <TextBlock Text="{Binding Timeline.CourseTitle}"
+                                           FontSize="11"
+                                           Foreground="#757575"
+                                           TextTrimming="CharacterEllipsis"
+                                           Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- File info row -->
+                    <Border DockPanel.Dock="Top"
+                            Padding="14,8"
+                            Background="#FAFAFA"
+                            BorderBrush="#EEEEEE"
+                            BorderThickness="0,0,0,1">
+                        <StackPanel>
+                            <TextBlock Text="{Binding Timeline.OriginalFileAddedText}"
+                                       FontSize="11"
+                                       Foreground="#78909C"/>
+                            <TextBlock Text="{Binding Timeline.CurrentQuarterText}"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       Foreground="#1565C0"
+                                       Margin="0,3,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Footer buttons -->
+                    <Border DockPanel.Dock="Bottom"
+                            Padding="12,10"
+                            Background="#FAFAFA"
+                            BorderBrush="#E0E0E0"
+                            BorderThickness="0,1,0,0">
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Right">
+                            <Button Content="↩ Live Data"
+                                    Command="{Binding Timeline.ReturnToLiveCommand}"
+                                    Margin="0,0,8,0"
+                                    Padding="10,5"
+                                    FontSize="11"
+                                    Cursor="Hand">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Background"   Value="#F5F5F5"/>
+                                        <Setter Property="Foreground"   Value="#424242"/>
+                                        <Setter Property="BorderBrush"  Value="#BDBDBD"/>
+                                        <Setter Property="BorderThickness" Value="1"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}"
+                                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                                            CornerRadius="4"
+                                                            Padding="{TemplateBinding Padding}">
+                                                        <ContentPresenter HorizontalAlignment="Center"
+                                                                          VerticalAlignment="Center"/>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Background" Value="#EEEEEE"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+
+                            <Button Content="👁 View Quarter"
+                                    Command="{Binding Timeline.ViewSelectedQuarterCommand}"
+                                    Padding="10,5"
+                                    FontSize="11"
+                                    Cursor="Hand">
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Background"   Value="#1976D2"/>
+                                        <Setter Property="Foreground"   Value="White"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}"
+                                                            CornerRadius="4"
+                                                            Padding="{TemplateBinding Padding}">
+                                                        <ContentPresenter HorizontalAlignment="Center"
+                                                                          VerticalAlignment="Center"/>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Background" Value="#1565C0"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Timeline ListBox -->
+                    <ListBox
+                        ItemsSource="{Binding Timeline.Entries}"
+                        SelectedItem="{Binding Timeline.SelectedEntry, Mode=TwoWay}"
+                        BorderThickness="0"
+                        Background="Transparent"
+                        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                        Padding="0">
+
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding"       Value="0"/>
+                                <Setter Property="Margin"        Value="0"/>
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="Background"    Value="Transparent"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border
+                                                x:Name="ItemBorder"
+                                                Background="{TemplateBinding Background}"
+                                                BorderBrush="#EEEEEE"
+                                                BorderThickness="0,0,0,1"
+                                                Padding="14,10">
+                                                <ContentPresenter/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="ItemBorder"
+                                                            Property="Background" Value="#E3F2FD"/>
+                                                    <Setter TargetName="ItemBorder"
+                                                            Property="BorderBrush" Value="#90CAF9"/>
+                                                </Trigger>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="ItemBorder"
+                                                            Property="Background" Value="#F5F5F5"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="28"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Timeline dot / icon -->
+                                    <TextBlock
+                                        Grid.Column="0"
+                                        Text="{Binding TimelineIcon}"
+                                        FontSize="18"
+                                        VerticalAlignment="Top"
+                                        Margin="0,2,0,0"
+                                        Foreground="{Binding IsCurrent,
+                                            Converter={StaticResource BoolToBlue}}"/>
+
+                                    <!-- Entry content -->
+                                    <StackPanel Grid.Column="1" Margin="6,0,0,0">
+
+                                        <!-- Quarter + Semester label -->
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock
+                                                Text="{Binding QuarterLabel}"
+                                                FontWeight="SemiBold"
+                                                FontSize="12"
+                                                Foreground="#212121"/>
+                                            <Border
+                                                Background="#E3F2FD"
+                                                CornerRadius="3"
+                                                Padding="5,1"
+                                                Margin="8,0,0,0"
+                                                VerticalAlignment="Center">
+                                                <TextBlock
+                                                    Text="{Binding SemLabel}"
+                                                    FontSize="10"
+                                                    Foreground="#1565C0"/>
+                                            </Border>
+                                            <!-- LIVE badge for current quarter -->
+                                            <Border
+                                                Background="#E8F5E9"
+                                                CornerRadius="3"
+                                                Padding="5,1"
+                                                Margin="4,0,0,0"
+                                                VerticalAlignment="Center"
+                                                Visibility="{Binding IsCurrent,
+                                                    Converter={StaticResource BoolToVisibility}}">
+                                                <TextBlock
+                                                    Text="LIVE"
+                                                    FontSize="9"
+                                                    FontWeight="Bold"
+                                                    Foreground="#2E7D32"/>
+                                            </Border>
+                                        </StackPanel>
+
+                                        <!-- Student counts -->
+                                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                            <TextBlock
+                                                Text="{Binding TotalText}"
+                                                FontSize="11"
+                                                Foreground="#616161"
+                                                Margin="0,0,10,0"/>
+                                            <TextBlock
+                                                Text="{Binding PaidText}"
+                                                FontSize="11"
+                                                Foreground="#2E7D32"
+                                                Margin="0,0,10,0"/>
+                                            <TextBlock
+                                                Text="{Binding PendingText}"
+                                                FontSize="11"
+                                                Foreground="#C62828"/>
+                                        </StackPanel>
+
+                                        <!-- Snapshot date -->
+                                        <TextBlock
+                                            Text="{Binding SnapshotDate}"
+                                            FontSize="10"
+                                            Foreground="#BDBDBD"
+                                            Margin="0,3,0,0"/>
+                                    </StackPanel>
                                 </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                </DockPanel>
+            </Border>
+            <!-- end BLOCK C history drawer -->
+
         </Grid>
+        <!-- end DataView -->
 
     </Grid>
 </UserControl>

@@ -119,14 +119,15 @@ namespace SchoolFeeSystem.Presentation.Services
         /// </summary>
         public DataTable GetPaymentHistory()
         {
+            // Base table with the standard schema + one extra virtual column
             var table = CreateEmptyTable();
+            table.Columns.Add("Course", typeof(string));   // virtual — mapped from Sheet/Class
 
             if (!File.Exists(_logFilePath))
                 return table;
 
             var lines = File.ReadAllLines(_logFilePath, Encoding.UTF8);
 
-            // Skip header line(s)
             int start = 0;
             if (lines.Length > 0 && lines[0].TrimStart().StartsWith("Payment ID",
                                          StringComparison.OrdinalIgnoreCase))
@@ -144,9 +145,24 @@ namespace SchoolFeeSystem.Presentation.Services
                 while (fields.Length < NewColumnCount)
                     fields = fields.Concat(new[] { "" }).ToArray();
 
+                // ── Filter out [System] auto-transition entries ──────────────────
+                // AcademicCycleService writes these when advancing a quarter.
+                // They are internal audit rows — not real student payments.
+                string studentName = fields[1];  // index 1 = Student Name
+                string paymentMode = fields[9];  // index 9 = Payment Mode
+
+                bool isSystemRow =
+                    studentName.Equals("[System]", StringComparison.OrdinalIgnoreCase) ||
+                    paymentMode.Equals("Auto Transition", StringComparison.OrdinalIgnoreCase);
+
+                if (isSystemRow) continue;
+
                 var row = table.NewRow();
                 for (int c = 0; c < NewColumnCount; c++)
                     row[c] = fields[c];
+
+                // Virtual Course column = Sheet / Class (index 5)
+                row["Course"] = fields[5];
 
                 table.Rows.Add(row);
             }
@@ -160,9 +176,11 @@ namespace SchoolFeeSystem.Presentation.Services
         /// </summary>
         public DataTable GetStudentFinancialSummary(string studentName)
         {
-            var all = GetPaymentHistory();
+            var all = GetPaymentHistory();    // already filtered — no [System] rows
+
             var summary = new DataTable("Summary");
             summary.Columns.Add("Quarter");
+            summary.Columns.Add("Course");
             summary.Columns.Add("Total Paid", typeof(decimal));
             summary.Columns.Add("Transactions", typeof(int));
             summary.Columns.Add("Last Payment");
@@ -178,12 +196,18 @@ namespace SchoolFeeSystem.Presentation.Services
             {
                 decimal total = g.Sum(r =>
                     decimal.TryParse(r["Amount"].ToString(), out decimal v) ? v : 0m);
+
                 string last = g.OrderByDescending(r => r["Payment Date"].ToString())
                                .Select(r => r["Payment Date"].ToString())
                                .FirstOrDefault() ?? "";
 
+                // Use the first non-empty Course value in the group
+                string course = g.Select(r => r["Course"]?.ToString() ?? "")
+                                  .FirstOrDefault(c => !string.IsNullOrEmpty(c)) ?? "";
+
                 var sr = summary.NewRow();
                 sr["Quarter"] = g.Key;
+                sr["Course"] = course;
                 sr["Total Paid"] = total;
                 sr["Transactions"] = g.Count();
                 sr["Last Payment"] = last;

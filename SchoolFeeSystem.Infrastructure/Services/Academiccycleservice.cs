@@ -7,43 +7,91 @@ using System.Text.Json;
 
 namespace SchoolFeeSystem.Presentation.Services
 {
+    // ══════════════════════════════════════════════════════════════════════════
+    //  AcademicCycleService  (Rewritten)
+    //
+    //  Academic year model
+    //  ───────────────────
+    //  Session starts in AUGUST.  Four quarters per year:
+    //
+    //   Q1  Aug-Oct   → end of Q1: nothing changes
+    //   Q2  Nov-Jan   → end of Q2: Semester increases  (Sem 1→2, 3→4, 5→6)
+    //   Q3  Feb-Apr   → end of Q3: nothing changes
+    //   Q4  May-Jul   → end of Q4: Semester increases AND Year increases
+    //                              (Sem 2→3, 4→5, 6→7…)
+    //                              If Year was the final year → student PASSES OUT
+    //
+    //  Per-quarter fee carry-forward
+    //  ──────────────────────────────
+    //  When the real-world date crosses into a new quarter, every loaded sheet
+    //  whose Quarter tag is BEHIND the current quarter is automatically advanced:
+    //    • Identity columns (Name, Father, Category…) → copied as-is
+    //    • Fee columns → reset to "0"
+    //    • Previous Quarter Pending column → receives the old TOTAL FEES value
+    //      (i.e. whatever was still owed carries forward)
+    //    • Quarterly Fee column → same amount as last quarter (except free categories)
+    //
+    //  History snapshot
+    //  ─────────────────
+    //  Before each advance, the completed quarter's data is handed to
+    //  QuarterHistoryService.Snapshot() so the admin can browse past quarters.
+    //
+    //  Semester / Year promotion
+    //  ──────────────────────────
+    //  Happens automatically inside RunCycleCheck():
+    //    After Q2 ends  → Semester += 1   (Nov-Jan → Feb-Apr boundary)
+    //    After Q4 ends  → Semester += 1, Year += 1  (May-Jul → Aug-Oct boundary)
+    //  The ExtendedProperties on each DataTable are updated in-memory and
+    //  persisted via CsvDataService.SaveFile().
+    // ══════════════════════════════════════════════════════════════════════════
+
     public class AcademicCycleService
     {
-        // ── Quarter definitions ─────────────────────────────────────
+        // ── Quarter definitions ─────────────────────────────────────────────
+        //  Order matters: this is the academic order within one session.
         public static readonly IReadOnlyList<QuarterDef> Quarters =
             new List<QuarterDef>
             {
-                new QuarterDef("Feb-Apr", 2,  4,  "FEB",  "APRIL"),
-                new QuarterDef("May-Jul", 5,  7,  "MAY",  "JULY"),
-                new QuarterDef("Aug-Oct", 8,  10, "AUG",  "OCT"),
-                new QuarterDef("Nov-Jan", 11, 1,  "NOV",  "JAN"),
+                new QuarterDef("Aug-Oct", 8,  10, "AUG",  "OCT"),   // Q1 – session start
+                new QuarterDef("Nov-Jan", 11,  1, "NOV",  "JAN"),   // Q2 – semester bump
+                new QuarterDef("Feb-Apr",  2,  4, "FEB",  "APRIL"), // Q3
+                new QuarterDef("May-Jul",  5,  7, "MAY",  "JULY"),  // Q4 – year + semester bump
             };
 
-        // Fine schedule
+        // ── Fine schedule ───────────────────────────────────────────────────
         public const int GraceDays = 15;
-        public const decimal FineDay1Rate = 10m;     // days 16-45
-        public const decimal FineDay2Rate = 20m;     // days 46-75
+        public const decimal FineDay1Rate = 10m;   // days 16-45  (~month 1 late)
+        public const decimal FineDay2Rate = 20m;   // days 46-75  (~month 2 late)
         public const decimal FineFlatMonth3 = 750m;  // day 76+
 
-        // ── Persisted state ─────────────────────────────────────────
+        // ── Persisted state ─────────────────────────────────────────────────
         public class CycleState
         {
+            /// <summary>Sheet name → last quarter label it was processed for.</summary>
             public Dictionary<string, string> LastQuarter { get; set; } = new();
+            /// <summary>Sheet name → ISO date when this quarter started (for fine calc).</summary>
             public Dictionary<string, string> QuarterStart { get; set; } = new();
+            /// <summary>Sheet name → number of quarter transitions completed.</summary>
             public Dictionary<string, int> CompletedQuarters { get; set; } = new();
+            /// <summary>Sheet name → ISO date the original file was first imported.</summary>
+            public Dictionary<string, string> OriginalImportDate { get; set; } = new();
             public string LastCheckedIso { get; set; } = DateTime.MinValue.ToString("O");
         }
 
-        // ── Dependencies ─────────────────────────────────────────────
+        // ── Dependencies ────────────────────────────────────────────────────
         private readonly CsvDataService _csv;
         private readonly PaymentLogService _log;
+        private readonly QuarterHistoryService _history;
         private readonly string _stateFile;
         private CycleState _state;
 
-        public AcademicCycleService(CsvDataService csv, PaymentLogService log)
+        public AcademicCycleService(CsvDataService csv, PaymentLogService log,
+                                    QuarterHistoryService history)
         {
             _csv = csv;
             _log = log;
+            _history = history;
+
             string dir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "SchoolFeeSystem");
@@ -52,10 +100,14 @@ namespace SchoolFeeSystem.Presentation.Services
             _state = LoadState();
         }
 
-        // ═══════════════════════════════════════════════════════════
-        // PUBLIC API
-        // ═══════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════════════════════
+        // PUBLIC STATIC HELPERS
+        // ════════════════════════════════════════════════════════════════════
 
+        /// <summary>
+        /// Returns the quarter name that the given date falls in.
+        /// Academic year starts Aug, so Aug-Oct = Q1.
+        /// </summary>
         public static string CurrentQuarter(DateTime? on = null)
         {
             int m = (on ?? DateTime.Now).Month;
@@ -64,28 +116,41 @@ namespace SchoolFeeSystem.Presentation.Services
             return Quarters[0].Name;
         }
 
+        /// <summary>Next quarter in the academic cycle (wraps May-Jul → Aug-Oct).</summary>
         public static string NextQuarter(string q)
         {
             int i = Quarters.ToList().FindIndex(x => x.Name == q);
             return Quarters[(i + 1) % Quarters.Count].Name;
         }
 
+        /// <summary>
+        /// The calendar date on which a quarter starts.
+        /// Nov-Jan is special: if we are currently IN January, the quarter
+        /// started in November of the PREVIOUS calendar year.
+        /// </summary>
         public static DateTime QuarterStartDate(string qName, DateTime? near = null)
         {
             var now = near ?? DateTime.Now;
             var q = Quarters.FirstOrDefault(x => x.Name == qName);
             if (q == null) return now;
+
             int yr = now.Year;
-            if (qName == "Nov-Jan" && now.Month == 1) yr--;
+
+            // Nov-Jan: if we are in January the quarter started last November
+            if (qName == "Nov-Jan" && now.Month == 1)
+                yr--;
+
             try { return new DateTime(yr, q.StartMonth, 1); }
             catch { return now; }
         }
 
-        // Fine schedule:
-        //   Days 1-15  : 0
-        //   Days 16-45 : 10/day  (Month 1)
-        //   Days 46-75 : 20/day  (Month 2)
-        //   Day 76+    : flat 750 (Month 3)
+        /// <summary>
+        /// Fine schedule:
+        ///   Days  1-15  → ₹0
+        ///   Days 16-45  → ₹10/day
+        ///   Days 46-75  → ₹20/day
+        ///   Day  76+    → flat ₹750
+        /// </summary>
         public static decimal CalculateFine(DateTime start, DateTime today)
         {
             int days = (today - start).Days;
@@ -97,16 +162,57 @@ namespace SchoolFeeSystem.Presentation.Services
         }
 
         public decimal LiveFineForSheet(string sheetName)
+            => CalculateFine(PersistedStart(sheetName), DateTime.Now);
+
+        /// <summary>
+        /// Returns when the original Excel file for this sheet was imported.
+        /// Shown in the UI as "File added on …".
+        /// </summary>
+        public DateTime GetOriginalImportDate(string sheetName)
         {
-            var start = PersistedStart(sheetName);
-            return CalculateFine(start, DateTime.Now);
+            if (_state.OriginalImportDate.TryGetValue(sheetName, out string iso)
+                && DateTime.TryParse(iso, out DateTime d))
+                return d;
+            return DateTime.MinValue;
         }
 
-        // ─── Main cycle check ───────────────────────────────────────
-        // Call on app startup and on every file load.
-        // FIX: sq==cur check now runs BEFORE the persisted-state check,
-        //      so a current-quarter file is never accidentally advanced
-        //      just because the stored LastQuarter is stale.
+        // ════════════════════════════════════════════════════════════════════
+        // IMPORT RECORDING  (call from CsvDataService.LoadFile)
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Call once each time a new Excel file is imported.
+        /// Records the import timestamp so the UI can show "Original file added on …".
+        /// Also takes an initial history snapshot so Q0 appears in the timeline.
+        /// </summary>
+        public void RecordFileImport(DataTable sheet)
+        {
+            string name = sheet.TableName;
+
+            // Only record ONCE per sheet (first import wins)
+            if (!_state.OriginalImportDate.ContainsKey(name))
+            {
+                _state.OriginalImportDate[name] = DateTime.Now.ToString("O");
+                SaveState();
+            }
+
+            // Seed the history with the original quarter from the file
+            string q = sheet.ExtendedProperties["Quarter"]?.ToString() ?? CurrentQuarter();
+            int yr = QuarterHistoryService.CalendarYearForQuarter(q, DateTime.Now);
+            DateTime imported = GetOriginalImportDate(name);
+
+            _history.RecordImport(sheet, imported == DateTime.MinValue ? DateTime.Now : imported);
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // MAIN CYCLE CHECK
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Call on every app startup (and after any file import).
+        /// For each loaded sheet, checks whether real time has moved into a new
+        /// quarter. If so, carries forward balances and updates semester/year.
+        /// </summary>
         public List<TransitionResult> RunCycleCheck()
         {
             var results = new List<TransitionResult>();
@@ -119,38 +225,279 @@ namespace SchoolFeeSystem.Presentation.Services
                 string sq = sheet.ExtendedProperties["Quarter"]?.ToString() ?? "";
                 if (string.IsNullOrEmpty(sq)) continue;
 
-                // FIX: Check the file's own quarter tag first.
-                // If the file already belongs to the current quarter, just
-                // record it and move on — never advance it.
+                // Sheet already belongs to the current quarter → just register it
                 if (sq == cur)
                 {
                     RecordCurrent(name, cur, now);
                     continue;
                 }
 
-                // Now check persisted state — if we already processed this
-                // sheet in a previous run for the current quarter, skip.
+                // Already transitioned in a previous run for this quarter
                 _state.LastQuarter.TryGetValue(name, out string last);
                 if (last == cur) continue;
 
-                // File is from a past quarter → advance it
-                var r = Advance(sheet, cur);
+                // ── Sheet is from a past quarter → advance it ──────────────────
+                DateTime importedOn = GetOriginalImportDate(name);
+                if (importedOn == DateTime.MinValue) importedOn = now;
+
+                // Snapshot the completed quarter BEFORE data is overwritten
+                int calYear = QuarterHistoryService.CalendarYearForQuarter(sq, now);
+                _history.Snapshot(sheet, sq, calYear, importedOn);
+
+                // Compute new semester / year BEFORE advancing the sheet
+                var (newSem, newYear, isPassout) = ComputePromotion(sheet, sq);
+
+                // Build the new quarter DataTable
+                var r = Advance(sheet, cur, newSem, newYear);
                 if (r != null)
                 {
                     results.Add(r);
                     _state.CompletedQuarters.TryGetValue(name, out int done);
                     _state.CompletedQuarters[r.NewSheet] = done + 1;
                     RecordCurrent(r.NewSheet, cur, now);
+
+                    // Propagate the original import date to the new sheet name
+                    if (!_state.OriginalImportDate.ContainsKey(r.NewSheet))
+                        _state.OriginalImportDate[r.NewSheet] = importedOn.ToString("O");
+
+                    if (isPassout)
+                        _log.LogPayment(
+                            studentName: "[System]",
+                            studentId: "", sheetName: r.NewSheet,
+                            courseName: sheet.ExtendedProperties["CourseInfo"]?.ToString() ?? "",
+                            period: PeriodStr(cur),
+                            amountPaid: 0, paymentMode: "Auto Passout",
+                            previousBalance: 0, newBalance: 0,
+                            phoneNumber: "", guardianName: "",
+                            remarks: $"Students moved to PASSOUT from {name}.");
                 }
             }
 
             _state.LastCheckedIso = now.ToString("O");
             SaveState();
-            CheckYearPromotion();
             return results;
         }
 
-        // Inject live fines into a sheet before display in FeeCollection
+        // ════════════════════════════════════════════════════════════════════
+        // SEMESTER / YEAR PROMOTION RULES
+        // ════════════════════════════════════════════════════════════════════
+
+        // Quarter that just ENDED → what happens to Semester and Year?
+        //
+        //   Ended Q2 (Nov-Jan)  → Semester +1 only
+        //                          (Sem 1→2, 3→4, 5→6)
+        //   Ended Q4 (May-Jul)  → Semester +1  AND  Year +1
+        //                          (Sem 2→3, 4→5)
+        //                          If Year == maxYears → PASSOUT
+        //   Ended Q1 / Q3       → no change
+        //
+        private (int newSem, int newYear, bool passout) ComputePromotion(
+            DataTable sheet, string completedQuarter)
+        {
+            int sem = GetSemester(sheet);
+            int year = GetYear(sheet);
+            string dept = sheet.ExtendedProperties["Department"]?.ToString() ?? "";
+            int maxYears = MaxYears(dept);
+
+            // Q2 end: semester only
+            if (completedQuarter == "Nov-Jan")
+            {
+                return (sem + 1, year, false);
+            }
+
+            // Q4 end: semester + year
+            if (completedQuarter == "May-Jul")
+            {
+                int newYear = year + 1;
+                int newSem = sem + 1;
+                bool passout = newYear > maxYears;
+                if (passout) newYear = 0; // 0 signals PASSOUT
+                return (newSem, newYear, passout);
+            }
+
+            // Q1 / Q3 end: no change
+            return (sem, year, false);
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // CORE TRANSITION  (quarter advance)
+        // ════════════════════════════════════════════════════════════════════
+
+        private TransitionResult Advance(DataTable old, string newQ,
+                                          int newSem, int newYear)
+        {
+            try
+            {
+                var ns = old.Clone();
+                string newPeriod = PeriodStr(newQ);
+
+                // Rename columns that embed the old quarter period text
+                foreach (DataColumn c in ns.Columns)
+                    if (HasQText(c.ColumnName))
+                        c.ColumnName = ReplaceQText(c.ColumnName, newPeriod);
+
+                // Table name: base + quarter suffix
+                string baseName = old.TableName.Split(
+                    new[] { "__" }, StringSplitOptions.None)[0];
+                ns.TableName = $"{baseName}__{newQ.Replace("-", "")}";
+
+                // Copy metadata — update quarter, semester, year
+                foreach (string k in new[] { "Department", "InstituteName", "CourseInfo" })
+                    if (old.ExtendedProperties.Contains(k))
+                        ns.ExtendedProperties[k] = old.ExtendedProperties[k];
+
+                ns.ExtendedProperties["Quarter"] = newQ;
+                ns.ExtendedProperties["Period"] = newPeriod;
+                ns.ExtendedProperties["Semester"] = newSem.ToString();
+
+                // Year: 0 means PASSOUT, otherwise use newYear
+                if (newYear <= 0)
+                    ns.ExtendedProperties["Department"] = "PASSOUT";
+                else
+                    ns.ExtendedProperties["Year"] = newYear.ToString();
+
+                // ── Column references on the OLD sheet ────────────────────────
+                var oldTotal = FC(old, "total", "fees") ?? FC(old, "total");
+                var oldPrevPend = FC(old, "previous", "pending");
+                var oldQFee = FC(old, "quarterly");
+                var oldName = FC(old, "name");
+                var oldCat = FC(old, "category");
+
+                // ── Column references on the NEW sheet ────────────────────────
+                var nsPrevPend = FC(ns, "previous", "pending");
+                var nsFine = FC(ns, "fine") ?? FC(ns, "remarks");
+
+                foreach (DataRow or in old.Rows)
+                {
+                    if (!IsStudent(or, oldName)) continue;
+
+                    DataRow nr = ns.NewRow();
+
+                    // Step 1: copy identity columns; zero all fee columns
+                    foreach (DataColumn oc in old.Columns)
+                    {
+                        string nc = MatchNewCol(ns, oc.ColumnName, newPeriod);
+                        if (nc == null) continue;
+                        nr[nc] = IsId(oc.ColumnName) ? or[oc] : (object)"0";
+                    }
+
+                    // Step 2: carry forward outstanding balance → Previous Quarter Pending
+                    decimal carry = 0m;
+                    if (oldTotal != null)
+                    {
+                        decimal.TryParse(or[oldTotal]?.ToString(),
+                            System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture, out carry);
+                    }
+                    else
+                    {
+                        decimal pp = 0m, qf = 0m;
+                        if (oldPrevPend != null)
+                            decimal.TryParse(or[oldPrevPend]?.ToString(),
+                                System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture, out pp);
+                        if (oldQFee != null)
+                            decimal.TryParse(or[oldQFee]?.ToString(),
+                                System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture, out qf);
+                        carry = pp + qf;
+                    }
+
+                    if (nsPrevPend != null && carry > 0)
+                        nr[nsPrevPend.ColumnName] = carry.ToString("F2");
+
+                    // Step 3: restore quarterly fee for the new quarter
+                    //   Free categories (SC, ST, *FW*) always get ₹0
+                    if (oldQFee != null)
+                    {
+                        var nsQFee = FC(ns, "quarterly");
+                        if (nsQFee != null)
+                        {
+                            string cat = oldCat != null
+                                ? or[oldCat]?.ToString()?.Trim().ToUpper() ?? ""
+                                : "";
+
+                            bool freeCategory =
+                                cat == "SC" || cat == "ST" || cat.Contains("FW");
+
+                            if (freeCategory)
+                            {
+                                nr[nsQFee.ColumnName] = "0";
+                            }
+                            else
+                            {
+                                decimal.TryParse(or[oldQFee]?.ToString(),
+                                    System.Globalization.NumberStyles.Any,
+                                    System.Globalization.CultureInfo.InvariantCulture,
+                                    out decimal oldQ);
+                                nr[nsQFee.ColumnName] = oldQ.ToString("F2");
+                            }
+                        }
+                    }
+
+                    // Step 4: recalculate TOTAL = new quarterly + new previous pending
+                    var nsTotalCol = FC(ns, "total", "fees") ?? FC(ns, "total");
+                    if (nsTotalCol != null)
+                    {
+                        decimal newQAmt = 0m, newPrev = 0m;
+                        var nsQFeeCol = FC(ns, "quarterly");
+                        if (nsQFeeCol != null)
+                            decimal.TryParse(nr[nsQFeeCol.ColumnName]?.ToString(),
+                                System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture, out newQAmt);
+                        if (nsPrevPend != null)
+                            decimal.TryParse(nr[nsPrevPend.ColumnName]?.ToString(),
+                                System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture, out newPrev);
+                        nr[nsTotalCol.ColumnName] = (newQAmt + newPrev).ToString("F2");
+                    }
+
+                    // Step 5: reset fine for new quarter
+                    if (nsFine != null) nr[nsFine.ColumnName] = "0";
+
+                    ns.Rows.Add(nr);
+                }
+
+                string dept2 = ns.ExtendedProperties["Department"]?.ToString() ?? "";
+                _csv.AddSheetToLoadedFiles(ns, dept2);
+
+                _log.LogPayment(
+                    studentName: "[System]",
+                    studentId: "",
+                    sheetName: ns.TableName,
+                    courseName: old.ExtendedProperties["CourseInfo"]?.ToString() ?? "",
+                    period: newPeriod,
+                    amountPaid: 0,
+                    paymentMode: "Auto Transition",
+                    previousBalance: 0,
+                    newBalance: 0,
+                    phoneNumber: "",
+                    guardianName: "",
+                    remarks: $"Auto-advanced {old.ExtendedProperties["Quarter"]} → {newQ}. " +
+                             $"Sem {newSem}, Year {newYear}. {ns.Rows.Count} students.");
+
+                return new TransitionResult
+                {
+                    OldSheet = old.TableName,
+                    NewSheet = ns.TableName,
+                    NewQuarter = newQ,
+                    NewSemester = newSem,
+                    NewYear = newYear,
+                    StudentsCarried = ns.Rows.Count
+                };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[Cycle] Advance failed for {old.TableName}: {ex.Message}");
+                return null;
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // LIVE FINE INJECTION  (call before displaying data in FeeCollection)
+        // ════════════════════════════════════════════════════════════════════
+
         public void InjectLiveFines(DataTable sheet)
         {
             var start = PersistedStart(sheet.TableName);
@@ -182,219 +529,9 @@ namespace SchoolFeeSystem.Presentation.Services
             }
         }
 
-        // ═══════════════════════════════════════════════════════════
-        // CORE TRANSITION
-        // ═══════════════════════════════════════════════════════════
-
-        private TransitionResult Advance(DataTable old, string newQ)
-        {
-            try
-            {
-                var ns = old.Clone();
-                string newPeriod = PeriodStr(newQ);
-
-                // Rename columns that embed the old quarter period
-                foreach (DataColumn c in ns.Columns)
-                    if (HasQText(c.ColumnName))
-                        c.ColumnName = ReplaceQText(c.ColumnName, newPeriod);
-
-                // Table name keeps the base but gets a quarter suffix
-                string baseName = old.TableName.Split(
-                    new[] { "__" }, StringSplitOptions.None)[0];
-                ns.TableName = $"{baseName}__{newQ.Replace("-", "")}";
-
-                // Copy metadata
-                foreach (string k in new[] { "Department", "Year", "InstituteName", "CourseInfo" })
-                    if (old.ExtendedProperties.Contains(k))
-                        ns.ExtendedProperties[k] = old.ExtendedProperties[k];
-                ns.ExtendedProperties["Quarter"] = newQ;
-                ns.ExtendedProperties["Period"] = newPeriod;
-
-                // Old-sheet column references
-                var oldTotal = FC(old, "total", "fees") ?? FC(old, "total");
-                var oldPrevPend = FC(old, "previous", "pending");
-                var oldQFee = FC(old, "quarterly");
-                var oldName = FC(old, "name");
-                var oldCat = FC(old, "category");
-
-                // New-sheet column references
-                var nsPrevPend = FC(ns, "previous", "pending");
-                var nsFine = FC(ns, "fine") ?? FC(ns, "remarks");
-
-                foreach (DataRow or in old.Rows)
-                {
-                    if (!IsStudent(or, oldName)) continue;
-
-                    DataRow nr = ns.NewRow();
-
-                    // ── Step 1: Copy identity columns; reset all fee cols to "0" ──
-                    foreach (DataColumn oc in old.Columns)
-                    {
-                        string nc = MatchNewCol(ns, oc.ColumnName, newPeriod);
-                        if (nc == null) continue;
-                        nr[nc] = IsId(oc.ColumnName) ? or[oc] : (object)"0";
-                    }
-
-                    // ── Step 2: Carry forward unpaid balance → Previous Quarter Pending ──
-                    // We use the old TOTAL column because that is what the student
-                    // actually owed (quarterly + any previous carry already included).
-                    decimal carry = 0m;
-                    if (oldTotal != null)
-                    {
-                        decimal.TryParse(or[oldTotal]?.ToString(),
-                            System.Globalization.NumberStyles.Any,
-                            System.Globalization.CultureInfo.InvariantCulture, out carry);
-                    }
-                    else
-                    {
-                        // Fallback: sum previous pending + quarterly from old sheet
-                        decimal pp = 0m, qf = 0m;
-                        if (oldPrevPend != null)
-                            decimal.TryParse(or[oldPrevPend]?.ToString(),
-                                System.Globalization.NumberStyles.Any,
-                                System.Globalization.CultureInfo.InvariantCulture, out pp);
-                        if (oldQFee != null)
-                            decimal.TryParse(or[oldQFee]?.ToString(),
-                                System.Globalization.NumberStyles.Any,
-                                System.Globalization.CultureInfo.InvariantCulture, out qf);
-                        carry = pp + qf;
-                    }
-
-                    if (nsPrevPend != null && carry > 0)
-                        nr[nsPrevPend.ColumnName] = carry.ToString("F2");
-
-                    // ── Step 3: Restore quarterly fee for the new quarter ──────────────
-                    // Rule: SC, ST, and any FW (fee-waiver) category → always ₹0.
-                    //       OBC, GEN, BC (non-FW) → carry forward the same quarterly amount.
-                    if (oldQFee != null)
-                    {
-                        var nsQFee = FC(ns, "quarterly");
-                        if (nsQFee != null)
-                        {
-                            // Read category from old row
-                            string cat = oldCat != null
-                                ? or[oldCat]?.ToString()?.Trim().ToUpper() ?? ""
-                                : "";
-
-                            bool isFreeCategory =
-                                cat == "SC" ||
-                                cat == "ST" ||
-                                cat.Contains("FW");  // covers BC(FW), OBC(FW), GEN(FW), FW BC, etc.
-
-                            if (isFreeCategory)
-                            {
-                                nr[nsQFee.ColumnName] = "0";
-                            }
-                            else
-                            {
-                                // Carry the same quarterly fee the student had last quarter
-                                decimal.TryParse(or[oldQFee]?.ToString(),
-                                    System.Globalization.NumberStyles.Any,
-                                    System.Globalization.CultureInfo.InvariantCulture,
-                                    out decimal oldQ);
-                                nr[nsQFee.ColumnName] = oldQ.ToString("F2");
-                            }
-                        }
-                    }
-
-                    // ── Step 4: Recalculate TOTAL = new quarterly + new previous pending ──
-                    var nsTotalCol = FC(ns, "total", "fees") ?? FC(ns, "total");
-                    if (nsTotalCol != null)
-                    {
-                        decimal newQAmt = 0m;
-                        decimal newPrev = 0m;
-                        var nsQFeeCol = FC(ns, "quarterly");
-                        if (nsQFeeCol != null)
-                            decimal.TryParse(nr[nsQFeeCol.ColumnName]?.ToString(),
-                                System.Globalization.NumberStyles.Any,
-                                System.Globalization.CultureInfo.InvariantCulture, out newQAmt);
-                        if (nsPrevPend != null)
-                            decimal.TryParse(nr[nsPrevPend.ColumnName]?.ToString(),
-                                System.Globalization.NumberStyles.Any,
-                                System.Globalization.CultureInfo.InvariantCulture, out newPrev);
-                        nr[nsTotalCol.ColumnName] = (newQAmt + newPrev).ToString("F2");
-                    }
-
-                    // ── Step 5: Reset fine for new quarter ────────────────────────────
-                    if (nsFine != null) nr[nsFine.ColumnName] = "0";
-
-                    ns.Rows.Add(nr);
-                }
-
-                string dept = old.ExtendedProperties["Department"]?.ToString() ?? "";
-                _csv.AddSheetToLoadedFiles(ns, dept);
-
-                _log.LogPayment(
-                    studentName: "[System]",
-                    studentId: "",
-                    sheetName: ns.TableName,
-                    courseName: old.ExtendedProperties["CourseInfo"]?.ToString() ?? "",
-                    period: newPeriod,
-                    amountPaid: 0,
-                    paymentMode: "Auto Transition",
-                    previousBalance: 0,
-                    newBalance: 0,
-                    phoneNumber: "",
-                    guardianName: "",
-                    remarks: $"Auto-advanced from {old.ExtendedProperties["Quarter"]} → {newQ}. " +
-                             $"{ns.Rows.Count} students.");
-
-                return new TransitionResult
-                {
-                    OldSheet = old.TableName,
-                    NewSheet = ns.TableName,
-                    NewQuarter = newQ,
-                    StudentsCarried = ns.Rows.Count
-                };
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[Cycle] Advance failed: {ex.Message}");
-                return null;
-            }
-        }
-
-        // ═══════════════════════════════════════════════════════════
-        // YEAR PROMOTION CHECK
-        // ═══════════════════════════════════════════════════════════
-
-        private void CheckYearPromotion()
-        {
-            var groups = _csv.GetAllSheets()
-                .GroupBy(s =>
-                    $"{s.ExtendedProperties["Department"]?.ToString()}|" +
-                    $"{s.ExtendedProperties["Year"]?.ToString()}");
-
-            foreach (var g in groups)
-            {
-                var parts = g.Key.Split('|');
-                if (parts.Length < 2) continue;
-                string dept = parts[0];
-                if (!int.TryParse(parts[1], out int yr) || yr <= 0) continue;
-
-                int qSeen = g.Select(t => t.ExtendedProperties["Quarter"]?.ToString())
-                             .Where(q => !string.IsNullOrEmpty(q)).Distinct().Count();
-                if (qSeen < 4) continue;
-
-                bool higherExists = _csv.GetAllSheets().Any(t =>
-                {
-                    int.TryParse(t.ExtendedProperties["Year"]?.ToString(), out int ty);
-                    return t.ExtendedProperties["Department"]?.ToString() == dept && ty == yr + 1;
-                });
-                if (higherExists) continue;
-
-                // 3-year diploma default; override per dept as needed
-                int maxYears = 3;
-                bool isLast = yr >= maxYears;
-                try { _csv.PromoteStudentsToNextYear(dept, yr, isLast); }
-                catch (Exception ex)
-                { System.Diagnostics.Debug.WriteLine($"[Cycle] AutoPromote: {ex.Message}"); }
-            }
-        }
-
-        // ═══════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════════════════════
         // COLUMN HELPERS
-        // ═══════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════════════════════
 
         private static DataColumn FC(DataTable t, params string[] kw)
             => t.Columns.Cast<DataColumn>()
@@ -411,31 +548,17 @@ namespace SchoolFeeSystem.Presentation.Services
                 && !nm.Contains(":-");
         }
 
-        // IsId controls which columns are preserved as-is during quarter advance
-        // (everything else gets reset to "0").
-        // Identity columns: student personal data + fixed per-student charges.
         private static bool IsId(string col)
         {
             string n = col.ToLower();
-            return n.Contains("name") ||
-                   n.Contains("father") ||
-                   n.Contains("mother") ||
-                   n.Contains("category") ||
-                   n.Contains("section") ||
-                   n.StartsWith("_") ||
-                   n.Contains("scholarship") ||
-                   n.Contains("hostel") ||
-                   n.Contains("roll") ||
-                   n.Contains("sr no") ||
-                   n.Contains("sr.") ||
-                   // Fixed per-student charges carried every quarter:
-                   n.Contains("stationary") ||
-                   n.Contains("welfare") ||
-                   n.Contains("insurance") ||
-                   n.Contains("red cross") ||
-                   n.Contains("student activ") ||
-                   n.Contains("institutional") ||
-                   n.Contains("refundable");
+            return n.Contains("name") || n.Contains("father") || n.Contains("mother")
+                || n.Contains("categ") || n.Contains("section") || n.StartsWith("_")
+                || n.Contains("scholar") || n.Contains("hostel") || n.Contains("roll")
+                || n.Contains("sr no") || n.Contains("sr.")
+                || n.Contains("stationary") || n.Contains("welfare")
+                || n.Contains("insurance") || n.Contains("red cross")
+                || n.Contains("student activ") || n.Contains("institutional")
+                || n.Contains("refundable");
         }
 
         private static bool HasQText(string col)
@@ -448,8 +571,12 @@ namespace SchoolFeeSystem.Presentation.Services
 
         private static readonly System.Text.RegularExpressions.Regex QRx =
             new System.Text.RegularExpressions.Regex(
-                @"\(?\s*(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER|JAN|FEB|MAR|APR|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{4}\s+[Tt][Oo]\s+" +
-                @"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER|JAN|FEB|MAR|APR|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{4}\s*\)?",
+                @"\(?\s*(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|" +
+                @"OCTOBER|NOVEMBER|DECEMBER|JAN|FEB|MAR|APR|JUN|JUL|AUG|SEP|OCT|NOV|DEC)" +
+                @"\s+\d{4}\s+[Tt][Oo]\s+" +
+                @"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|" +
+                @"OCTOBER|NOVEMBER|DECEMBER|JAN|FEB|MAR|APR|JUN|JUL|AUG|SEP|OCT|NOV|DEC)" +
+                @"\s+\d{4}\s*\)?",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
         private static string ReplaceQText(string col, string newP)
@@ -467,22 +594,26 @@ namespace SchoolFeeSystem.Presentation.Services
             return null;
         }
 
+        // ════════════════════════════════════════════════════════════════════
+        // PERIOD / YEAR STRINGS
+        // ════════════════════════════════════════════════════════════════════
+
         private static string PeriodStr(string q)
         {
             int y = DateTime.Now.Year;
             return q switch
             {
-                "Feb-Apr" => $"FEB {y} to APRIL {y}",
-                "May-Jul" => $"MAY {y} to JULY {y}",
                 "Aug-Oct" => $"AUG {y} to OCT {y}",
                 "Nov-Jan" => $"NOV {y} to JAN {y + 1}",
+                "Feb-Apr" => $"FEB {y} to APRIL {y}",
+                "May-Jul" => $"MAY {y} to JULY {y}",
                 _ => $"{q} {y}",
             };
         }
 
-        // ═══════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════════════════════
         // STATE PERSISTENCE
-        // ═══════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════════════════════
 
         private DateTime PersistedStart(string sheetName)
         {
@@ -521,15 +652,47 @@ namespace SchoolFeeSystem.Presentation.Services
             catch { }
         }
 
-        // ═══════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════════════════════
+        // MISC HELPERS
+        // ════════════════════════════════════════════════════════════════════
+
+        private static int GetSemester(DataTable t)
+        {
+            if (t.ExtendedProperties.ContainsKey("Semester") &&
+                int.TryParse(t.ExtendedProperties["Semester"]?.ToString(), out int s) && s > 0)
+                return s;
+            return 1;
+        }
+
+        private static int GetYear(DataTable t)
+        {
+            if (t.ExtendedProperties.ContainsKey("Year") &&
+                int.TryParse(t.ExtendedProperties["Year"]?.ToString(), out int y) && y > 0)
+                return y;
+            return 1;
+        }
+
+        // Maximum years for a department (override as needed)
+        private static int MaxYears(string dept) => dept switch
+        {
+            "MECHATRONICS" => 3,
+            "EE" => 3,
+            "CSE" => 3,
+            "ME" => 3,
+            _ => 3,
+        };
+
+        // ════════════════════════════════════════════════════════════════════
         // VALUE TYPES
-        // ═══════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════════════════════
 
         public class TransitionResult
         {
             public string OldSheet { get; set; }
             public string NewSheet { get; set; }
             public string NewQuarter { get; set; }
+            public int NewSemester { get; set; }
+            public int NewYear { get; set; }
             public int StudentsCarried { get; set; }
         }
 

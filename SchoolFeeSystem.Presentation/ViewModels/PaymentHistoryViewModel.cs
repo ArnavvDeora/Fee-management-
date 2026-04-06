@@ -88,8 +88,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             _csvService = csvService;
             _paymentLogService = paymentLogService;
-            // Data is loaded by the View calling Initialize() from its
-            // Loaded event — guaranteeing the DataGrid is ready first.
         }
 
         /// <summary>
@@ -130,11 +128,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             SetPaymentHistoryView(new DataView(all), all);
         }
 
-        /// <summary>
-        /// Searches by student name and/or ID across all recorded transactions.
-        /// Partial, case-insensitive match on both fields.
-        /// Also populates the Financial Summary tab for the same student.
-        /// </summary>
         [RelayCommand]
         public void SearchByStudent()
         {
@@ -163,7 +156,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             SetPaymentHistoryView(new DataView(filtered), filtered);
 
-            // Populate financial summary for the matched student
             string key = hasName ? StudentNameFilter : StudentIdFilter;
             var summary = _paymentLogService.GetStudentFinancialSummary(key);
             bool isEmpty = summary == null || summary.Rows.Count == 0;
@@ -213,7 +205,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             SetPaymentHistoryView(new DataView(filtered), filtered);
         }
 
-        // Suppress spurious change callbacks during DataGrid initialisation
         partial void OnStudentIdFilterChanged(string value) { }
         partial void OnStudentNameFilterChanged(string value) { }
         partial void OnStartDateChanged(DateTime? value) { }
@@ -246,10 +237,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             PopulateReceiptFields(value.Row);
         }
 
-        /// <summary>
-        /// Called by the per-row 🖨️ Receipt button via CommandParameter="{Binding}".
-        /// Populates the receipt panel and immediately opens the print dialog.
-        /// </summary>
         [RelayCommand]
         public void PrintReceiptForRow(object parameter)
         {
@@ -272,13 +259,14 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             ReceiptQuarter = row["Quarter"]?.ToString() ?? "";
             ReceiptRemarks = row["Remarks"]?.ToString() ?? "";
 
-            // Course column — may not exist in older log files
             ReceiptCourse = row.Table.Columns.Contains("Course")
                 ? row["Course"]?.ToString() ?? ""
                 : "";
 
             string rawAmt = row["Amount"]?.ToString() ?? "";
-            ReceiptAmount = decimal.TryParse(rawAmt, out decimal amt) ? $"₹{amt:N2}" : rawAmt;
+            ReceiptAmount = decimal.TryParse(rawAmt, out decimal amt)
+                ? $"₹{amt:N2}"
+                : rawAmt;
 
             ReceiptPanelVisibility = Visibility.Visible;
         }
@@ -305,132 +293,232 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             var pd = new System.Windows.Controls.PrintDialog();
             if (pd.ShowDialog() != true) return;
 
-            var doc = BuildReceiptDocument(pd.PrintableAreaWidth, pd.PrintableAreaHeight);
-            IDocumentPaginatorSource src = doc;
-            pd.PrintDocument(src.DocumentPaginator,
-                $"Receipt – {ReceiptStudentName} – {ReceiptDate}");
+            // PrintVisual avoids the FlowDocument paginator entirely.
+            // The paginator is what causes text to render one character
+            // per line when ColumnWidth = PositiveInfinity.
+            var visual = BuildReceiptVisual(pd.PrintableAreaWidth, pd.PrintableAreaHeight);
+            pd.PrintVisual(visual, $"Receipt – {ReceiptStudentName} – {ReceiptDate}");
         }
 
-        private FlowDocument BuildReceiptDocument(double pageWidth, double pageHeight)
+        private System.Windows.Media.Visual BuildReceiptVisual(
+            double pageWidth, double pageHeight)
         {
-            var doc = new FlowDocument
+            // ── Brushes ──────────────────────────────────────────────────────
+            var black = System.Windows.Media.Brushes.Black;
+            var nearBlack = new System.Windows.Media.SolidColorBrush(
+                                System.Windows.Media.Color.FromRgb(30, 30, 30));
+            var midGrey = new System.Windows.Media.SolidColorBrush(
+                                System.Windows.Media.Color.FromRgb(120, 120, 120));
+            var lightGrey = new System.Windows.Media.SolidColorBrush(
+                                System.Windows.Media.Color.FromRgb(220, 220, 220));
+            var white = System.Windows.Media.Brushes.White;
+
+            // ── Fonts ────────────────────────────────────────────────────────
+            var sans = new System.Windows.Media.FontFamily("Segoe UI");
+            var serif = new System.Windows.Media.FontFamily("Georgia");
+            var mono = new System.Windows.Media.FontFamily("Courier New");
+
+            const double marginH = 60;
+            double contentW = pageWidth - marginH * 2;
+
+            // ── Root page border ─────────────────────────────────────────────
+            var root = new System.Windows.Controls.Border
             {
-                FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
-                FontSize = 13,
-                PageHeight = pageHeight,
-                PageWidth = pageWidth,
-                PagePadding = new Thickness(48),
-                ColumnWidth = pageWidth
+                Width = pageWidth,
+                Height = pageHeight,
+                Background = white,
+                Padding = new Thickness(marginH, 48, marginH, 48)
             };
 
-            // ── Institution name (you can replace this with a binding later) ──
-            doc.Blocks.Add(new Paragraph(
-                new Run("CENTRAL INSTITUTE OF HAND TOOLS, JALANDHAR"))
+            var stack = new System.Windows.Controls.StackPanel
             {
-                FontSize = 18,
-                FontWeight = FontWeights.Bold,
-                TextAlignment = TextAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 2)
-            });
+                Width = contentW,
+                Orientation = System.Windows.Controls.Orientation.Vertical
+            };
+            root.Child = stack;
 
-            doc.Blocks.Add(new Paragraph(
-                new Run("Official Fee Payment Receipt"))
+            // ── Local helpers ────────────────────────────────────────────────
+
+            System.Windows.Controls.TextBlock Txt(
+                string text,
+                double size = 11,
+                FontWeight? weight = null,
+                System.Windows.Media.Brush fg = null,
+                System.Windows.Media.FontFamily font = null,
+                TextAlignment align = TextAlignment.Left,
+                Thickness? margin = null,
+                bool wrap = false)
             {
-                FontSize = 14,
-                Foreground = System.Windows.Media.Brushes.Gray,
-                TextAlignment = TextAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 18)
-            });
-
-            doc.Blocks.Add(HRule());
-
-            // ── Receipt details table ──
-            var tbl = new Table();
-            tbl.Columns.Add(new TableColumn { Width = new GridLength(160) });
-            tbl.Columns.Add(new TableColumn { Width = new GridLength(1, GridUnitType.Star) });
-            tbl.Columns.Add(new TableColumn { Width = new GridLength(160) });
-            tbl.Columns.Add(new TableColumn { Width = new GridLength(1, GridUnitType.Star) });
-
-            var rg = new TableRowGroup();
-            tbl.RowGroups.Add(rg);
-
-            void AddRow(string l1, string v1, string l2 = "", string v2 = "")
-            {
-                var tr = new TableRow();
-                tr.Cells.Add(LabelCell(l1)); tr.Cells.Add(ValueCell(v1));
-                tr.Cells.Add(LabelCell(l2)); tr.Cells.Add(ValueCell(v2));
-                rg.Rows.Add(tr);
+                return new System.Windows.Controls.TextBlock
+                {
+                    Text = text ?? "",
+                    FontSize = size,
+                    FontWeight = weight ?? FontWeights.Normal,
+                    Foreground = fg ?? nearBlack,
+                    FontFamily = font ?? sans,
+                    TextAlignment = align,
+                    TextWrapping = wrap
+                        ? System.Windows.TextWrapping.Wrap
+                        : System.Windows.TextWrapping.NoWrap,
+                    Margin = margin ?? new Thickness(0)
+                };
             }
 
-            AddRow("Receipt No:", ReceiptNumber, "Date:", ReceiptDate);
-            AddRow("Student Name:", ReceiptStudentName, "Student ID:", ReceiptStudentId);
-            AddRow("Guardian:", ReceiptGuardian, "Quarter:", ReceiptQuarter);
-            AddRow("Course / Dept:", ReceiptCourse, "Payment Mode:", ReceiptPaymentMode);
-
-            doc.Blocks.Add(tbl);
-
-            if (!string.IsNullOrWhiteSpace(ReceiptRemarks))
-                doc.Blocks.Add(new Paragraph(
-                    new Run($"Remarks: {ReceiptRemarks}"))
+            void HR(double h = 1, System.Windows.Media.Brush br = null,
+                    double top = 0, double bot = 0)
+            {
+                stack.Children.Add(new System.Windows.Shapes.Rectangle
                 {
-                    FontSize = 11,
-                    Foreground = System.Windows.Media.Brushes.Gray,
-                    Margin = new Thickness(0, 8, 0, 0)
+                    Height = h,
+                    Fill = br ?? lightGrey,
+                    Margin = new Thickness(0, top, 0, bot)
                 });
+            }
 
-            doc.Blocks.Add(HRule());
-
-            // ── Big amount ──
-            doc.Blocks.Add(new Paragraph(
-                new Run($"AMOUNT PAID:  {ReceiptAmount}"))
+            void Section(string label)
             {
-                FontSize = 26,
-                FontWeight = FontWeights.Bold,
-                Foreground = System.Windows.Media.Brushes.DarkGreen,
-                TextAlignment = TextAlignment.Center,
+                stack.Children.Add(Txt(label, 8, FontWeights.Bold, midGrey,
+                                       margin: new Thickness(0, 16, 0, 2)));
+                HR(0.5, lightGrey, 0, 8);
+            }
+
+            // Two-column row: fixed-width label, remaining width for value
+            void Field2(string l1, string v1, string l2, string v2,
+                        double labelW = 120)
+            {
+                double half = contentW / 2;
+                var outer = new System.Windows.Controls.Grid
+                { Margin = new Thickness(0, 3, 0, 3) };
+                outer.ColumnDefinitions.Add(
+                    new System.Windows.Controls.ColumnDefinition
+                    { Width = new GridLength(half) });
+                outer.ColumnDefinitions.Add(
+                    new System.Windows.Controls.ColumnDefinition
+                    { Width = new GridLength(half) });
+
+                System.Windows.Controls.Grid Pair(string lbl, string val)
+                {
+                    var pg = new System.Windows.Controls.Grid();
+                    pg.ColumnDefinitions.Add(
+                        new System.Windows.Controls.ColumnDefinition
+                        { Width = new GridLength(labelW) });
+                    pg.ColumnDefinitions.Add(
+                        new System.Windows.Controls.ColumnDefinition
+                        { Width = new GridLength(half - labelW) });
+
+                    var lt = Txt(lbl, 9, null, midGrey);
+                    System.Windows.Controls.Grid.SetColumn(lt, 0);
+
+                    var vt = Txt(val ?? "—", 11, FontWeights.SemiBold, wrap: true);
+                    System.Windows.Controls.Grid.SetColumn(vt, 1);
+
+                    pg.Children.Add(lt);
+                    pg.Children.Add(vt);
+                    return pg;
+                }
+
+                var left = Pair(l1, v1);
+                var right = Pair(l2, v2);
+                System.Windows.Controls.Grid.SetColumn(left, 0);
+                System.Windows.Controls.Grid.SetColumn(right, 1);
+                outer.Children.Add(left);
+                outer.Children.Add(right);
+                stack.Children.Add(outer);
+            }
+
+            // ── INSTITUTE HEADER ─────────────────────────────────────────────
+            stack.Children.Add(Txt(
+                "CENTRAL INSTITUTE OF HAND TOOLS, JALANDHAR",
+                17, FontWeights.Bold, black, serif,
+                TextAlignment.Center, new Thickness(0, 0, 0, 3)));
+
+            stack.Children.Add(Txt(
+                "Official Fee Payment Receipt",
+                10, null, midGrey, null,
+                TextAlignment.Center, new Thickness(0, 0, 0, 14)));
+
+            HR(1.5, black);
+
+            // Receipt No | Date (two fixed-width halves — no star columns)
+            {
+                double half = contentW / 2;
+                var g = new System.Windows.Controls.Grid
+                { Margin = new Thickness(0, 8, 0, 8) };
+                g.ColumnDefinitions.Add(
+                    new System.Windows.Controls.ColumnDefinition
+                    { Width = new GridLength(half) });
+                g.ColumnDefinitions.Add(
+                    new System.Windows.Controls.ColumnDefinition
+                    { Width = new GridLength(half) });
+
+                var rn = Txt($"Receipt No: {ReceiptNumber}", 8, null, midGrey, mono);
+                System.Windows.Controls.Grid.SetColumn(rn, 0);
+
+                var dt = Txt($"Date: {ReceiptDate}", 8, null, midGrey, mono,
+                             TextAlignment.Right);
+                System.Windows.Controls.Grid.SetColumn(dt, 1);
+
+                g.Children.Add(rn);
+                g.Children.Add(dt);
+                stack.Children.Add(g);
+            }
+
+            HR(0.5, lightGrey);
+
+            // ── STUDENT DETAILS ───────────────────────────────────────────────
+            Section("STUDENT DETAILS");
+            Field2("Student Name", ReceiptStudentName, "Student ID", ReceiptStudentId);
+            Field2("Guardian", ReceiptGuardian, "Course / Dept", ReceiptCourse);
+
+            // ── PAYMENT DETAILS ───────────────────────────────────────────────
+            Section("PAYMENT DETAILS");
+            Field2("Payment Mode", ReceiptPaymentMode, "Quarter / Period", ReceiptQuarter);
+
+            // ── REMARKS ───────────────────────────────────────────────────────
+            if (!string.IsNullOrWhiteSpace(ReceiptRemarks))
+            {
+                Section("REMARKS");
+                stack.Children.Add(Txt(ReceiptRemarks, 10, null, midGrey,
+                                       wrap: true,
+                                       margin: new Thickness(0, 0, 0, 4)));
+            }
+
+            HR(0.5, lightGrey, 16, 0);
+
+            // ── AMOUNT BOX ────────────────────────────────────────────────────
+            var amtBorder = new System.Windows.Controls.Border
+            {
+                Background = nearBlack,
+                CornerRadius = new CornerRadius(5),
+                Padding = new Thickness(24, 16, 24, 16),
                 Margin = new Thickness(0, 16, 0, 16)
-            });
-
-            doc.Blocks.Add(HRule());
-
-            doc.Blocks.Add(new Paragraph(
-                new Run(
-                    $"Computer-generated receipt. Printed: {DateTime.Now:dd-MM-yyyy HH:mm}"))
-            {
-                FontSize = 10,
-                Foreground = System.Windows.Media.Brushes.Gray,
-                TextAlignment = TextAlignment.Center
-            });
-
-            return doc;
-        }
-
-        private static BlockUIContainer HRule()
-        {
-            var r = new System.Windows.Shapes.Rectangle
-            {
-                Height = 1,
-                Fill = System.Windows.Media.Brushes.LightGray,
-                Margin = new Thickness(0, 6, 0, 6)
             };
-            return new BlockUIContainer(r);
+            var amtPanel = new System.Windows.Controls.StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            amtPanel.Children.Add(Txt("AMOUNT PAID  ", 11, FontWeights.SemiBold, lightGrey));
+            amtPanel.Children.Add(Txt(ReceiptAmount, 28, FontWeights.Bold, white, serif));
+            amtBorder.Child = amtPanel;
+            stack.Children.Add(amtBorder);
+
+            HR(1.5, black);
+
+            // ── FOOTER ────────────────────────────────────────────────────────
+            stack.Children.Add(Txt(
+                $"Computer-generated receipt. No signature required." +
+                $"          Printed: {DateTime.Now:dd-MM-yyyy HH:mm}",
+                8, null, midGrey, mono,
+                TextAlignment.Center, new Thickness(0, 10, 0, 0)));
+
+            // Force WPF to measure and arrange before the print driver reads pixels
+            root.Measure(new Size(pageWidth, pageHeight));
+            root.Arrange(new Rect(0, 0, pageWidth, pageHeight));
+            root.UpdateLayout();
+
+            return root;
         }
-
-        private static TableCell LabelCell(string t) =>
-            new(new Paragraph(new Run(t))
-            {
-                FontSize = 11,
-                Foreground = System.Windows.Media.Brushes.Gray,
-                Margin = new Thickness(0, 4, 8, 4)
-            });
-
-        private static TableCell ValueCell(string t) =>
-            new(new Paragraph(new Run(t ?? ""))
-            {
-                FontSize = 12,
-                FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 4, 16, 4)
-            });
 
         // ═════════════════════════════════════════════════════════════════════
         // SUMMARY CARDS

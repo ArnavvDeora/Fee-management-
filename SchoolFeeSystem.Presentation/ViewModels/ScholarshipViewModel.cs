@@ -99,12 +99,15 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         // CONSTRUCTOR
         // ════════════════════════════════════════════════════════════════════
         public ScholarshipViewModel(CsvDataService csvService,
-                                    AcademicCycleService cycleService)
+                                AcademicCycleService cycleService)
         {
             _csvService = csvService;
             _cycleService = cycleService;
 
-            _cycleService.RunCycleCheck();
+            // NOTE: RunCycleCheck() is intentionally NOT called here.
+            // It fires once in FeeCollectionViewModel which shows the user the
+            // transition notification. Calling it again here would double-advance
+            // sheets and show duplicate MessageBoxes.
             CurrentQuarterLabel = $"Current quarter: {AcademicCycleService.CurrentQuarter()}";
 
             foreach (var displayName in _csvService.GetSheetDisplayNames())
@@ -440,7 +443,28 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             var dashboard = App.Current.Services.GetRequiredService<DashboardView>();
             Application.Current.MainWindow.Content = dashboard;
         }
-
+        /// <summary>
+        /// Persists all in-memory scholarship changes to the Excel files on disk.
+        /// The old XAML binding was SaveChangesCommand — the new XAML uses SaveToFileCommand
+        /// to avoid confusion with FeeCollectionViewModel.SaveChangesCommand.
+        /// </summary>
+        [RelayCommand]
+        public void SaveToFile()
+        {
+            try
+            {
+                _csvService.SaveFile();
+                MessageBox.Show(
+                    "✅ All scholarship changes saved successfully!",
+                    "Saved", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (System.Exception ex)
+            {
+                MessageBox.Show(
+                    $"Save failed:\n\n{ex.Message}",
+                    "Save Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
         // ════════════════════════════════════════════════════════════════════
         // HELPERS
         // ════════════════════════════════════════════════════════════════════

@@ -36,6 +36,12 @@ namespace SchoolFeeSystem.Presentation
             var services = new ServiceCollection();
             ConfigureServices(services);
             _serviceProvider = services.BuildServiceProvider();
+
+            // 3. Wire the circular dependency: CsvDataService ↔ AcademicCycleService
+            //    Must be done AFTER BuildServiceProvider so both singletons are resolved.
+            var csv = _serviceProvider.GetRequiredService<CsvDataService>();
+            var cycle = _serviceProvider.GetRequiredService<AcademicCycleService>();
+            csv.CycleService = cycle;
         }
 
         private void ConfigureServices(IServiceCollection services)
@@ -71,6 +77,18 @@ namespace SchoolFeeSystem.Presentation
             services.AddSingleton<CsvDataService>();
             services.AddSingleton<PdfReportService>();
 
+            // QuarterHistoryService — new singleton, must be registered BEFORE
+            // AcademicCycleService because the cycle service depends on it.
+            services.AddSingleton<QuarterHistoryService>();
+
+            // AcademicCycleService — now requires QuarterHistoryService as 3rd arg.
+            services.AddSingleton<AcademicCycleService>(sp =>
+                new AcademicCycleService(
+                    sp.GetRequiredService<CsvDataService>(),
+                    sp.GetRequiredService<PaymentLogService>(),
+                    sp.GetRequiredService<QuarterHistoryService>()   // ← was missing (CS7036)
+                ));
+
             // --- ViewModels & Views ---
 
             // Main Shell
@@ -100,23 +118,13 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<FeeViewModel>();
             services.AddTransient<FeeView>();
 
-            // AcademicCycleService — registered BEFORE the ViewModels that depend on it
-            services.AddSingleton<AcademicCycleService>(sp =>
-                new AcademicCycleService(
-                    sp.GetRequiredService<CsvDataService>(),
-                    sp.GetRequiredService<PaymentLogService>()
-                ));
-
-            // ✅ FIX CS7036: Added missing 4th argument — FineCalculationService.
-            // FeeCollectionViewModel constructor signature is:
-            //   (CsvDataService, PaymentLogService, AcademicCycleService, FineCalculationService)
-            // The old registration only passed 3 args, causing CS7036 at line 110.
+            // FeeCollectionViewModel — 4 constructor args.
             services.AddTransient<FeeCollectionViewModel>(sp =>
                 new FeeCollectionViewModel(
                     sp.GetRequiredService<CsvDataService>(),
                     sp.GetRequiredService<PaymentLogService>(),
                     sp.GetRequiredService<AcademicCycleService>(),
-                    sp.GetRequiredService<FineCalculationService>()  // ← was missing
+                    sp.GetRequiredService<FineCalculationService>()
                 ));
             services.AddTransient<FeeCollectionView>();
 
@@ -129,24 +137,26 @@ namespace SchoolFeeSystem.Presentation
                 ));
             services.AddTransient<ReportsView>();
 
-            // ClassViewModel now accepts optional AcademicCycleService
+            // ClassViewModel — now also receives QuarterHistoryService.
             services.AddTransient<ClassViewModel>(sp =>
                 new ClassViewModel(
                     sp.GetRequiredService<CsvDataService>(),
                     sp.GetRequiredService<PdfReportService>(),
-                    sp.GetRequiredService<AcademicCycleService>()
+                    sp.GetRequiredService<AcademicCycleService>(),
+                    sp.GetRequiredService<QuarterHistoryService>()   // ← new 4th arg
                 ));
             services.AddTransient<ClassView>();
             services.AddTransient<HelpViewModel>();
             services.AddTransient<HelpView>();
             services.AddTransient<StudentListView>();
             services.AddTransient<StudentListViewModel>();
+
             // Scholarship
             services.AddTransient<ScholarshipViewModel>(sp =>
-    new ScholarshipViewModel(
-        sp.GetRequiredService<CsvDataService>(),
-        sp.GetRequiredService<AcademicCycleService>()
-    ));
+                new ScholarshipViewModel(
+                    sp.GetRequiredService<CsvDataService>(),
+                    sp.GetRequiredService<AcademicCycleService>()
+                ));
             services.AddTransient<ScholarshipView>();
 
             // Staff & Payroll Features
@@ -191,8 +201,10 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<LeaveManagementViewModel>();
             services.AddTransient<LeaveManagementView>();
         }
+
         public static event Action FeeDataChanged;
         public static void RaiseFeeDataChanged() => FeeDataChanged?.Invoke();
+
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
