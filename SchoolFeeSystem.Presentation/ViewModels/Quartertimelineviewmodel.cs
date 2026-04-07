@@ -1,6 +1,5 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using DocumentFormat.OpenXml.Vml.Spreadsheet;
 using SchoolFeeSystem.Presentation.Services;
 using System;
 using System.Collections.ObjectModel;
@@ -11,82 +10,46 @@ using System.Windows;
 namespace SchoolFeeSystem.Presentation.ViewModels
 {
     // ══════════════════════════════════════════════════════════════════════════
-    //  QuarterTimelineViewModel
+    //  QuarterTimelineViewModel  (Fixed)
     //
-    //  Powers the "Quarter History" popup / side-panel that appears when the
-    //  admin clicks "View History" on any course card.
+    //  What changed vs original:
+    //  ─────────────────────────
+    //  1. Open() no longer appends a synthetic "Live" row when the current
+    //     quarter is already in the history index (it always is now because
+    //     AcademicCycleService snapshots the live quarter on every startup).
+    //     Instead it marks the matching HistoryEntry as IsCurrent = true and
+    //     labels it "Live" so the user sees it highlighted.
     //
-    //  What it shows
-    //  ─────────────
-    //  ┌─────────────────────────────────────────────────────────────┐
-    //  │  Diploma ME – Year 2 (Sem 3 & 4)                           │
-    //  │  Original file added: 12 Aug 2024                           │
-    //  │  Current quarter: Feb-Apr 2026                              │
-    //  │                                                             │
-    //  │  ◉ Aug-Oct 2024  Sem 3  38 students  30 paid / 8 pending   │
-    //  │  ○ Nov-Jan 2025  Sem 3  38 students  35 paid / 3 pending   │
-    //  │  ○ Feb-Apr 2025  Sem 4  38 students  38 paid / 0 pending   │
-    //  │  ● Feb-Apr 2026  Sem 4  (current)                          │
-    //  │                                     [View Selected Quarter] │
-    //  └─────────────────────────────────────────────────────────────┘
+    //  2. ViewSelectedQuarter() treats entries where IsCurrent = true as the
+    //     live view (same behaviour as before), so clicking the live row shows
+    //     the real-time DataTable, not the snapshot.
     //
-    //  Selecting a past entry and clicking "View" loads the read-only snapshot
-    //  DataTable into CsvTableView on the parent ClassViewModel so the existing
-    //  DataGrid can display it — with a banner making clear it is historical.
+    //  3. The "Back to Live" button always works because SelectedEntry is set
+    //     to the live entry when the panel opens.
     // ══════════════════════════════════════════════════════════════════════════
 
     public partial class QuarterTimelineViewModel : ObservableObject
     {
-        // ── Dependencies ────────────────────────────────────────────────────
         private readonly QuarterHistoryService _history;
         private readonly AcademicCycleService _cycle;
 
-        // ── Parent sheet context ────────────────────────────────────────────
         private DataTable _liveSheet;
 
         // ════════════════════════════════════════════════════════════════════
         // OBSERVABLE PROPERTIES
         // ════════════════════════════════════════════════════════════════════
 
-        /// <summary>Display title, e.g. "Diploma ME – Year 2".</summary>
-        [ObservableProperty]
-        private string courseTitle = "";
+        [ObservableProperty] private string courseTitle = "";
+        [ObservableProperty] private string originalFileAddedText = "";
+        [ObservableProperty] private string currentQuarterText = "";
 
-        /// <summary>"Original file added on 12 Aug 2024" text.</summary>
-        [ObservableProperty]
-        private string originalFileAddedText = "";
-
-        /// <summary>"Current quarter: Feb-Apr 2026 (Sem 4)" text.</summary>
-        [ObservableProperty]
-        private string currentQuarterText = "";
-
-        /// <summary>All history entries for this class (sorted oldest→newest).</summary>
         public ObservableCollection<QuarterEntryVM> Entries { get; } = new();
 
-        /// <summary>The entry the admin has highlighted on the timeline.</summary>
-        [ObservableProperty]
-        private QuarterEntryVM selectedEntry;
-
-        /// <summary>True while the history panel should be visible.</summary>
-        [ObservableProperty]
-        private bool isVisible = false;
-
-        /// <summary>
-        /// After "View" is clicked this holds the snapshot DataTable to display.
-        /// Null = display live data.
-        /// </summary>
-        [ObservableProperty]
-        private DataTable activeSnapshot;
-
-        /// <summary>
-        /// Banner text shown above the DataGrid when a historical snapshot is open.
-        /// </summary>
-        [ObservableProperty]
-        private string snapshotBanner = "";
-
-        /// <summary>True when a historical (read-only) snapshot is being shown.</summary>
-        [ObservableProperty]
-        private bool isShowingSnapshot = false;
+        [ObservableProperty] private QuarterEntryVM selectedEntry;
+        [ObservableProperty] private bool isVisible = false;
+        [ObservableProperty] private DataTable activeSnapshot;
+        [ObservableProperty] private string snapshotBanner = "";
+        [ObservableProperty] private bool isShowingSnapshot = false;
 
         // ════════════════════════════════════════════════════════════════════
         // CONSTRUCTOR
@@ -100,12 +63,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // PUBLIC API — called by ClassViewModel
+        // PUBLIC API
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
         /// Opens the timeline panel for the given sheet (course).
-        /// Call when the user clicks "View History" on a course card.
         /// </summary>
         public void Open(DataTable sheet, string displayTitle)
         {
@@ -121,28 +83,39 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             string curQ = AcademicCycleService.CurrentQuarter();
             int curSem = GetSemester(sheet);
-            CurrentQuarterText = $"Current quarter: {curQ} {DateTime.Now.Year}  (Sem {curSem})";
+            int curCalYear = DateTime.Now.Year;
+            CurrentQuarterText = $"Current quarter: {curQ} {curCalYear}  (Sem {curSem})";
 
-            // ── History entries ────────────────────────────────────────────
+            // ── Build timeline ─────────────────────────────────────────────
             Entries.Clear();
             var history = _history.GetHistory(sheet);
-            string sheetKey = QuarterHistoryService.SheetKey(sheet);
 
             foreach (var entry in history)
             {
+                // FIX: An entry is "live" when it matches the current real-world quarter
+                // AND calendar year.  We show it differently but it IS in the index.
                 bool isCurrent = entry.Quarter == curQ
-                              && entry.CalendarYear == DateTime.Now.Year;
+                              && entry.CalendarYear == curCalYear;
+
+                // Recalculate live stats from the real DataTable so they're always fresh
+                int liveTotal = isCurrent ? CountStudents(sheet) : entry.TotalStudents;
+                int livePaid = isCurrent ? CountPaid(sheet) : entry.PaidStudents;
+                int livePending = liveTotal - livePaid;
 
                 Entries.Add(new QuarterEntryVM
                 {
                     Entry = entry,
                     QuarterLabel = entry.QuarterLabel,
                     SemLabel = entry.SemesterLabel,
-                    TotalText = $"{entry.TotalStudents} students",
-                    PaidText = $"{entry.PaidStudents} paid",
-                    PendingText = entry.PendingStudents > 0
-                                    ? $"🔴 {entry.PendingStudents} pending"
-                                    : "✅ All paid",
+                    TotalText = $"{liveTotal} students",
+                    PaidText = $"{livePaid} paid",
+                    PendingText = isCurrent
+                                    ? (livePending > 0
+                                        ? $"🔴 {livePending} pending"
+                                        : "✅ All paid")
+                                    : (entry.PendingStudents > 0
+                                        ? $"🔴 {entry.PendingStudents} pending"
+                                        : "✅ All paid"),
                     IsCurrent = isCurrent,
                     SnapshotDate = isCurrent
                                     ? "Live"
@@ -150,24 +123,27 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 });
             }
 
-            // Append a "Live" row for the current quarter if not already in history
-            if (!history.Any(e => e.Quarter == curQ &&
-                                  e.CalendarYear == DateTime.Now.Year))
+            // Fallback: if for some reason the current quarter was never snapshotted,
+            // append a synthetic live row so the panel is never empty.
+            if (!Entries.Any(e => e.IsCurrent))
             {
+                int tot = CountStudents(sheet);
+                int paid = CountPaid(sheet);
                 Entries.Add(new QuarterEntryVM
                 {
                     Entry = null,
-                    QuarterLabel = $"{curQ} {DateTime.Now.Year}",
+                    QuarterLabel = $"{curQ} {curCalYear}",
                     SemLabel = $"Sem {curSem}",
-                    TotalText = $"{CountStudents(sheet)} students",
-                    PaidText = "",
-                    PendingText = "(Live — data not yet snapshotted)",
+                    TotalText = $"{tot} students",
+                    PaidText = $"{paid} paid",
+                    PendingText = "(Live — not yet snapshotted)",
                     IsCurrent = true,
                     SnapshotDate = "Live",
                 });
             }
 
-            SelectedEntry = Entries.LastOrDefault();
+            // ── Default selection: the live (most recent) entry ────────────
+            SelectedEntry = Entries.LastOrDefault(e => e.IsCurrent) ?? Entries.LastOrDefault();
             ActiveSnapshot = null;
             IsShowingSnapshot = false;
             SnapshotBanner = "";
@@ -184,18 +160,29 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             SnapshotBanner = "";
         }
 
-        /// <summary>Loads the selected quarter's snapshot into ActiveSnapshot.</summary>
+        /// <summary>
+        /// Loads the selected quarter's snapshot.
+        /// If the selected entry is the live quarter → show the live DataTable.
+        /// </summary>
         [RelayCommand]
         public void ViewSelectedQuarter()
         {
             if (SelectedEntry == null) return;
 
-            // Current / live entry → show live data
-            if (SelectedEntry.IsCurrent || SelectedEntry.Entry == null)
+            // Live entry → always show real-time data, not the archived CSV
+            if (SelectedEntry.IsCurrent)
             {
                 ActiveSnapshot = null;
                 IsShowingSnapshot = false;
                 SnapshotBanner = "";
+                return;
+            }
+
+            // Past entry → load snapshot
+            if (SelectedEntry.Entry == null)
+            {
+                MessageBox.Show("This entry has no snapshot data.",
+                    "No Snapshot", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -219,7 +206,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 $"|   This is read-only.";
         }
 
-        /// <summary>Return to live (current quarter) data.</summary>
+        /// <summary>Returns to the live (current quarter) data.</summary>
         [RelayCommand]
         public void ReturnToLive()
         {
@@ -227,7 +214,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             IsShowingSnapshot = false;
             SnapshotBanner = "";
 
-            // Re-select the live entry in the list
             var live = Entries.FirstOrDefault(e => e.IsCurrent);
             if (live != null) SelectedEntry = live;
         }
@@ -258,6 +244,35 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                             && !s.StartsWith("Note", StringComparison.OrdinalIgnoreCase);
                     });
         }
+
+        private static int CountPaid(DataTable t)
+        {
+            var totalCol = t.Columns.Cast<System.Data.DataColumn>()
+                            .FirstOrDefault(c =>
+                                c.ColumnName.IndexOf("total", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                                c.ColumnName.IndexOf("fees", StringComparison.OrdinalIgnoreCase) >= 0);
+            if (totalCol == null) return 0;
+
+            var nameCol = t.Columns.Cast<System.Data.DataColumn>()
+                           .FirstOrDefault(c => c.ColumnName.IndexOf("name",
+                               StringComparison.OrdinalIgnoreCase) >= 0);
+
+            return t.Rows.Cast<DataRow>()
+                    .Count(r => {
+                        if (nameCol != null)
+                        {
+                            string nm = r[nameCol]?.ToString()?.Trim() ?? "";
+                            if (string.IsNullOrEmpty(nm) ||
+                                nm.Equals("Name", StringComparison.OrdinalIgnoreCase) ||
+                                nm.Length > 60) return false;
+                        }
+                        decimal.TryParse(r[totalCol]?.ToString()?.Trim() ?? "0",
+                            System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            out decimal total);
+                        return total <= 0m;
+                    });
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -266,7 +281,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
     public class QuarterEntryVM : ObservableObject
     {
-        /// <summary>Underlying data-entry; null for the live row.</summary>
+        /// <summary>Underlying data-entry; null only for synthetic live rows.</summary>
         public QuarterHistoryService.HistoryEntry Entry { get; set; }
 
         public string QuarterLabel { get; set; }

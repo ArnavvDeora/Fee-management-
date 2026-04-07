@@ -201,7 +201,7 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" FontSize="12" Foreground="#546E7A" VerticalAlignment="Center">
                     <Run Text="Active quarter: "/>
-                    <Run Text="{Binding CurrentQuarterLabel}" FontWeight="SemiBold"/>
+                    <Run Text="{Binding CurrentQuarterLabel, Mode=OneWay}" FontWeight="SemiBold"/>
                 </TextBlock>
                 <TextBlock Grid.Column="2"
                            Text="Click ✏️ Select on a student card to open the scholarship panel"
@@ -310,7 +310,7 @@
                                                            Foreground="#1A1A2E"/>
                                                 <TextBlock FontSize="12" Foreground="#78909C" Margin="0,2,0,0">
                                                     <Run Text="S/o "/>
-                                                    <Run Text="{Binding FatherName}"/>
+                                                    <Run Text="{Binding FatherName, Mode=OneWay}"/>
                                                 </TextBlock>
                                             </StackPanel>
 

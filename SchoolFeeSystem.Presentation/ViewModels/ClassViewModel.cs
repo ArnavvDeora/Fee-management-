@@ -18,7 +18,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         private readonly CsvDataService _csvService;
         private readonly PdfReportService _pdfReportService;
         private readonly AcademicCycleService _cycleService;
-        private readonly QuarterHistoryService _historyService;   // ← NEW
+        private readonly QuarterHistoryService _historyService;
         private DataTable _originalData;
         private string _currentSheetName;
 
@@ -121,35 +121,23 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         private string rowCountDisplay = "0 students";
 
         // ==========================
-        // HISTORY / TIMELINE — NEW
+        // HISTORY / TIMELINE
         // ==========================
 
-        /// <summary>The timeline drawer VM — bound to Block C in ClassView.xaml.</summary>
         public QuarterTimelineViewModel Timeline { get; }
 
-        /// <summary>The CourseInfo currently open in DataView — used as OpenHistoryCommand parameter.</summary>
         [ObservableProperty]
         private CourseInfo currentCourse;
 
-        /// <summary>
-        /// Small badge shown in the DataView header, e.g. "Added: 12 Aug 2024".
-        /// Populated by OpenHistoryCommand; collapses when empty.
-        /// </summary>
         [ObservableProperty]
         private string originalFileAddedBadge = "";
 
-        /// <summary>
-        /// Small badge shown in the DataView header, e.g. "Feb-Apr 2026 · Sem 4".
-        /// Populated by OpenHistoryCommand; collapses when empty.
-        /// </summary>
         [ObservableProperty]
         private string currentQuarterBadge = "";
 
-        /// <summary>True while a historical (read-only) snapshot is displayed.</summary>
         [ObservableProperty]
         private bool isShowingSnapshot = false;
 
-        /// <summary>Amber banner text shown above the student list during snapshot viewing.</summary>
         [ObservableProperty]
         private string snapshotBanner = "";
 
@@ -165,13 +153,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             _cycleService = cycleService;
             _historyService = historyService;
 
-            // Build the Timeline VM if both dependencies are available
             if (_historyService != null && _cycleService != null)
             {
                 Timeline = new QuarterTimelineViewModel(_historyService, _cycleService);
 
-                // Propagate snapshot state changes from the timeline VM up to this VM
-                // so ClassView.xaml's Block B banner binding stays in sync.
                 Timeline.PropertyChanged += (s, e) =>
                 {
                     if (e.PropertyName == nameof(QuarterTimelineViewModel.IsShowingSnapshot))
@@ -179,7 +164,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                         IsShowingSnapshot = Timeline.IsShowingSnapshot;
                         SnapshotBanner = Timeline.SnapshotBanner;
 
-                        // When the timeline loads a snapshot, swap the displayed data table.
                         if (Timeline.IsShowingSnapshot && Timeline.ActiveSnapshot != null)
                             SwapToSnapshot(Timeline.ActiveSnapshot);
                         else
@@ -191,8 +175,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 };
             }
 
-            // On every app open, check if any loaded sheet has crossed a quarter
-            // boundary. Silently transition them; results shown in FeeCollection.
             cycleService?.RunCycleCheck();
 
             InitializeDepartments();
@@ -214,7 +196,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     ApplyDataViewSearch();
             };
         }
-
 
         // ==========================
         // INITIALIZATION
@@ -318,7 +299,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             SelectedDepartment = dept;
             LoadDepartmentCourses();
 
-            // Show management dashboard
             IsDepartmentViewMode = false;
             IsDepartmentManagementMode = true;
             IsDataViewMode = false;
@@ -331,12 +311,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             try
             {
-                // Get all available sheets for this department
                 var allSheets = _csvService.GetAllSheets();
 
                 foreach (var sheet in allSheets)
                 {
-                    // Try to match sheet to department
                     var courseInfo = ParseCourseFromSheet(sheet);
                     if (courseInfo != null && courseInfo.DepartmentCode == SelectedDepartment.Code)
                     {
@@ -345,7 +323,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     }
                 }
 
-                // Calculate dashboard statistics
                 CalculateDashboardStatistics();
                 ApplyFilters();
             }
@@ -370,20 +347,47 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
                 if (string.IsNullOrEmpty(deptCode)) return null;
 
-                // ── Read Semester stored by CsvDataService.LoadFile (Bug 2 fix) ──
                 int semester = 0;
                 if (sheet.ExtendedProperties.ContainsKey("Semester") &&
                     int.TryParse(sheet.ExtendedProperties["Semester"]?.ToString(), out int s))
                     semester = s;
 
-                // Build display labels — show semester number when available
                 string yearDisplay = semester > 0
                     ? $"Sem {semester} (Year {year})"
                     : $"Year {year}";
 
-                string courseName = semester > 0
-                    ? $"{GetDepartmentName(deptCode)} — Sem {semester}"
-                    : $"{GetDepartmentName(deptCode)} — Year {year}";
+                // Use admin-assigned display name if available, else build from dept + semester
+                string customName = sheet.ExtendedProperties["DisplayName"]?.ToString();
+                string courseName = !string.IsNullOrWhiteSpace(customName)
+                    ? customName
+                    : semester > 0
+                        ? $"{GetDepartmentName(deptCode)} — Sem {semester}"
+                        : $"{GetDepartmentName(deptCode)} — Year {year}";
+
+                // ── Quarter labels shown on the course card ────────────────────
+                // "Uploaded" quarter = the quarter tag embedded in the sheet's
+                //   ExtendedProperties["Quarter"] (set from the Excel header on import,
+                //   then updated each time the system advances the sheet).
+                // "Current" quarter = whichever quarter today's date falls in.
+                string liveQ = AcademicCycleService.CurrentQuarter();
+                string uploadedQ = quarter; // already extracted above
+
+                // Format: "Feb-Apr 2026"
+                int calYear = DateTime.Now.Year;
+                // Nov-Jan spans two calendar years — the year shown is the start year
+                if (uploadedQ == "Nov-Jan" && DateTime.Now.Month <= 1) calYear--;
+
+                string uploadedLabel = $"{uploadedQ} {calYear}";
+                string liveLabel = $"{liveQ} {DateTime.Now.Year}";
+
+                // Get original import date if available
+                string importedOnText = "";
+                if (_cycleService != null)
+                {
+                    DateTime imp = _cycleService.GetOriginalImportDate(sheetName);
+                    if (imp != DateTime.MinValue)
+                        importedOnText = $"  ·  Uploaded {imp:dd MMM yyyy}";
+                }
 
                 var courseInfo = new CourseInfo
                 {
@@ -395,7 +399,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     CourseName = courseName,
                     YearDisplay = yearDisplay,
                     QuarterDisplay = FormatQuarter(quarter),
-                    DataTable = sheet
+                    DataTable = sheet,
+                    OriginalQuarterLabel = $"📂 {uploadedLabel}{importedOnText}",
+                    CurrentQuarterLabel = $"📅 Now: {liveLabel}",
+                    IsOnOriginalQuarter = uploadedQ == liveQ,
                 };
 
                 CalculateCourseStatistics(courseInfo);
@@ -413,7 +420,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             course.LastUpdated = DateTime.Now.ToString("dd MMM yyyy");
 
-            // ── Helper: find a DataColumn by keyword(s), skipping internal _ columns ──
             DataColumn ColFind(params string[] keywords) =>
                 course.DataTable.Columns.Cast<DataColumn>()
                     .Where(c => !c.ColumnName.StartsWith("_"))
@@ -431,19 +437,20 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     out decimal v) ? v : 0m;
             }
 
-            // ── Column detection ──────────────────────────────────────────────────
             var nameCol = ColFind("name");
             var prevPendingCol = ColFind("previous", "pending")
                               ?? ColFind("previous")
                               ?? ColFind("pending");
             var quarterlyCol = ColFind("quarterly") ?? ColFind("installment");
-            // Fallback: use the TOTAL fees column when there is no quarterly column
             var totalFeesCol = ColFind("total") ?? ColFind("fees");
 
-            // ── Student row filter ──────────────────────────────────────────────
             var studentRows = course.DataTable.Rows.Cast<DataRow>()
                 .Where(r =>
                 {
+                    // Skip archived rows
+                    if (course.DataTable.Columns.Contains("_Archived") &&
+                        r["_Archived"]?.ToString() == "1") return false;
+
                     if (nameCol == null) return true;
                     string nm = r[nameCol]?.ToString()?.Trim() ?? "";
                     if (string.IsNullOrEmpty(nm)) return false;
@@ -465,7 +472,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 decimal prevPend = SafeDec(row, prevPendingCol);
                 decimal quarterly = SafeDec(row, quarterlyCol);
 
-                // When no quarterly column exists, fall back to the TOTAL fees column
                 if (quarterly == 0m && quarterlyCol == null)
                     quarterly = SafeDec(row, totalFeesCol);
 
@@ -483,7 +489,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             course.PaidStudents = course.TotalStudents - pendingCount;
             course.HasPendingFees = pendingCount > 0;
 
-            // ── Status label ──────────────────────────────────────────────────────
             if (course.TotalStudents == 0)
             {
                 course.FileStatus = "No Data";
@@ -500,7 +505,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 course.StatusColor = "#2196F3";
             }
 
-            // ── CanPromote ────────────────────────────────────────────────────────
             var dept = Departments.FirstOrDefault(d => d.Code == course.DepartmentCode);
             course.CanPromote = dept != null && course.Year < dept.Years;
 
@@ -529,34 +533,24 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             var filtered = AllCourses.AsEnumerable();
 
-            // Apply year filter
             if (SelectedYearFilter != "All Years")
             {
                 int yearNum = int.Parse(SelectedYearFilter.Replace("Year ", ""));
                 filtered = filtered.Where(c => c.Year == yearNum);
             }
 
-            // Apply quarter filter
             if (SelectedQuarterFilter != "All Quarters")
             {
                 filtered = filtered.Where(c => c.Quarter.Replace("-", "") == SelectedQuarterFilter.Replace("-", ""));
             }
 
-            // Apply status filter
             if (SelectedStatusFilter == "Has Pending")
-            {
                 filtered = filtered.Where(c => c.HasPendingFees);
-            }
             else if (SelectedStatusFilter == "Fully Paid")
-            {
                 filtered = filtered.Where(c => !c.HasPendingFees && c.TotalStudents > 0);
-            }
             else if (SelectedStatusFilter == "No Data")
-            {
                 filtered = filtered.Where(c => c.TotalStudents == 0);
-            }
 
-            // Apply global search
             if (!string.IsNullOrWhiteSpace(GlobalSearchText))
             {
                 filtered = filtered.Where(c =>
@@ -566,9 +560,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
 
             foreach (var course in filtered)
-            {
                 FilteredCourses.Add(course);
-            }
         }
 
         // ==========================
@@ -580,7 +572,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             if (course == null || course.DataTable == null) return;
 
-            CurrentCourse = course;           // ← track for History button binding
+            CurrentCourse = course;
             _originalData = course.DataTable;
             _currentSheetName = course.SheetName;
 
@@ -595,13 +587,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             SearchText = string.Empty;
             CurrentViewTitle = course.CourseName + " - " + course.QuarterDisplay;
 
-            // Reset snapshot state when switching courses
             IsShowingSnapshot = false;
             SnapshotBanner = "";
             OriginalFileAddedBadge = "";
             CurrentQuarterBadge = "";
 
-            // Switch to data view
             IsDepartmentViewMode = false;
             IsDepartmentManagementMode = false;
             IsDataViewMode = true;
@@ -611,27 +601,18 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         }
 
         // ==========================
-        // HISTORY COMMANDS — NEW
+        // HISTORY COMMANDS
         // ==========================
 
-        /// <summary>
-        /// Opens the history timeline drawer for the given course.
-        /// Bound to the "📋 History" button in both the course card list
-        /// and the DataView header (Block A).
-        /// </summary>
         [RelayCommand]
         public void OpenHistory(object parameter)
         {
-            // Accept CourseInfo directly (from course card) or use CurrentCourse
-            // (from the DataView header button where CommandParameter={Binding CurrentCourse}).
             CourseInfo course = parameter as CourseInfo ?? CurrentCourse;
             if (course?.DataTable == null || Timeline == null) return;
 
-            // If we're not already in DataView for this course, navigate there first.
             if (!IsDataViewMode || CurrentCourse != course)
                 ViewCourseData(course);
 
-            // Populate header badges
             if (_cycleService != null)
             {
                 DateTime importedOn = _cycleService.GetOriginalImportDate(course.DataTable.TableName);
@@ -647,11 +628,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             Timeline.Open(course.DataTable, course.CourseName);
         }
 
-        /// <summary>
-        /// Closes the history drawer and returns to live data.
-        /// Bound to both the ✕ button in Block C and the "↩ Return to Live"
-        /// button in Block B.
-        /// </summary>
         [RelayCommand]
         public void CloseHistory()
         {
@@ -659,11 +635,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             RestoreLiveData();
         }
 
-        // ── Snapshot helpers ───────────────────────────────────────────────
-
         private void SwapToSnapshot(DataTable snapshot)
         {
-            // Show the snapshot in the student list without touching _originalData
             CsvTableView = snapshot.DefaultView;
             CsvTableView.RowFilter = string.Empty;
             BuildStudentCardsFromView(CsvTableView);
@@ -679,12 +652,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             BuildStudentCards();
         }
 
-        // ─────────────────────────────────────────────────────────────────────────
+        // ==========================
         // BUILD STUDENT CARD ROWS
-        // Reads all fee component columns from the DataTable and populates
-        // StudentCardRow with every fee field so the XAML can display chips
-        // for each non-zero component.
-        // ─────────────────────────────────────────────────────────────────────────
+        // ==========================
+
         private void BuildStudentCards()
         {
             BuildStudentCardsFromView(CsvTableView ?? _originalData?.DefaultView);
@@ -698,13 +669,11 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             var table = view.Table;
             if (table == null) return;
 
-            // ── Column finder helper ──────────────────────────────────────────────
             DataColumn ColFind(params string[] keywords) =>
                 table.Columns.Cast<DataColumn>()
                     .FirstOrDefault(c => keywords.All(k =>
                         c.ColumnName.IndexOf(k, System.StringComparison.OrdinalIgnoreCase) >= 0));
 
-            // ── Safe decimal reader ───────────────────────────────────────────────
             decimal SafeDec(DataRow r, DataColumn c)
             {
                 if (c == null) return 0m;
@@ -716,7 +685,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     out decimal v) ? v : 0m;
             }
 
-            // ── Locate all columns ────────────────────────────────────────────────
             var nameCol = ColFind("name");
             var fatherCol = ColFind("father");
             var categoryCol = ColFind("category");
@@ -724,7 +692,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             var quarterlyCol = ColFind("quarterly") ?? ColFind("installment") ?? ColFind("fees");
             var prevPendCol = ColFind("previous", "pending") ?? ColFind("pending");
 
-            // Fee components — each maps to a chip in the student card
             var stationaryCol = ColFind("stationary");
             var welfareCol = ColFind("welfare");
             var studentActCol = ColFind("student", "activ");
@@ -739,14 +706,16 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             {
                 DataRow row = drv.Row;
 
-                // ── Student row guard ─────────────────────────────────────────────
+                // Skip archived rows
+                if (table.Columns.Contains("_Archived") &&
+                    row["_Archived"]?.ToString() == "1") continue;
+
                 string nm = nameCol != null ? row[nameCol]?.ToString()?.Trim() ?? "" : "";
                 if (string.IsNullOrEmpty(nm)) continue;
                 if (nm.Equals("Name", System.StringComparison.OrdinalIgnoreCase)) continue;
                 if (nm.StartsWith("Note", System.StringComparison.OrdinalIgnoreCase)) continue;
                 if (nm.Length > 60 || nm.Contains(":-") || nm.Contains("Per Day")) continue;
 
-                // ── Fee values ────────────────────────────────────────────────────
                 decimal quarterly = SafeDec(row, quarterlyCol);
                 decimal prevPend = SafeDec(row, prevPendCol);
                 decimal totalDue = quarterly + prevPend;
@@ -759,7 +728,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 decimal redCross = SafeDec(row, redCrossCol);
                 decimal hostel = SafeDec(row, hostelCol);
 
-                // ── Category normalisation ────────────────────────────────────────
                 string cat = categoryCol != null ? row[categoryCol]?.ToString()?.Trim() ?? "" : "";
                 cat = cat.ToUpper() switch
                 {
@@ -807,6 +775,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             DataViewPendingAmount = StudentCardRows.Sum(r => r.TotalDue);
         }
 
+        // ==========================
+        // FEE COLLECTION
+        // ==========================
+
         [RelayCommand]
         public void CollectFeeForRow(StudentCardRow card)
         {
@@ -824,15 +796,250 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             System.Windows.Application.Current.MainWindow.Content = feeView;
         }
 
+        // ==========================
+        // COURSE RENAME
+        // ==========================
+
+        [RelayCommand]
+        public void RenameCourse(CourseInfo course)
+        {
+            if (course == null) return;
+
+            var dialog = new RenameDialog(course.CourseName);
+            dialog.Owner = Application.Current.MainWindow;
+
+            if (dialog.ShowDialog() != true) return;
+
+            string newName = dialog.NewName?.Trim();
+            if (string.IsNullOrWhiteSpace(newName)) return;
+
+            // Persist in CsvDataService — GetSheetDisplayNames() now returns newName
+            // for this table, so FeeCollection, Reports, Scholarship, Fine Management
+            // all pick it up automatically on next load.
+            _csvService.RenameSheet(course.SheetName, newName);
+
+            // Update the local card immediately so the UI reflects the change now
+            course.CourseName = newName;
+            course.DataTable.ExtendedProperties["DisplayName"] = newName;
+
+            // Refresh the course card header if we are in data-view for this course
+            if (CurrentCourse == course)
+                CurrentViewTitle = newName + " - " + course.QuarterDisplay;
+
+            // Broadcast to FeeCollection, Reports, etc. so they rebuild their lists
+            App.RaiseFeeDataChanged();
+
+            MessageBox.Show(
+                $"Course renamed to:\n\"{newName}\"\n\n" +
+                "The new name will appear in Fee Collection, Reports, Scholarship and Fine Management.",
+                "Renamed Successfully",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+
+        // ==========================
+        // STUDENT REMOVE / ARCHIVE
+        // ==========================
+
+        [RelayCommand]
+        public void RemoveStudentCard(StudentCardRow card)
+        {
+            if (card?.SourceRow?.Row == null) return;
+
+            var result = MessageBox.Show(
+                $"Permanently remove student:\n\n\"{card.Name}\"\n\n" +
+                "This cannot be undone. Are you sure?",
+                "Confirm Remove Student",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (result != MessageBoxResult.Yes) return;
+
+            try
+            {
+                _csvService.RemoveStudentRow(card.SourceRow.Row);
+                StudentCardRows.Remove(card);
+                RefreshDataViewStats();
+                if (CurrentCourse != null)
+                    CalculateCourseStatistics(CurrentCourse);
+                App.RaiseFeeDataChanged();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error removing student:\n{ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        [RelayCommand]
+        public void ArchiveStudentCard(StudentCardRow card)
+        {
+            if (card?.SourceRow?.Row == null) return;
+
+            var result = MessageBox.Show(
+                $"Archive student:\n\n\"{card.Name}\"\n\n" +
+                "They will be hidden from all views but their data is preserved.\nContinue?",
+                "Confirm Archive Student",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result != MessageBoxResult.Yes) return;
+
+            try
+            {
+                _csvService.ArchiveStudentRow(card.SourceRow.Row);
+                StudentCardRows.Remove(card);
+                RefreshDataViewStats();
+                if (CurrentCourse != null)
+                    CalculateCourseStatistics(CurrentCourse);
+                App.RaiseFeeDataChanged();
+
+                MessageBox.Show($"\"{card.Name}\" has been archived.",
+                    "Archived", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error archiving student:\n{ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // ==========================
+        // STUDENT FIELD EDITING
+        // ==========================
+
+        [RelayCommand]
+        public void EditStudentName(StudentCardRow card)
+        {
+            if (card?.SourceRow?.Row == null) return;
+
+            var dialog = new RenameDialog(card.Name, "Edit Student Name");
+            dialog.Owner = Application.Current.MainWindow;
+
+            if (dialog.ShowDialog() != true) return;
+
+            string newName = dialog.NewName?.Trim();
+            if (string.IsNullOrWhiteSpace(newName)) return;
+
+            var table = card.SourceRow.Row.Table;
+            var nameCol = table.Columns.Cast<DataColumn>()
+                .FirstOrDefault(c => c.ColumnName.Equals("Name", StringComparison.OrdinalIgnoreCase));
+
+            if (nameCol == null)
+            {
+                MessageBox.Show("Could not find the Name column.", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            card.SourceRow.Row[nameCol] = newName;
+            card.Name = newName;
+            App.RaiseFeeDataChanged();
+        }
+
+        [RelayCommand]
+        public void EditStudentFather(StudentCardRow card)
+        {
+            if (card?.SourceRow?.Row == null) return;
+
+            var dialog = new RenameDialog(card.FatherName, "Edit Father's Name");
+            dialog.Owner = Application.Current.MainWindow;
+
+            if (dialog.ShowDialog() != true) return;
+
+            string newVal = dialog.NewName?.Trim();
+            if (string.IsNullOrWhiteSpace(newVal)) return;
+
+            var table = card.SourceRow.Row.Table;
+            var col = table.Columns.Cast<DataColumn>()
+                .FirstOrDefault(c => c.ColumnName.IndexOf("father", StringComparison.OrdinalIgnoreCase) >= 0);
+
+            if (col == null) { MessageBox.Show("Father column not found.", "Error", MessageBoxButton.OK, MessageBoxImage.Error); return; }
+
+            card.SourceRow.Row[col] = newVal;
+            card.FatherName = newVal;
+            App.RaiseFeeDataChanged();
+        }
+
+        [RelayCommand]
+        public void EditStudentPhone(StudentCardRow card)
+        {
+            if (card?.SourceRow?.Row == null) return;
+
+            var dialog = new RenameDialog(card.PhoneNumber, "Edit Phone Number");
+            dialog.Owner = Application.Current.MainWindow;
+
+            if (dialog.ShowDialog() != true) return;
+
+            string newVal = dialog.NewName?.Trim() ?? "";
+
+            var table = card.SourceRow.Row.Table;
+
+            // Try to find an existing phone/contact/mobile column
+            var col = table.Columns.Cast<DataColumn>()
+                .FirstOrDefault(c =>
+                    c.ColumnName.IndexOf("phone", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    c.ColumnName.IndexOf("contact", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    c.ColumnName.IndexOf("mobile", StringComparison.OrdinalIgnoreCase) >= 0);
+
+            // ── If no phone column exists yet, silently create one ───────────
+            if (col == null)
+            {
+                col = table.Columns.Add("Phone No.", typeof(string));
+
+                // Back-fill all existing rows with an empty string
+                foreach (DataRow r in table.Rows)
+                    if (r.RowState != DataRowState.Deleted)
+                        r[col] = "";
+            }
+            // ────────────────────────────────────────────────────────────────
+
+            card.SourceRow.Row[col] = newVal;
+            card.PhoneNumber = newVal;
+
+            // Auto-save so the phone number persists to disk immediately.
+            // The user does not need to press Export / Save manually.
+            try { _csvService.SaveFile(); }
+            catch { /* best-effort; data is already updated in memory */ }
+
+            App.RaiseFeeDataChanged();
+        }
+
+        [RelayCommand]
+        public void EditStudentCategory(StudentCardRow card)
+        {
+            if (card?.SourceRow?.Row == null) return;
+
+            var dialog = new RenameDialog(card.Category, "Edit Category (e.g. GEN, OBC, SC, ST, BC)");
+            dialog.Owner = Application.Current.MainWindow;
+
+            if (dialog.ShowDialog() != true) return;
+
+            string newVal = dialog.NewName?.Trim().ToUpper();
+            if (string.IsNullOrWhiteSpace(newVal)) return;
+
+            var table = card.SourceRow.Row.Table;
+            var col = table.Columns.Cast<DataColumn>()
+                .FirstOrDefault(c => c.ColumnName.IndexOf("category", StringComparison.OrdinalIgnoreCase) >= 0);
+
+            if (col == null) { MessageBox.Show("Category column not found.", "Error", MessageBoxButton.OK, MessageBoxImage.Error); return; }
+
+            card.SourceRow.Row[col] = newVal;
+            card.Category = newVal;
+            App.RaiseFeeDataChanged();
+        }
+
+        // ==========================
+        // PROMOTE / REPORT
+        // ==========================
+
         [RelayCommand]
         public void PromoteCourse(CourseInfo course)
         {
             if (course == null || !course.CanPromote) return;
 
             var result = MessageBox.Show(
-                $"Promote all students in:\n\n" +
-                $"{course.CourseName}\n" +
-                $"{course.QuarterDisplay}\n\n" +
+                $"Promote all students in:\n\n{course.CourseName}\n{course.QuarterDisplay}\n\n" +
                 $"From Year {course.Year} to Year {course.Year + 1}?",
                 "Confirm Promotion",
                 MessageBoxButton.YesNo,
@@ -843,25 +1050,17 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 try
                 {
                     bool isLastYear = course.Year == Departments.FirstOrDefault(d => d.Code == course.DepartmentCode)?.Years;
-
                     _csvService.PromoteStudentsToNextYear(course.DepartmentCode, course.Year, isLastYear);
 
-                    MessageBox.Show(
-                        "Students promoted successfully!",
-                        "Success",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
+                    MessageBox.Show("Students promoted successfully!", "Success",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
 
-                    // Reload courses
                     LoadDepartmentCourses();
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(
-                        $"Error promoting students: {ex.Message}",
-                        "Error",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Error);
+                    MessageBox.Show($"Error promoting students: {ex.Message}", "Error",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
@@ -876,40 +1075,26 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 string fileName = $"{course.CourseName}_{course.QuarterDisplay}_{DateTime.Now:yyyyMMdd}.pdf";
                 string filePath = System.IO.Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                    "SchoolFeeReports",
-                    fileName);
+                    "SchoolFeeReports", fileName);
 
                 System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(filePath));
-
                 _pdfReportService.GenerateCourseReport(course.DataTable, filePath, course.CourseName, course.QuarterDisplay);
 
-                MessageBox.Show(
-                    $"Report generated successfully!\n\nSaved to: {filePath}",
-                    "Report Generated",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
+                MessageBox.Show($"Report generated!\n\nSaved to: {filePath}", "Report Generated",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
 
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = filePath,
-                    UseShellExecute = true
-                });
+                { FileName = filePath, UseShellExecute = true });
             }
             catch (Exception ex)
             {
-                MessageBox.Show(
-                    $"Error generating report: {ex.Message}",
-                    "Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
+                MessageBox.Show($"Error generating report: {ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         [RelayCommand]
-        public void QuickEdit(CourseInfo course)
-        {
-            ViewCourseData(course);
-        }
+        public void QuickEdit(CourseInfo course) => ViewCourseData(course);
 
         // ==========================
         // DATA VIEW COMMANDS
@@ -973,6 +1158,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     int srNo = 1;
                     foreach (System.Data.DataRow row in _originalData.Rows)
                     {
+                        // Skip archived rows in export
+                        if (_originalData.Columns.Contains("_Archived") &&
+                            row["_Archived"]?.ToString() == "1") continue;
+
                         if (nameCol != null)
                         {
                             string nm = row[nameCol]?.ToString()?.Trim() ?? "";
@@ -993,8 +1182,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                         }
 
                         if (excelRow % 2 == 0)
-                            ws.Row(excelRow).Style.Fill.BackgroundColor =
-                                ClosedXML.Excel.XLColor.FromHtml("#F5F5F5");
+                            ws.Row(excelRow).Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#F5F5F5");
 
                         excelRow++;
                     }
@@ -1003,8 +1191,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     workbook.SaveAs(filePath);
                 }
 
-                MessageBox.Show($"Exported successfully!\n\n{filePath}",
-                    "Export Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show($"Exported successfully!\n\n{filePath}", "Export Complete",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
 
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 { FileName = filePath, UseShellExecute = true });
@@ -1028,8 +1216,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     "SchoolFeeReports", fileName);
 
                 System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(filePath));
-                _pdfReportService.GenerateCourseReport(_originalData, filePath,
-                    CurrentViewTitle, "Current Quarter");
+                _pdfReportService.GenerateCourseReport(_originalData, filePath, CurrentViewTitle, "Current Quarter");
 
                 MessageBox.Show($"Report saved:\n{filePath}", "Report Generated",
                     MessageBoxButton.OK, MessageBoxImage.Information);
@@ -1049,12 +1236,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             if (_originalData == null) return;
             var totalCol = _originalData.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("total") &&
-                                     c.ColumnName.ToLower().Contains("fees"));
+                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("total") && c.ColumnName.ToLower().Contains("fees"));
             var pendingCol = totalCol ??
                 _originalData.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("pending") ||
-                                     c.ColumnName.ToLower().Contains("balance"));
+                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("pending") || c.ColumnName.ToLower().Contains("balance"));
             if (pendingCol != null)
             {
                 CsvTableView.RowFilter = $"[{pendingCol.ColumnName}] > 0";
@@ -1068,12 +1253,10 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             if (_originalData == null) return;
             var totalCol = _originalData.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("total") &&
-                                     c.ColumnName.ToLower().Contains("fees"));
+                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("total") && c.ColumnName.ToLower().Contains("fees"));
             var pendingCol = totalCol ??
                 _originalData.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("pending") ||
-                                     c.ColumnName.ToLower().Contains("balance"));
+                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("pending") || c.ColumnName.ToLower().Contains("balance"));
             if (pendingCol != null)
             {
                 CsvTableView.RowFilter =
@@ -1139,76 +1322,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         }
 
         // ==========================
-        // DATA VIEW HELPERS
+        // MASS PROMOTION
         // ==========================
-
-        private void ApplyDataViewSearch()
-        {
-            if (CsvTableView == null || _originalData == null) return;
-
-            if (string.IsNullOrWhiteSpace(SearchText))
-            {
-                CsvTableView.RowFilter = string.Empty;
-            }
-            else
-            {
-                string search = SearchText.Replace("'", "''");
-                if (!string.IsNullOrEmpty(SelectedColumn) &&
-                    _originalData.Columns.Contains(SelectedColumn))
-                {
-                    CsvTableView.RowFilter = $"[{SelectedColumn}] LIKE '%{search}%'";
-                }
-                else
-                {
-                    var strCols = _originalData.Columns.Cast<DataColumn>()
-                        .Where(c => c.DataType == typeof(string))
-                        .Select(c => $"[{c.ColumnName}] LIKE '%{search}%'");
-                    CsvTableView.RowFilter = string.Join(" OR ", strCols);
-                }
-            }
-            UpdateRowCountDisplay();
-            BuildStudentCards();
-        }
-
-        private void UpdateRowCountDisplay()
-        {
-            if (CsvTableView == null) { RowCountDisplay = "0 students"; return; }
-
-            int CountStudents(System.Collections.IEnumerable rows)
-            {
-                int count = 0;
-                int nameIdx = -1;
-                if (_originalData != null)
-                    for (int ci = 0; ci < _originalData.Columns.Count; ci++)
-                        if (_originalData.Columns[ci].ColumnName
-                                .Equals("Name", StringComparison.OrdinalIgnoreCase))
-                        { nameIdx = ci; break; }
-
-                foreach (System.Data.DataRowView drv in rows)
-                {
-                    if (nameIdx >= 0)
-                    {
-                        string name = drv.Row[nameIdx]?.ToString()?.Trim() ?? "";
-                        if (!string.IsNullOrEmpty(name) &&
-                            !name.Equals("Name", StringComparison.OrdinalIgnoreCase) &&
-                            !name.StartsWith("Note", StringComparison.OrdinalIgnoreCase) &&
-                            name.Length <= 60)
-                            count++;
-                    }
-                    else { count++; }
-                }
-                return count;
-            }
-
-            int visible = CountStudents(CsvTableView);
-            int total = _originalData != null
-                ? CountStudents(_originalData.DefaultView)
-                : visible;
-
-            RowCountDisplay = visible == total
-                ? $"{total} students"
-                : $"{visible} of {total} students";
-        }
 
         [RelayCommand]
         public void PromoteAllYears()
@@ -1217,8 +1332,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 $"⚠️ MASS PROMOTION WARNING\n\n" +
                 $"This will promote ALL students in ALL years of {SelectedDepartment.Name} to the next year.\n\n" +
                 $"Final year students will be moved to Pass-outs.\n\n" +
-                $"This action cannot be undone automatically.\n\n" +
-                $"Are you absolutely sure?",
+                $"This action cannot be undone automatically.\n\nAre you absolutely sure?",
                 "Confirm Mass Promotion",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
@@ -1235,21 +1349,15 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                         promotedCount++;
                     }
 
-                    MessageBox.Show(
-                        $"Successfully promoted {promotedCount} courses!",
-                        "Mass Promotion Complete",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
+                    MessageBox.Show($"Successfully promoted {promotedCount} courses!", "Mass Promotion Complete",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
 
                     LoadDepartmentCourses();
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(
-                        $"Error during mass promotion: {ex.Message}",
-                        "Error",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Error);
+                    MessageBox.Show($"Error during mass promotion: {ex.Message}", "Error",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
@@ -1291,6 +1399,69 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         // ==========================
         // HELPER METHODS
         // ==========================
+
+        private void ApplyDataViewSearch()
+        {
+            if (CsvTableView == null || _originalData == null) return;
+
+            if (string.IsNullOrWhiteSpace(SearchText))
+            {
+                CsvTableView.RowFilter = string.Empty;
+            }
+            else
+            {
+                string search = SearchText.Replace("'", "''");
+                // Search across all string columns (no "Search in" dropdown any more)
+                var strCols = _originalData.Columns.Cast<DataColumn>()
+                    .Where(c => c.DataType == typeof(string) && !c.ColumnName.StartsWith("_"))
+                    .Select(c => $"[{c.ColumnName}] LIKE '%{search}%'");
+                CsvTableView.RowFilter = string.Join(" OR ", strCols);
+            }
+            UpdateRowCountDisplay();
+            BuildStudentCards();
+        }
+
+        private void UpdateRowCountDisplay()
+        {
+            if (CsvTableView == null) { RowCountDisplay = "0 students"; return; }
+
+            int CountStudents(System.Collections.IEnumerable rows)
+            {
+                int count = 0;
+                int nameIdx = -1;
+                if (_originalData != null)
+                    for (int ci = 0; ci < _originalData.Columns.Count; ci++)
+                        if (_originalData.Columns[ci].ColumnName.Equals("Name", StringComparison.OrdinalIgnoreCase))
+                        { nameIdx = ci; break; }
+
+                foreach (System.Data.DataRowView drv in rows)
+                {
+                    if (_originalData != null && _originalData.Columns.Contains("_Archived") &&
+                        drv.Row["_Archived"]?.ToString() == "1") continue;
+
+                    if (nameIdx >= 0)
+                    {
+                        string name = drv.Row[nameIdx]?.ToString()?.Trim() ?? "";
+                        if (!string.IsNullOrEmpty(name) &&
+                            !name.Equals("Name", StringComparison.OrdinalIgnoreCase) &&
+                            !name.StartsWith("Note", StringComparison.OrdinalIgnoreCase) &&
+                            name.Length <= 60)
+                            count++;
+                    }
+                    else { count++; }
+                }
+                return count;
+            }
+
+            int visible = CountStudents(CsvTableView);
+            int total = _originalData != null
+                ? CountStudents(_originalData.DefaultView)
+                : visible;
+
+            RowCountDisplay = visible == total
+                ? $"{total} students"
+                : $"{visible} of {total} students";
+        }
 
         private int ExtractYear(DataTable sheet)
         {
@@ -1359,22 +1530,17 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             return metaDept ?? null;
         }
 
-        private string GetDepartmentName(string code)
-        {
-            return Departments.FirstOrDefault(d => d.Code == code)?.Name ?? code;
-        }
+        private string GetDepartmentName(string code) =>
+            Departments.FirstOrDefault(d => d.Code == code)?.Name ?? code;
 
-        private string FormatQuarter(string quarter)
+        private string FormatQuarter(string quarter) => quarter switch
         {
-            return quarter switch
-            {
-                "Aug-Oct" => "🍂 Aug-Oct",
-                "Nov-Jan" => "❄️ Nov-Jan",
-                "Feb-Apr" => "🌸 Feb-Apr",
-                "May-Jun" => "☀️ May-Jun",
-                _ => quarter
-            };
-        }
+            "Aug-Oct" => "🍂 Aug-Oct",
+            "Nov-Jan" => "❄️ Nov-Jan",
+            "Feb-Apr" => "🌸 Feb-Apr",
+            "May-Jun" => "☀️ May-Jun",
+            _ => quarter
+        };
 
         // ==========================
         // HELPER CLASSES
@@ -1396,7 +1562,14 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             public int Year { get; set; }
             public int Semester { get; set; }
             public string Quarter { get; set; }
-            public string CourseName { get; set; }
+
+            private string _courseName;
+            public string CourseName
+            {
+                get => _courseName;
+                set => SetProperty(ref _courseName, value);
+            }
+
             public string YearDisplay { get; set; }
             public string QuarterDisplay { get; set; }
             public DataTable DataTable { get; set; }
@@ -1411,6 +1584,22 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             public bool HasPendingFees { get; set; }
             public bool CanPromote { get; set; }
             public Brush ColorBrush { get; set; }
+
+            // ── Quarter info shown on the card (outside "View Students") ──────
+            /// <summary>
+            /// The quarter the file was originally uploaded for.
+            /// e.g. "📂 Uploaded: Feb-Apr 2026"
+            /// </summary>
+            public string OriginalQuarterLabel { get; set; }
+
+            /// <summary>
+            /// The real-world quarter right now.
+            /// e.g. "📅 Current: Feb-Apr 2026"
+            /// </summary>
+            public string CurrentQuarterLabel { get; set; }
+
+            /// <summary>True when the file is still on the same quarter it was uploaded for.</summary>
+            public bool IsOnOriginalQuarter { get; set; }
         }
     }
 }

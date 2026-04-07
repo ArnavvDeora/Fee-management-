@@ -12,6 +12,9 @@ using System.Windows;
 
 namespace SchoolFeeSystem.Presentation.ViewModels
 {
+    // ════════════════════════════════════════════════════════════════════════
+    // FeeCollectionViewModel
+    // ════════════════════════════════════════════════════════════════════════
     public partial class FeeCollectionViewModel : ObservableObject
     {
         private readonly CsvDataService _csvService;
@@ -34,34 +37,31 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             "All Students", "Pending Fees Only", "No Pending Fees"
         };
 
-        // ── Sheet / filter ────────────────────────────────────────────────────
+        // ── Sheet / filter ────────────────────────────────────────────────
         [ObservableProperty] private string selectedSheet;
         [ObservableProperty] private string sheetSearchText;
         [ObservableProperty] private DataView pendingFeesView;
         [ObservableProperty] private DataRowView selectedRow;
         [ObservableProperty] private string selectedFeeFilter = "All Students";
 
-        // ── NEW: Card list + selection ────────────────────────────────────────
+        // ── Card list + selection ─────────────────────────────────────────
         [ObservableProperty] private ObservableCollection<FeeStudentCard> feeStudentCards = new();
         [ObservableProperty] private FeeStudentCard selectedStudentCard;
 
-        // ── NEW: Summary stat chips ───────────────────────────────────────────
+        // ── Summary stat chips ────────────────────────────────────────────
         [ObservableProperty] private int summaryTotalStudents;
         [ObservableProperty] private int summaryPaidStudents;
         [ObservableProperty] private int summaryPendingStudents;
         [ObservableProperty] private decimal summaryPendingAmount;
 
-        // ── Payment ───────────────────────────────────────────────────────────
-        // Stored as string so the TextBox binding never throws FormatException
-        // when cleared. Use PaymentAmountDecimal in all logic.
+        // ── Payment ───────────────────────────────────────────────────────
         [ObservableProperty] private string paymentAmount = "0";
-
         private decimal PaymentAmountDecimal =>
             decimal.TryParse(PaymentAmount, out decimal v) ? v : 0m;
 
         [ObservableProperty] private string selectedPaymentMode = "Cash";
 
-        // ── Selected student info (drives the right-side payment panel) ───────
+        // ── Selected student info (right-side payment panel) ──────────────
         [ObservableProperty] private string studentName;
         [ObservableProperty] private string studentPhoneNumber;
         [ObservableProperty] private string studentGuardianName;
@@ -69,12 +69,22 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty] private string currentQuarter;
 
         [ObservableProperty] private decimal previousPendingAmount;
+
+        // Quarterly fee BEFORE scholarship  (shown as "Quarterly Fees" label)
+        [ObservableProperty] private decimal quarterlyFeeRawAmount;
+
+        // Scholarship % applied this quarter (0 if none)
+        [ObservableProperty] private decimal scholarshipPercentage;
+
+        // The rupee discount  =  quarterlyFeeRawAmount × scholarshipPercentage / 100
+        [ObservableProperty] private decimal scholarshipDiscountAmount;
+
+        // Quarterly fee AFTER scholarship  (used in TotalDue calculation)
         [ObservableProperty] private decimal quarterlyFeeAmount;
+
         [ObservableProperty] private decimal currentFineAmount;
 
-        // Same string-storage pattern as paymentAmount
         [ObservableProperty] private string fineWaiverAmount = "0";
-
         private decimal FineWaiverAmountDecimal =>
             decimal.TryParse(FineWaiverAmount, out decimal v) ? v : 0m;
 
@@ -82,14 +92,14 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty] private decimal totalPendingForSelectedStudent;
         [ObservableProperty] private string fineBreakdownText;
 
-        // ── Note / increment bar ──────────────────────────────────────────────
+        // ── Note / increment bar ──────────────────────────────────────────
         [ObservableProperty] private string noteInformation;
         [ObservableProperty] private DateTime extensionDate = DateTime.Now.AddMonths(1);
         [ObservableProperty] private bool hasActiveNote;
 
-        // ═════════════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════
         // CONSTRUCTOR
-        // ═════════════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════
 
         public FeeCollectionViewModel(CsvDataService csvService,
                                       PaymentLogService paymentLogService,
@@ -109,7 +119,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 MessageBox.Show(
                     $"Quarter Transition Completed!\n\n{msg}\n\n" +
                     "Fee data has been reset for the new quarter.\n" +
-                    "Unpaid balances have been carried forward.",
+                    "Unpaid balances have been carried forward.\n" +
+                    "⚠️ Scholarships have been cleared — please reapply for the new quarter.",
                     "Academic Cycle Update", MessageBoxButton.OK, MessageBoxImage.Information);
             }
 
@@ -123,9 +134,9 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
         }
 
-        // ═════════════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════
         // PROPERTY CHANGE HANDLERS
-        // ═════════════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════
 
         partial void OnSheetSearchTextChanged(string value)
         {
@@ -164,9 +175,9 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             else ClearStudentInfo();
         }
 
-        // ═════════════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════
         // DATA LOADING
-        // ═════════════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════
 
         private void LoadSheetData(string displayName)
         {
@@ -183,9 +194,9 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             ApplyFeeFilter();
         }
 
-        // ═════════════════════════════════════════════════════════════════════
-        // FILTER — keeps the legacy DataView AND rebuilds the card list
-        // ═════════════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════
+        // FILTER
+        // ═════════════════════════════════════════════════════════════════
 
         private void ApplyFeeFilter()
         {
@@ -204,7 +215,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     PendingFeesView = new System.Data.DataView(table);
                 }, System.Windows.Threading.DispatcherPriority.DataBind);
 
-                // Rebuild card list on background priority after the view is set
                 System.Windows.Application.Current.Dispatcher.InvokeAsync(
                     RebuildCards,
                     System.Windows.Threading.DispatcherPriority.Background);
@@ -234,11 +244,9 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 System.Windows.Threading.DispatcherPriority.Background);
         }
 
-        // ═════════════════════════════════════════════════════════════════════
-        // NEW: BUILD CARD LIST
-        // Converts the current PendingFeesView into FeeStudentCard objects and
-        // recalculates the summary stat chips shown in the header.
-        // ═════════════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════
+        // BUILD CARD LIST  — reads scholarship column and applies discount
+        // ═════════════════════════════════════════════════════════════════
 
         private void RebuildCards()
         {
@@ -247,7 +255,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             var table = _fullSheetData;
 
-            // Helper — find a column by any matching keyword (case-insensitive)
             DataColumn ColFind(params string[] keywords) =>
                 table.Columns.Cast<DataColumn>()
                     .FirstOrDefault(c => keywords.Any(k =>
@@ -262,8 +269,9 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             var quarterlyCol = ColFind("quarterly fees") ?? ColFind("installment") ?? ColFind("fees");
             var prevPendCol = ColFind("previous", "pending") ?? ColFind("pending");
             var phoneCol = ColFind("phone") ?? ColFind("contact") ?? ColFind("mobile");
+            // ── NEW: scholarship column ──────────────────────────────────
+            var scholarCol = ColFind("scholarship");
 
-            // Use the filtered view rows if available, otherwise full table
             var rows = PendingFeesView != null
                 ? PendingFeesView.Cast<DataRowView>().Select(drv => drv.Row).ToList()
                 : table.Rows.Cast<DataRow>().ToList();
@@ -271,22 +279,25 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             int serial = 1;
             foreach (var row in rows)
             {
-                // Skip non-student rows
                 string nm = nameCol != null ? row[nameCol]?.ToString()?.Trim() ?? "" : "";
                 if (string.IsNullOrEmpty(nm)) continue;
                 if (nm.Equals("Name", StringComparison.OrdinalIgnoreCase)) continue;
                 if (nm.StartsWith("Note", StringComparison.OrdinalIgnoreCase)) continue;
                 if (nm.Length > 60 || nm.Contains(":-") || nm.Contains("Per Day")) continue;
 
-                decimal quarterly = SafeDec(row, quarterlyCol);
+                decimal quarterlyRaw = SafeDec(row, quarterlyCol);
+                decimal scholarshipPct = SafeDec(row, scholarCol);
+                // Discounted quarterly = what the student actually owes this quarter
+                decimal quarterlyNet = quarterlyRaw * (1m - scholarshipPct / 100m);
+
                 decimal prevPend = SafeDec(row, prevPendCol);
-                decimal totalDue = quarterly + prevPend;
+                // TotalDue uses the scholarship-adjusted quarterly fee
+                decimal totalDue = quarterlyNet + prevPend;
 
                 string cat = (categoryCol != null
                     ? row[categoryCol]?.ToString()?.Trim() ?? ""
                     : "").ToUpper();
 
-                // Find the matching DataRowView so we can set SelectedRow on click
                 var sourceRowView = table.DefaultView
                     .Cast<DataRowView>()
                     .FirstOrDefault(drv => drv.Row == row);
@@ -298,7 +309,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     FatherName = fatherCol != null ? row[fatherCol]?.ToString()?.Trim() ?? "–" : "–",
                     PhoneNumber = phoneCol != null ? row[phoneCol]?.ToString()?.Trim() ?? "" : "",
                     Category = cat,
-                    QuarterlyFee = quarterly,
+                    QuarterlyFeeRaw = quarterlyRaw,
+                    ScholarshipPct = scholarshipPct,
                     PreviousPending = prevPend,
                     TotalDue = totalDue,
                     SourceRow = sourceRowView
@@ -307,48 +319,44 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 serial++;
             }
 
-            // Update summary chips
             SummaryTotalStudents = FeeStudentCards.Count;
             SummaryPendingStudents = FeeStudentCards.Count(c => c.TotalDue > 0);
             SummaryPaidStudents = FeeStudentCards.Count(c => c.TotalDue <= 0);
             SummaryPendingAmount = FeeStudentCards.Sum(c => c.TotalDue);
         }
 
-        // ═════════════════════════════════════════════════════════════════════
-        // NEW: SELECT STUDENT CARD COMMAND
-        // Called when the user clicks "💳 Collect" on a card.
-        // Highlights the card and wires up the right-side payment panel via
-        // the existing SelectedRow / UpdateSelectedStudentInfo() path.
-        // ═════════════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════
+        // SELECT STUDENT CARD COMMAND
+        // ═════════════════════════════════════════════════════════════════
 
         [RelayCommand]
         public void SelectStudentCard(FeeStudentCard card)
         {
             if (card == null) return;
 
-            // Deselect all cards
             foreach (var c in FeeStudentCards)
                 c.IsSelected = false;
 
-            // Select the clicked card
             card.IsSelected = true;
             SelectedStudentCard = card;
 
-            // Route into the existing payment-panel logic via SelectedRow
             if (card.SourceRow != null)
                 SelectedRow = card.SourceRow;
         }
 
-        // ═════════════════════════════════════════════════════════════════════
-        // STUDENT INFO HELPERS
-        // ═════════════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════
+        // STUDENT INFO HELPERS  — reads & applies scholarship
+        // ═════════════════════════════════════════════════════════════════
 
         private void ClearStudentInfo()
         {
             StudentName = StudentPhoneNumber = StudentGuardianName =
                 StudentId = CurrentQuarter = FineBreakdownText = string.Empty;
-            PreviousPendingAmount = QuarterlyFeeAmount = CurrentFineAmount =
-                NetFineAfterWaiver = TotalPendingForSelectedStudent = 0;
+
+            PreviousPendingAmount = QuarterlyFeeRawAmount = ScholarshipPercentage =
+                ScholarshipDiscountAmount = QuarterlyFeeAmount =
+                CurrentFineAmount = NetFineAfterWaiver = TotalPendingForSelectedStudent = 0;
+
             FineWaiverAmount = "0";
         }
 
@@ -369,10 +377,20 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             var quarterlyCol = FindCol(t, "quarterly fees", "installment");
             var fineCol = FindFineCol(t);
             var waiverCol = FindWaiverCol(t);
+            // ── NEW: read scholarship column ─────────────────────────────
+            var scholarCol = FindCol(t, "scholarship");
 
             PreviousPendingAmount = ReadDec(SelectedRow.Row, prevCol);
-            QuarterlyFeeAmount = ReadDec(SelectedRow.Row, quarterlyCol);
+            QuarterlyFeeRawAmount = ReadDec(SelectedRow.Row, quarterlyCol);
 
+            // Calculate scholarship discount and net quarterly fee
+            ScholarshipPercentage = scholarCol != null
+                                        ? ReadDec(SelectedRow.Row, scholarCol)
+                                        : 0m;
+            ScholarshipDiscountAmount = QuarterlyFeeRawAmount * (ScholarshipPercentage / 100m);
+            QuarterlyFeeAmount = QuarterlyFeeRawAmount - ScholarshipDiscountAmount;
+
+            // Fine only applies if there is actually something pending
             bool hasPending = PreviousPendingAmount > 0 || QuarterlyFeeAmount > 0;
             if (hasPending)
             {
@@ -403,9 +421,9 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 PreviousPendingAmount + QuarterlyFeeAmount + NetFineAfterWaiver;
         }
 
-        // ═════════════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════
         // COMMANDS
-        // ═════════════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════
 
         [RelayCommand]
         public void ApplyFineWaiver()
@@ -445,8 +463,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 phoneNumber: StudentPhoneNumber,
                 guardianName: StudentGuardianName,
                 remarks: $"Fine waiver | Original: Rs{CurrentFineAmount:F2}" +
-                               $" | Waiver: Rs{FineWaiverAmountDecimal:F2}" +
-                               $" | Net: Rs{NetFineAfterWaiver:F2}"
+                         $" | Waiver: Rs{FineWaiverAmountDecimal:F2}" +
+                         $" | Net: Rs{NetFineAfterWaiver:F2}"
             );
 
             MessageBox.Show(
@@ -462,7 +480,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             TotalPendingForSelectedStudent =
                 PreviousPendingAmount + QuarterlyFeeAmount + NetFineAfterWaiver;
 
-            ApplyFeeFilter(); // also rebuilds cards via dispatcher
+            ApplyFeeFilter();
         }
 
         [RelayCommand]
@@ -503,8 +521,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     {
                         decimal d = Math.Min(fineAmt, remaining);
                         targetRow[fineCol] = (fineAmt - d).ToString("F2");
-                        totalApplied += d;
-                        remaining -= d;
+                        totalApplied += d; remaining -= d;
                     }
                 }
                 // 2. Clear previous pending
@@ -515,20 +532,21 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     {
                         decimal d = Math.Min(prevAmt, remaining);
                         targetRow[prevCol] = (prevAmt - d).ToString("F2");
-                        totalApplied += d;
-                        remaining -= d;
+                        totalApplied += d; remaining -= d;
                     }
                 }
                 // 3. Clear quarterly fee
+                //    The student's actual obligation is QuarterlyFeeAmount (after scholarship).
+                //    We reduce the file's quarterly column by the same discounted amount.
                 if (quarterlyCol != null && remaining > 0)
                 {
-                    decimal qAmt = ReadDec(targetRow, quarterlyCol);
-                    if (qAmt > 0)
+                    decimal qAmtDue = QuarterlyFeeAmount;           // scholarship-adjusted due
+                    decimal qInFile = ReadDec(targetRow, quarterlyCol);
+                    if (qAmtDue > 0)
                     {
-                        decimal d = Math.Min(qAmt, remaining);
-                        targetRow[quarterlyCol] = (qAmt - d).ToString("F2");
-                        totalApplied += d;
-                        remaining -= d;
+                        decimal d = Math.Min(qAmtDue, remaining);
+                        targetRow[quarterlyCol] = Math.Max(0m, qInFile - d).ToString("F2");
+                        totalApplied += d; remaining -= d;
                     }
                 }
 
@@ -558,9 +576,12 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     phoneNumber: StudentPhoneNumber,
                     guardianName: StudentGuardianName,
                     remarks: $"Fee payment | Quarter: {CurrentQuarter}" +
-                                     $" | Mode: {SelectedPaymentMode}" +
-                                     $" | Prev: Rs{previousBalance:F2}" +
-                                     $" | New Balance: Rs{newBalance:F2}"
+                             $" | Mode: {SelectedPaymentMode}" +
+                             (ScholarshipPercentage > 0
+                                 ? $" | Scholarship: {ScholarshipPercentage:N0}% (-Rs{ScholarshipDiscountAmount:F2})"
+                                 : "") +
+                             $" | Prev: Rs{previousBalance:F2}" +
+                             $" | New Balance: Rs{newBalance:F2}"
                 );
 
                 MessageBox.Show(
@@ -569,20 +590,16 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     $"Guardian:       {StudentGuardianName}\nQuarter:        {CurrentQuarter}\n" +
                     $"Date/Time:      {DateTime.Now:dd-MM-yyyy HH:mm}\n\n" +
                     $"Amount Paid:    Rs{totalApplied:F2}\nPayment Mode:   {SelectedPaymentMode}\n" +
+                    (ScholarshipPercentage > 0
+                        ? $"Scholarship:    {ScholarshipPercentage:N0}% (saved Rs{ScholarshipDiscountAmount:F2})\n"
+                        : "") +
                     $"Previous Total: Rs{previousBalance:F2}\nNew Balance:    Rs{newBalance:F2}\n\n" +
                     $"Transaction logged. View in 'Payment History'.\nClick 'Save Changes' to persist.",
                     "Payment Applied", MessageBoxButton.OK, MessageBoxImage.Information);
 
-                // Refresh filter → also triggers RebuildCards via dispatcher
                 ApplyFeeFilter();
                 PaymentAmount = "0";
                 UpdateSelectedStudentInfo();
-
-                // ── Notify ClassViewModel of data change ──────────────────
-                // Because both views share the same CsvDataService DataTable in
-                // memory, ClassViewModel.BuildStudentCards() will automatically
-                // pick up the updated values the next time the user opens a course.
-                // For immediate live sync fire the static event below:
                 App.RaiseFeeDataChanged();
             }
             catch (Exception ex)
@@ -602,10 +619,16 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             { MessageBox.Show("Invalid phone number.", "Invalid Phone", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
             if (!c.StartsWith("91") && c.Length == 10) c = "91" + c;
 
+            string scholarshipLine = ScholarshipPercentage > 0
+                ? $"%0AScholarship: {ScholarshipPercentage:N0}% (Discount Rs{ScholarshipDiscountAmount:F2})"
+                  + $"%0ANet Quarterly: Rs{QuarterlyFeeAmount:F2}"
+                : "";
+
             string msg = $"Dear {StudentGuardianName},%0A%0AFee reminder for *{StudentName}*" +
                          $"%0A%0AQuarter: {CurrentQuarter}" +
                          $"%0APrevious Pending: Rs{PreviousPendingAmount:F2}" +
-                         $"%0AQuarterly Fees: Rs{QuarterlyFeeAmount:F2}" +
+                         $"%0AQuarterly Fees: Rs{QuarterlyFeeRawAmount:F2}" +
+                         scholarshipLine +
                          $"%0AFine: Rs{NetFineAfterWaiver:F2}" +
                          $"%0A*Total Due: Rs{TotalPendingForSelectedStudent:F2}*" +
                          $"%0A%0APlease pay at the earliest.%0ASchool Administration";
@@ -673,8 +696,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [RelayCommand]
         public void SaveChanges()
         {
-            // The "Fine" column is transient (injected in-memory) and must NOT be
-            // written to disk. "Fine Waiver" is persistent and stays.
             try
             {
                 RemoveTransientFineColumns();
@@ -709,9 +730,9 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             Application.Current.MainWindow.Content =
                 App.Current.Services.GetRequiredService<DashboardView>();
 
-        // ═════════════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════
         // HELPERS
-        // ═════════════════════════════════════════════════════════════════════
+        // ═════════════════════════════════════════════════════════════════
 
         private static DateTime DetermineQuarterStart(DataTable table, string periodString)
         {

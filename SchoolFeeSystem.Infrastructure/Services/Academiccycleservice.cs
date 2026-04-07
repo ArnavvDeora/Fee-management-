@@ -189,19 +189,24 @@ namespace SchoolFeeSystem.Presentation.Services
         {
             string name = sheet.TableName;
 
-            // Only record ONCE per sheet (first import wins)
+            // Only record the import timestamp once (first import wins)
             if (!_state.OriginalImportDate.ContainsKey(name))
             {
                 _state.OriginalImportDate[name] = DateTime.Now.ToString("O");
                 SaveState();
             }
 
-            // Seed the history with the original quarter from the file
-            string q = sheet.ExtendedProperties["Quarter"]?.ToString() ?? CurrentQuarter();
-            int yr = QuarterHistoryService.CalendarYearForQuarter(q, DateTime.Now);
-            DateTime imported = GetOriginalImportDate(name);
+            // Ensure the sheet's Quarter ExtendedProperty is set before snapshotting.
+            // If the file was imported without it, default to the current live quarter.
+            if (string.IsNullOrEmpty(sheet.ExtendedProperties["Quarter"]?.ToString()))
+                sheet.ExtendedProperties["Quarter"] = CurrentQuarter();
 
-            _history.RecordImport(sheet, imported == DateTime.MinValue ? DateTime.Now : imported);
+            DateTime imported = GetOriginalImportDate(name);
+            if (imported == DateTime.MinValue) imported = DateTime.Now;
+
+            // FIX: use SnapshotCurrentQuarter so the initial Feb-Apr (or whatever
+            // quarter the file belongs to) immediately appears in the history timeline.
+            _history.SnapshotCurrentQuarter(sheet, imported);
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -225,24 +230,36 @@ namespace SchoolFeeSystem.Presentation.Services
                 string sq = sheet.ExtendedProperties["Quarter"]?.ToString() ?? "";
                 if (string.IsNullOrEmpty(sq)) continue;
 
-                // Sheet already belongs to the current quarter → just register it
+                // ── Sheet is ALREADY on the current quarter ────────────────────────
                 if (sq == cur)
                 {
                     RecordCurrent(name, cur, now);
+
+                    // FIX (a): snapshot the current live quarter on every startup so
+                    // it appears in the timeline even before any transition occurs.
+                    // SnapshotCurrentQuarter() is idempotent — safe to call repeatedly.
+                    DateTime importedOn = GetOriginalImportDate(name);
+                    if (importedOn == DateTime.MinValue) importedOn = now;
+                    _history.SnapshotCurrentQuarter(sheet, importedOn);
                     continue;
                 }
 
-                // Already transitioned in a previous run for this quarter
+                // ── Already transitioned in a previous run for this quarter ────────
                 _state.LastQuarter.TryGetValue(name, out string last);
                 if (last == cur) continue;
 
-                // ── Sheet is from a past quarter → advance it ──────────────────
-                DateTime importedOn = GetOriginalImportDate(name);
-                if (importedOn == DateTime.MinValue) importedOn = now;
+                // ── Sheet is from a past quarter → advance it ──────────────────────
+                DateTime imported = GetOriginalImportDate(name);
+                if (imported == DateTime.MinValue) imported = now;
+
+                // FIX (b): use the STARTING date of the OLD quarter to determine its
+                // calendar year, not DateTime.Now, so Feb-Apr snapshotted in May is
+                // still filed as CalendarYear = the year Feb started.
+                DateTime oldQStart = QuarterStartDate(sq, now);
+                int calYear = QuarterHistoryService.CalendarYearForQuarter(sq, oldQStart);
 
                 // Snapshot the completed quarter BEFORE data is overwritten
-                int calYear = QuarterHistoryService.CalendarYearForQuarter(sq, now);
-                _history.Snapshot(sheet, sq, calYear, importedOn);
+                _history.Snapshot(sheet, sq, calYear, imported);
 
                 // Compute new semester / year BEFORE advancing the sheet
                 var (newSem, newYear, isPassout) = ComputePromotion(sheet, sq);
@@ -258,7 +275,15 @@ namespace SchoolFeeSystem.Presentation.Services
 
                     // Propagate the original import date to the new sheet name
                     if (!_state.OriginalImportDate.ContainsKey(r.NewSheet))
-                        _state.OriginalImportDate[r.NewSheet] = importedOn.ToString("O");
+                        _state.OriginalImportDate[r.NewSheet] = imported.ToString("O");
+
+                    // FIX (c): immediately snapshot the NEW (live) quarter so it shows
+                    // in the history panel right after the transition — the user does not
+                    // have to wait until the NEXT transition for it to appear.
+                    var newSheet = _csv.GetAllSheets()
+                                       .FirstOrDefault(s => s.TableName == r.NewSheet);
+                    if (newSheet != null)
+                        _history.SnapshotCurrentQuarter(newSheet, imported);
 
                     if (isPassout)
                         _log.LogPayment(
@@ -342,7 +367,9 @@ namespace SchoolFeeSystem.Presentation.Services
                 ns.TableName = $"{baseName}__{newQ.Replace("-", "")}";
 
                 // Copy metadata — update quarter, semester, year
-                foreach (string k in new[] { "Department", "InstituteName", "CourseInfo" })
+                // DisplayName is the admin-assigned label (e.g. "Mech Engineering — Sem 3")
+                // and MUST be carried forward so the course card keeps its custom name.
+                foreach (string k in new[] { "Department", "InstituteName", "CourseInfo", "DisplayName" })
                     if (old.ExtendedProperties.Contains(k))
                         ns.ExtendedProperties[k] = old.ExtendedProperties[k];
 
@@ -454,7 +481,8 @@ namespace SchoolFeeSystem.Presentation.Services
 
                     // Step 5: reset fine for new quarter
                     if (nsFine != null) nr[nsFine.ColumnName] = "0";
-
+                    var nsScholarship = FC(ns, "scholar");
+                    if (nsScholarship != null) nr[nsScholarship.ColumnName] = "0";
                     ns.Rows.Add(nr);
                 }
 
@@ -553,7 +581,7 @@ namespace SchoolFeeSystem.Presentation.Services
             string n = col.ToLower();
             return n.Contains("name") || n.Contains("father") || n.Contains("mother")
                 || n.Contains("categ") || n.Contains("section") || n.StartsWith("_")
-                || n.Contains("scholar") || n.Contains("hostel") || n.Contains("roll")
+                || n.Contains("hostel") || n.Contains("roll")    // NOTE: "scholar" intentionally removed — scholarship resets each quarter
                 || n.Contains("sr no") || n.Contains("sr.")
                 || n.Contains("stationary") || n.Contains("welfare")
                 || n.Contains("insurance") || n.Contains("red cross")
@@ -675,10 +703,10 @@ namespace SchoolFeeSystem.Presentation.Services
         // Maximum years for a department (override as needed)
         private static int MaxYears(string dept) => dept switch
         {
-            "MECHATRONICS" => 3,
-            "EE" => 3,
-            "CSE" => 3,
-            "ME" => 3,
+            "ME" => 4,   // Mechanical Engineering  — 4 years (Sem 1-8)
+            "MECHATRONICS" => 3,   // Mechatronics Engineering — 3 years (Sem 1-6)
+            "EE" => 3,   // Electrical Engineering   — 3 years (Sem 1-6)
+            "CSE" => 3,   // Computer Science Engg    — 3 years (Sem 1-6)
             _ => 3,
         };
 

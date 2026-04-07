@@ -968,7 +968,13 @@ namespace SchoolFeeSystem.Presentation.Services
             {
                 foreach (DataTable table in kvp.Value.Tables)
                 {
-                    string displayName = $"{Path.GetFileNameWithoutExtension(kvp.Key)} - {table.TableName}";
+                    // If the admin has assigned a custom display name, use it.
+                    // Otherwise fall back to the original "FileName - SheetName" format.
+                    string customName = table.ExtendedProperties["DisplayName"]?.ToString();
+                    string displayName = !string.IsNullOrWhiteSpace(customName)
+                        ? customName
+                        : $"{Path.GetFileNameWithoutExtension(kvp.Key)} - {table.TableName}";
+
                     names.Add(displayName);
                 }
             }
@@ -977,28 +983,19 @@ namespace SchoolFeeSystem.Presentation.Services
 
         public string GetSheetNameFromDisplay(string displayName)
         {
-            // Extract sheet name from "FileName - SheetName" format
-            var parts = displayName.Split(new[] { " - " }, StringSplitOptions.None);
-            return parts.Length > 1 ? parts[1] : displayName;
-        }
-
-        // Used by ClassViewModel.RemoveCourse() to find which .xlsx file
-        // owns a given sheet so it can pass the full path to RemoveFile().
-        public string GetFilePathForSheet(string sheetName)
-        {
+            // First try to find a table whose custom DisplayName matches exactly.
             foreach (var kvp in _loadedFiles)
-            {
                 foreach (DataTable table in kvp.Value.Tables)
                 {
-                    if (table.TableName == sheetName)
-                    {
-                        return _filePaths.TryGetValue(kvp.Key, out var fullPath)
-                            ? fullPath
-                            : null;
-                    }
+                    string custom = table.ExtendedProperties["DisplayName"]?.ToString();
+                    if (!string.IsNullOrWhiteSpace(custom) &&
+                        custom.Equals(displayName, StringComparison.OrdinalIgnoreCase))
+                        return table.TableName;
                 }
-            }
-            return null;
+
+            // Fall back to the original "FileName - SheetName" split.
+            var parts = displayName.Split(new[] { " - " }, StringSplitOptions.None);
+            return parts.Length > 1 ? parts[1] : displayName;
         }
 
         // Returns all raw sheet/table names across every loaded file.
@@ -2000,9 +1997,107 @@ namespace SchoolFeeSystem.Presentation.Services
                     $"[CsvDataService] AutoLoadPersistedFiles failed: {ex.Message}");
             }
         }
+        // ===========================================
+        // SHEET RENAME / STUDENT REMOVE / ARCHIVE
+        // ===========================================
+
+        /// <summary>
+        /// Assigns a custom display name to a sheet without changing its internal TableName.
+        /// The new name is stored in ExtendedProperties["DisplayName"] and is immediately
+        /// visible to GetSheetDisplayNames(), FeeCollection, Reports, etc.
+        /// Changes are persisted to disk via SaveFile().
+        /// </summary>
+        public void RenameSheet(string sheetName, string newDisplayName)
+        {
+            if (string.IsNullOrWhiteSpace(sheetName) || string.IsNullOrWhiteSpace(newDisplayName))
+                return;
+
+            foreach (var dataSet in _loadedFiles.Values)
+            {
+                foreach (DataTable table in dataSet.Tables)
+                {
+                    if (table.TableName == sheetName)
+                    {
+                        table.ExtendedProperties["DisplayName"] = newDisplayName;
+                        // Persist so the custom name survives an app restart
+                        SaveFile();
+                        return;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Permanently deletes the given DataRow from its parent DataTable
+        /// and writes the change back to disk immediately.
+        /// </summary>
+        public void RemoveStudentRow(DataRow row)
+        {
+            if (row == null) return;
+
+            DataTable table = row.Table;
+            table.Rows.Remove(row);
+            SaveFile();
+        }
+
+        /// <summary>
+        /// Soft-deletes a student row by setting (or creating) an "Archived" column
+        /// to "Yes", then saves to disk.  All other views should filter out rows
+        /// where Archived == "Yes".
+        /// </summary>
+        public void ArchiveStudentRow(DataRow row)
+        {
+            if (row == null) return;
+
+            DataTable table = row.Table;
+
+            // Create the Archived column on first use if it doesn't exist
+            if (!table.Columns.Contains("Archived"))
+                table.Columns.Add("Archived", typeof(string));
+
+            row["Archived"] = "Yes";
+            SaveFile();
+        }
+
         /// <summary>
         /// Save all changes to files
         /// </summary>
+        // Excel rules: max 31 chars; chars \\/\*\?:\[\] are illegal in sheet names.
+        private static string SanitizeSheetName(
+            string name,
+            System.Collections.Generic.HashSet<string> usedNames)
+        {
+            // Strip illegal characters
+            string safeName = name
+                .Replace('\\', '_')
+                .Replace('/', '_')
+                .Replace('*', '_')
+                .Replace('?', '_')
+                .Replace(':', '_')
+                .Replace('[', '_')
+                .Replace(']', '_');
+
+            // Truncate to Excel's 31-character hard limit
+            if (safeName.Length > 31)
+                safeName = safeName.Substring(0, 31);
+
+            if (safeName.Length == 0)
+                safeName = "Sheet";
+
+            // Resolve collisions that can arise after truncation
+            if (usedNames.Contains(safeName))
+            {
+                string baseName = safeName.Length > 28 ? safeName.Substring(0, 28) : safeName;
+                int counter = 2;
+                string candidate;
+                do { candidate = baseName + "_" + counter++; }
+                while (usedNames.Contains(candidate));
+                safeName = candidate;
+            }
+
+            return safeName;
+        }
+
         public void SaveFile()
         {
             foreach (var kvp in _loadedFiles)
@@ -2022,9 +2117,23 @@ namespace SchoolFeeSystem.Presentation.Services
                 // Save to Excel
                 using (var workbook = new XLWorkbook())
                 {
+                    // Track used worksheet names to avoid duplicates after truncation
+                    var usedNames = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+
                     foreach (DataTable table in dataSet.Tables)
                     {
-                        workbook.Worksheets.Add(table);
+                        // Excel enforces a hard 31-character limit on worksheet names and
+                        // forbids the characters \ / * ? : [ ].  We sanitise here so that
+                        // long course names never cause a System.ArgumentException in ClosedXML.
+                        string rawName = table.TableName ?? "Sheet";
+                        string safeName = SanitizeSheetName(rawName, usedNames);
+                        usedNames.Add(safeName);
+
+                        // Clone with the safe name so the in-memory TableName stays unchanged.
+                        DataTable clone = table.Copy();
+                        clone.TableName = safeName;
+
+                        workbook.Worksheets.Add(clone);
                     }
 
                     workbook.SaveAs(filePath);

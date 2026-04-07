@@ -78,7 +78,7 @@
             <!-- main content -->
         </Grid.RowDefinitions>
 
-        <!-- ═══ ROW 0 — HEADER BAR (matches Reports/PaymentHistory) ═══════ -->
+        <!-- ═══ ROW 0 — HEADER BAR ══════════════════════════════════════ -->
         <Border Grid.Row="0" Background="#1565C0">
             <Grid Margin="20,0">
                 <Grid.ColumnDefinitions>
@@ -111,7 +111,7 @@
             </Grid>
         </Border>
 
-        <!-- ═══ ROW 1 — STAT CHIPS + CONTROLS (matches Reports stat row) ══ -->
+        <!-- ═══ ROW 1 — STAT CHIPS + CONTROLS ══════════════════════════ -->
         <Border Grid.Row="1" Background="White"
                 BorderBrush="#E0E0E0" BorderThickness="0,0,0,1" Padding="20,12">
             <Grid>
@@ -182,7 +182,7 @@
                           Padding="8,5" FontSize="13" VerticalAlignment="Bottom"
                           BorderBrush="#90CAF9" BorderThickness="1.5"/>
 
-                <!-- Stat chips — same style as ReportsView -->
+                <!-- Stat chips -->
                 <StackPanel Grid.Column="8" Orientation="Horizontal" VerticalAlignment="Center">
 
                     <Border Background="#E3F2FD" CornerRadius="10" Padding="16,10"
@@ -233,7 +233,7 @@
             </Grid>
         </Border>
 
-        <!-- ═══ ROW 2 — NOTE / INCREMENT BAR ══════════════════════════════ -->
+        <!-- ═══ ROW 2 — NOTE / INCREMENT BAR ═══════════════════════════ -->
         <Border Grid.Row="2" Background="#FFF8E1"
                 BorderBrush="#FFE082" BorderThickness="0,0,0,1" Padding="20,10"
                 Visibility="{Binding HasActiveNote, Converter={StaticResource BoolToVisibility}}">
@@ -269,7 +269,7 @@
             </Grid>
         </Border>
 
-        <!-- ═══ ROW 3 — MAIN CONTENT ══════════════════════════════════════ -->
+        <!-- ═══ ROW 3 — MAIN CONTENT ════════════════════════════════════ -->
         <Grid Grid.Row="3" Margin="16,12,16,12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -277,7 +277,7 @@
                 <ColumnDefinition Width="330"/>
             </Grid.ColumnDefinitions>
 
-            <!-- ── LEFT: Student card list ─────────────────────────────── -->
+            <!-- ── LEFT: Student card list ──────────────────────────── -->
             <Border Grid.Column="0" Background="White" CornerRadius="10"
                     Effect="{StaticResource CardShadow}">
                 <Grid>
@@ -377,7 +377,7 @@
                                                            Foreground="#1A1A2E"/>
                                                 <TextBlock FontSize="12" Foreground="#78909C" Margin="0,2,0,0">
                                                     <Run Text="S/o "/>
-                                                    <Run Text="{Binding FatherName}"/>
+                                                    <Run Text="{Binding FatherName, Mode=OneWay}"/>
                                                 </TextBlock>
                                                 <TextBlock Text="{Binding PhoneNumber}"
                                                            FontSize="11" Foreground="#90A4AE" Margin="0,1,0,0"/>
@@ -392,14 +392,33 @@
                                                            Foreground="{Binding CategoryForeground}"/>
                                             </Border>
 
-                                            <!-- Quarterly Fee chip -->
+                                            <!-- ── Quarterly Fee chip — shows scholarship badge if applicable -->
                                             <StackPanel Grid.Column="4" VerticalAlignment="Center"
                                                         Margin="4,0" HorizontalAlignment="Center">
                                                 <TextBlock Text="Quarterly Fee" FontSize="10"
                                                            Foreground="#90A4AE" HorizontalAlignment="Center"/>
+                                                <!-- Shows discounted fee when scholarship > 0, raw fee otherwise -->
                                                 <TextBlock Text="{Binding QuarterlyFee, StringFormat=₹{0:N0}}"
                                                            FontSize="13" FontWeight="Bold"
                                                            Foreground="#1565C0" HorizontalAlignment="Center"/>
+                                                <!-- Green scholarship badge — only visible when HasScholarship = true -->
+                                                <Border CornerRadius="6" Padding="5,2" Margin="0,2,0,0"
+                                                        Background="#E8F5E9" HorizontalAlignment="Center">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding HasScholarship}" Value="True">
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <TextBlock FontSize="10" FontWeight="Bold" Foreground="#2E7D32">
+                                                        <Run Text="🎓 "/>
+                                                        <Run Text="{Binding ScholarshipDisplay, Mode=OneWay}"/>
+                                                    </TextBlock>
+                                                </Border>
                                             </StackPanel>
 
                                             <!-- Prev Pending chip -->
@@ -456,7 +475,7 @@
                 </Grid>
             </Border>
 
-            <!-- ── RIGHT: Payment panel ────────────────────────────────── -->
+            <!-- ── RIGHT: Payment panel ──────────────────────────────── -->
             <Border Grid.Column="2" Background="White" CornerRadius="10"
                     Effect="{StaticResource CardShadow}">
                 <Grid>
@@ -474,7 +493,7 @@
                     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="16">
                         <Grid>
 
-                            <!-- ── Payment form (student selected) ──── -->
+                            <!-- ── Payment form (student selected) ── -->
                             <StackPanel>
                                 <StackPanel.Style>
                                     <Style TargetType="StackPanel">
@@ -496,23 +515,23 @@
                                                    FontSize="16" FontWeight="Bold" Foreground="#1A1A2E"/>
                                         <TextBlock FontSize="12" Foreground="#607D8B" Margin="0,4,0,0">
                                             <Run Text="Guardian: "/>
-                                            <Run Text="{Binding StudentGuardianName}"/>
+                                            <Run Text="{Binding StudentGuardianName, Mode=OneWay}"/>
                                         </TextBlock>
                                         <TextBlock FontSize="12" Foreground="#607D8B" Margin="0,2,0,0">
                                             <Run Text="Phone: "/>
-                                            <Run Text="{Binding StudentPhoneNumber}"/>
+                                            <Run Text="{Binding StudentPhoneNumber, Mode=OneWay}"/>
                                         </TextBlock>
                                         <Border Background="#E3F2FD" CornerRadius="6"
                                                 Padding="8,4" Margin="0,6,0,0">
                                             <TextBlock FontSize="11" Foreground="#1565C0" FontWeight="SemiBold">
                                                 <Run Text="📅 "/>
-                                                <Run Text="{Binding CurrentQuarter}"/>
+                                                <Run Text="{Binding CurrentQuarter, Mode=OneWay}"/>
                                             </TextBlock>
                                         </Border>
                                     </StackPanel>
                                 </Border>
 
-                                <!-- Fee breakdown -->
+                                <!-- ══ FEE BREAKDOWN ══════════════════════════════════════════ -->
                                 <TextBlock Text="Fee Breakdown" Style="{StaticResource SectionHeader}"/>
                                 <Border Background="#F9F9F9" Padding="14" CornerRadius="8"
                                         BorderBrush="#ECEFF1" BorderThickness="1" Margin="0,0,0,4">
@@ -523,40 +542,117 @@
                                         </Grid.ColumnDefinitions>
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto"/>
+                                            <!-- Row 0:  Previous Pending -->
                                             <RowDefinition Height="8"/>
                                             <RowDefinition Height="Auto"/>
+                                            <!-- Row 2:  Quarterly Fees (raw) -->
+                                            <RowDefinition Height="4"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <!-- Row 4:  Scholarship discount (hidden when 0) -->
+                                            <RowDefinition Height="4"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <!-- Row 6:  Net Quarterly (hidden when no scholarship) -->
                                             <RowDefinition Height="8"/>
                                             <RowDefinition Height="Auto"/>
+                                            <!-- Row 8:  Fine (after waiver) -->
                                             <RowDefinition Height="6"/>
                                             <RowDefinition Height="Auto"/>
+                                            <!-- Row 10: separator -->
                                             <RowDefinition Height="8"/>
                                             <RowDefinition Height="Auto"/>
+                                            <!-- Row 12: TOTAL DUE -->
                                         </Grid.RowDefinitions>
 
+                                        <!-- Row 0 — Previous Pending -->
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Previous Pending"
                                                    FontSize="12" Foreground="#555"/>
                                         <TextBlock Grid.Row="0" Grid.Column="1"
                                                    Text="{Binding PreviousPendingAmount, StringFormat=₹{0:N2}}"
                                                    FontSize="12" Foreground="#C62828" FontWeight="SemiBold"/>
 
+                                        <!-- Row 2 — Quarterly Fees (raw, before scholarship) -->
                                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Quarterly Fees"
                                                    FontSize="12" Foreground="#555"/>
                                         <TextBlock Grid.Row="2" Grid.Column="1"
-                                                   Text="{Binding QuarterlyFeeAmount, StringFormat=₹{0:N2}}"
+                                                   Text="{Binding QuarterlyFeeRawAmount, StringFormat=₹{0:N2}}"
                                                    FontSize="12" Foreground="#555"/>
 
-                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Fine (after waiver)"
-                                                   FontSize="12" Foreground="#E65100"/>
+                                        <!-- Row 4 — Scholarship discount (collapsed when no scholarship) -->
+                                        <TextBlock Grid.Row="4" Grid.Column="0"
+                                                   FontSize="12" Foreground="#2E7D32" FontWeight="SemiBold">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding SelectedStudentCard.HasScholarship}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                            <Run Text="🎓 Scholarship ("/>
+                                            <Run Text="{Binding ScholarshipPercentage, StringFormat={}{0:N0}%, Mode=OneWay}"/>
+                                            <Run Text=")"/>
+                                        </TextBlock>
                                         <TextBlock Grid.Row="4" Grid.Column="1"
+                                                   Text="{Binding ScholarshipDiscountAmount, StringFormat=-₹{0:N2}}"
+                                                   FontSize="12" Foreground="#2E7D32" FontWeight="SemiBold">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding SelectedStudentCard.HasScholarship}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+
+                                        <!-- Row 6 — Net Quarterly (collapsed when no scholarship) -->
+                                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Net Quarterly"
+                                                   FontSize="12" Foreground="#1565C0" FontWeight="SemiBold">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding SelectedStudentCard.HasScholarship}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <TextBlock Grid.Row="6" Grid.Column="1"
+                                                   Text="{Binding QuarterlyFeeAmount, StringFormat=₹{0:N2}}"
+                                                   FontSize="12" Foreground="#1565C0" FontWeight="SemiBold">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding SelectedStudentCard.HasScholarship}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+
+                                        <!-- Row 8 — Fine (after waiver) -->
+                                        <TextBlock Grid.Row="8" Grid.Column="0" Text="Fine (after waiver)"
+                                                   FontSize="12" Foreground="#E65100"/>
+                                        <TextBlock Grid.Row="8" Grid.Column="1"
                                                    Text="{Binding NetFineAfterWaiver, StringFormat=₹{0:N2}}"
                                                    FontSize="12" Foreground="#E65100" FontWeight="SemiBold"/>
 
-                                        <Separator Grid.Row="6" Grid.ColumnSpan="2"
+                                        <!-- Row 10 — Separator -->
+                                        <Separator Grid.Row="10" Grid.ColumnSpan="2"
                                                    Background="#BDBDBD" Margin="0,2"/>
 
-                                        <TextBlock Grid.Row="8" Grid.Column="0"
+                                        <!-- Row 12 — TOTAL DUE -->
+                                        <TextBlock Grid.Row="12" Grid.Column="0"
                                                    Text="TOTAL DUE" FontSize="13" FontWeight="Bold"/>
-                                        <TextBlock Grid.Row="8" Grid.Column="1"
+                                        <TextBlock Grid.Row="12" Grid.Column="1"
                                                    Text="{Binding TotalPendingForSelectedStudent, StringFormat=₹{0:N2}}"
                                                    FontSize="13" FontWeight="Bold" Foreground="#C62828"/>
                                     </Grid>
@@ -568,7 +664,7 @@
                                     <TextBlock FontSize="26" FontWeight="Bold"
                                                Foreground="#C62828" HorizontalAlignment="Center">
                                         <Run Text="₹"/>
-                                        <Run Text="{Binding TotalPendingForSelectedStudent, StringFormat=N2}"/>
+                                        <Run Text="{Binding TotalPendingForSelectedStudent, StringFormat=N2, Mode=OneWay}"/>
                                     </TextBlock>
                                 </Border>
 
