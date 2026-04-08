@@ -369,9 +369,18 @@ namespace SchoolFeeSystem.Presentation.Services
                 // Copy metadata — update quarter, semester, year
                 // DisplayName is the admin-assigned label (e.g. "Mech Engineering — Sem 3")
                 // and MUST be carried forward so the course card keeps its custom name.
-                foreach (string k in new[] { "Department", "InstituteName", "CourseInfo", "DisplayName" })
+                // OriginalSheetName is used by CsvDataService.AddSheetToLoadedFiles to
+                // attach the new DataTable to the correct source file so SaveFile() knows
+                // which path to write it to.
+                foreach (string k in new[] { "Department", "InstituteName", "CourseInfo", "DisplayName", "OriginalSheetName" })
                     if (old.ExtendedProperties.Contains(k))
                         ns.ExtendedProperties[k] = old.ExtendedProperties[k];
+
+                // If the old sheet didn't have OriginalSheetName set, seed it now from
+                // the old sheet's own TableName so the lineage is traceable.
+                if (!ns.ExtendedProperties.Contains("OriginalSheetName") ||
+                    string.IsNullOrEmpty(ns.ExtendedProperties["OriginalSheetName"]?.ToString()))
+                    ns.ExtendedProperties["OriginalSheetName"] = old.TableName;
 
                 ns.ExtendedProperties["Quarter"] = newQ;
                 ns.ExtendedProperties["Period"] = newPeriod;

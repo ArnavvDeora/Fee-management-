@@ -10,7 +10,8 @@ namespace SchoolFeeSystem.Presentation.Services
     public class CsvDataService
     {
         private readonly Dictionary<string, DataSet> _loadedFiles = new();
-        private readonly Dictionary<string, string> _filePaths = new();
+        private readonly Dictionary<string, string> _filePaths = new();  // fileKey -> working copy path
+        private readonly Dictionary<string, string> _originalPaths = new(); // fileKey -> original import path
         private readonly string _persistenceFile;
         // Department mapping based on branch names
         private readonly Dictionary<string, string> _departmentMapping = new()
@@ -64,33 +65,59 @@ namespace SchoolFeeSystem.Presentation.Services
         // FILE LOADING WITH DEPARTMENT DETECTION
         // ===========================================
 
-        public void LoadFile(string filePath)
+        public void LoadFile(string originalPath)
         {
-            if (!File.Exists(filePath))
-                throw new FileNotFoundException($"File not found: {filePath}");
+            if (!File.Exists(originalPath))
+                throw new FileNotFoundException($"File not found: {originalPath}");
 
-            LoadFileInternal(filePath);
+            // ── CORE DESIGN: never write back to the user's original Excel ────────
+            // All changes are saved to a private working copy in AppData.
+            // The original Excel on the user's disk is NEVER modified.
+            string workingPath = GetWorkingCopyPath(originalPath);
+            if (!File.Exists(workingPath))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(workingPath));
+                File.Copy(originalPath, workingPath, overwrite: false);
+            }
 
-            // Persist the path so this file auto-loads on next startup
-            SavePersistedFiles();
+            LoadFileInternal(originalPath, workingPath);
+            SavePersistedFiles(); // stores originalPath in loaded_files.json
         }
 
-        // Shared loader used by both LoadFile() and AutoLoadPersistedFiles().
-        // Does NOT call SavePersistedFiles() to avoid redundant writes during startup.
-        private void LoadFileInternal(string filePath)
+        // Returns the AppData path for the working copy of a given original file.
+        // Saves into AppData\SchoolFeeSystem\data\ so the user's Documents are untouched.
+        private string GetWorkingCopyPath(string originalPath)
         {
-            if (!File.Exists(filePath))
-                throw new FileNotFoundException($"File not found: {filePath}");
+            string dataDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "SchoolFeeSystem", "data");
+            Directory.CreateDirectory(dataDir);
+            // Hash the full original path to avoid name collisions between files from
+            // different folders that happen to share the same filename.
+            string hash = Math.Abs(originalPath.GetHashCode()).ToString("X8");
+            string fileName = Path.GetFileNameWithoutExtension(originalPath)
+                              + "_" + hash
+                              + Path.GetExtension(originalPath);
+            return Path.Combine(dataDir, fileName);
+        }
 
-            var workbook = new XLWorkbook(filePath);
+        // Core loader. originalPath = user-facing path (shown in UI / stored in JSON).
+        //              workingPath  = AppData copy we actually read from and save to.
+        private void LoadFileInternal(string originalPath, string workingPath)
+        {
+            if (!File.Exists(workingPath))
+                throw new FileNotFoundException($"Working copy not found: {workingPath}");
+
+            var workbook = new XLWorkbook(workingPath);
             var dataSet = new DataSet();
-            string fileKey = Path.GetFileName(filePath);
+            string fileKey = Path.GetFileName(originalPath); // key = original filename for display
 
             // If already loaded (e.g. re-import), replace the old copy
             if (_loadedFiles.ContainsKey(fileKey))
             {
                 _loadedFiles.Remove(fileKey);
                 _filePaths.Remove(fileKey);
+                _originalPaths.Remove(fileKey);
             }
 
             foreach (var worksheet in workbook.Worksheets)
@@ -136,7 +163,8 @@ namespace SchoolFeeSystem.Presentation.Services
             }
 
             _loadedFiles[fileKey] = dataSet;
-            _filePaths[fileKey] = filePath;
+            _filePaths[fileKey] = workingPath;       // SaveFile() writes HERE (AppData copy)
+            _originalPaths[fileKey] = originalPath;  // stored for display / re-import checks
         }
 
         // ── Find the "Diploma - ..." / "Sub:-" course-description row for one block ─
@@ -958,6 +986,7 @@ namespace SchoolFeeSystem.Presentation.Services
             string fileKey = Path.GetFileName(filePath);
             _loadedFiles.Remove(fileKey);
             _filePaths.Remove(fileKey);
+            _originalPaths.Remove(fileKey);
             SavePersistedFiles();   // keep persistence list in sync
         }
 
@@ -1263,7 +1292,7 @@ namespace SchoolFeeSystem.Presentation.Services
             if (scholarshipCol == null)
             {
                 // Add scholarship column if it doesn't exist
-                scholarshipCol = table.Columns.Add("Scholarship %", typeof(decimal));
+                scholarshipCol = table.Columns.Add("Scholarship", typeof(string));
             }
 
             // Find the row in the table
@@ -1289,7 +1318,7 @@ namespace SchoolFeeSystem.Presentation.Services
 
             if (targetRow != null)
             {
-                targetRow[scholarshipCol] = scholarshipPercentage;
+                targetRow[scholarshipCol] = scholarshipPercentage.ToString("G29");
 
                 // Recalculate fees if there's a quarterly fees column
                 var quarterlyCol = table.Columns.Cast<DataColumn>()
@@ -1322,6 +1351,9 @@ namespace SchoolFeeSystem.Presentation.Services
                         targetRow[totalCol] = (previous + adjustedQuarterly).ToString("F2");
                     }
                 }
+
+                // PERSISTENCE FIX: auto-save to disk so scholarship survives an app restart.
+                SaveFile();
             }
         }
         // ===========================================
@@ -1859,26 +1891,70 @@ namespace SchoolFeeSystem.Presentation.Services
         }
 
         /// <summary>
-        /// Add sheet to loaded files
+        /// Add sheet to loaded files (used by AcademicCycleService after a quarter advance).
+        ///
+        /// FIX: the old code created a synthetic "ME_Data.xlsx" key pointing to
+        /// Documents\SchoolFeeData\ — a directory that was never reliably created,
+        /// and a path that was never stored in loaded_files.json.  On the next startup
+        /// AutoLoadPersistedFiles() did not know about it, so all advanced-quarter data
+        /// and every payment recorded after the transition silently disappeared.
+        ///
+        /// New behaviour: find the existing fileKey whose DataSet already owns sheets for
+        /// this department and attach the new DataTable there.  SaveFile() will then write
+        /// it into the AppData working copy that AutoLoadPersistedFiles() already knows about.
         /// </summary>
         public void AddSheetToLoadedFiles(DataTable sheet, string departmentCode)
         {
-            // Find appropriate file or create new one
-            string fileKey = $"{departmentCode}_Data.xlsx";
-
-            if (!_loadedFiles.ContainsKey(fileKey))
+            // 1. Try to match by OriginalSheetName carried forward in ExtendedProperties
+            string originName = sheet.ExtendedProperties["OriginalSheetName"]?.ToString() ?? "";
+            if (!string.IsNullOrEmpty(originName))
             {
-                _loadedFiles[fileKey] = new DataSet();
-
-                // Set file path
-                string filePath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                    "SchoolFeeData",
-                    fileKey);
-                _filePaths[fileKey] = filePath;
+                foreach (var kvp in _loadedFiles)
+                {
+                    foreach (DataTable t in kvp.Value.Tables)
+                    {
+                        if (t.TableName.Equals(originName, StringComparison.OrdinalIgnoreCase) ||
+                            (t.ExtendedProperties["OriginalSheetName"]?.ToString() ?? "")
+                                .Equals(originName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            kvp.Value.Tables.Add(sheet);
+                            return;
+                        }
+                    }
+                }
             }
 
-            _loadedFiles[fileKey].Tables.Add(sheet);
+            // 2. Match by department — prefer a real (persisted) file for this dept
+            if (!string.IsNullOrEmpty(departmentCode))
+            {
+                foreach (var kvp in _loadedFiles)
+                {
+                    if (!_filePaths.ContainsKey(kvp.Key)) continue;
+                    foreach (DataTable t in kvp.Value.Tables)
+                    {
+                        if ((t.ExtendedProperties["Department"]?.ToString() ?? "")
+                                .Equals(departmentCode, StringComparison.OrdinalIgnoreCase))
+                        {
+                            kvp.Value.Tables.Add(sheet);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // 3. Fallback: attach to the first real (persisted) file we know about
+            foreach (var kvp in _loadedFiles)
+            {
+                if (_filePaths.ContainsKey(kvp.Key))
+                {
+                    kvp.Value.Tables.Add(sheet);
+                    return;
+                }
+            }
+
+            // 4. Absolute last resort: nothing loaded yet — should not happen in normal use
+            System.Diagnostics.Debug.WriteLine(
+                $"[CsvDataService] AddSheetToLoadedFiles: no suitable DataSet found for dept={departmentCode}");
         }
 
         /// <summary>
@@ -1927,8 +2003,10 @@ namespace SchoolFeeSystem.Presentation.Services
         {
             try
             {
-                var paths = _filePaths.Values
-                    .Where(p => File.Exists(p))
+                // Store the ORIGINAL import paths (not working copies) so loaded_files.json
+                // remains human-readable and points to the user's actual Excel files.
+                var paths = _originalPaths.Values
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
                     .Distinct()
                     .ToList();
 
@@ -1957,33 +2035,79 @@ namespace SchoolFeeSystem.Presentation.Services
                 bool anyRemoved = false;
                 var validPaths = new List<string>();
 
-                foreach (string path in paths)
+                foreach (string originalPath in paths)
                 {
-                    if (!File.Exists(path))
+                    string fileKey = Path.GetFileName(originalPath);
+
+                    // Get working copy path (AppData). May exist even if original was moved.
+                    string workingPath = GetWorkingCopyPath(originalPath);
+
+                    // Decide which file to actually load from:
+                    //   1. Working copy exists → load it (has all saved changes)
+                    //   2. Original exists but no working copy → copy original → load
+                    //   3. Neither exists → skip
+                    bool workingExists = File.Exists(workingPath);
+                    bool originalExists = File.Exists(originalPath);
+
+                    if (!workingExists && !originalExists)
                     {
-                        // File was moved or deleted — drop it from the list
                         System.Diagnostics.Debug.WriteLine(
-                            $"[CsvDataService] AutoLoad: skipping missing file: {path}");
+                            $"[CsvDataService] AutoLoad: skipping missing file: {originalPath}");
                         anyRemoved = true;
                         continue;
                     }
 
+                    if (!workingExists && originalExists)
+                    {
+                        // First time loading this file after the update — create the working copy
+                        try
+                        {
+                            Directory.CreateDirectory(Path.GetDirectoryName(workingPath));
+                            File.Copy(originalPath, workingPath, overwrite: false);
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[CsvDataService] AutoLoad: created working copy for {originalPath}");
+                        }
+                        catch (Exception copyEx)
+                        {
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[CsvDataService] AutoLoad: could not create working copy: {copyEx.Message}");
+                            workingPath = originalPath; // last resort: load original directly
+                        }
+                    }
+
                     try
                     {
-                        LoadFileInternal(path);
-                        validPaths.Add(path);
+                        LoadFileInternal(originalPath, workingPath);
+                        validPaths.Add(originalPath);
                         System.Diagnostics.Debug.WriteLine(
-                            $"[CsvDataService] AutoLoad: loaded {path}");
+                            $"[CsvDataService] AutoLoad: loaded {originalPath} from working copy");
                     }
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine(
-                            $"[CsvDataService] AutoLoad: failed on {path}: {ex.Message}");
-                        anyRemoved = true;
+                            $"[CsvDataService] AutoLoad: failed on '{originalPath}': {ex.Message}");
+                        validPaths.Add(originalPath); // keep it so it's retried next launch
+
+                        // Try to recover from backup
+                        string backupPath = workingPath + ".bak";
+                        if (File.Exists(backupPath))
+                        {
+                            try
+                            {
+                                File.Copy(backupPath, workingPath, overwrite: true);
+                                LoadFileInternal(originalPath, workingPath);
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"[CsvDataService] AutoLoad: restored from backup for {originalPath}");
+                            }
+                            catch (Exception backupEx)
+                            {
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"[CsvDataService] AutoLoad: backup restore failed: {backupEx.Message}");
+                            }
+                        }
                     }
                 }
 
-                // Clean up the JSON if any paths were invalid
                 if (anyRemoved)
                 {
                     string cleaned = System.Text.Json.JsonSerializer.Serialize(validPaths,
@@ -2105,38 +2229,77 @@ namespace SchoolFeeSystem.Presentation.Services
                 string fileKey = kvp.Key;
                 DataSet dataSet = kvp.Value;
 
-                // Get file path
-                string filePath = _filePaths.ContainsKey(fileKey)
-                    ? _filePaths[fileKey]
-                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                                  "SchoolFeeData", fileKey);
+                // Skip synthetic in-memory datasets (e.g. "_PaymentHistory") that
+                // have no real backing file on disk.
+                if (!_filePaths.ContainsKey(fileKey))
+                    continue;
 
-                // Ensure directory exists
-                Directory.CreateDirectory(Path.GetDirectoryName(filePath));
+                string filePath = _filePaths[fileKey];
 
-                // Save to Excel
-                using (var workbook = new XLWorkbook())
+                // Never overwrite with an empty dataset
+                if (dataSet.Tables.Count == 0)
+                    continue;
+
+                // Per-file try/catch: one bad file must never abort saving the rest.
+                try
                 {
-                    // Track used worksheet names to avoid duplicates after truncation
-                    var usedNames = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+                    Directory.CreateDirectory(Path.GetDirectoryName(filePath));
 
-                    foreach (DataTable table in dataSet.Tables)
+                    // Atomic save: write to a valid .tmp.xlsx first, then swap.
+                    // ClosedXML requires a recognised Excel extension (.xlsx/.xlsm etc.)
+                    // — using a bare ".tmp" causes ArgumentException and data loss.
+                    string tempPath = filePath + ".tmp.xlsx";
+
+                    try
                     {
-                        // Excel enforces a hard 31-character limit on worksheet names and
-                        // forbids the characters \ / * ? : [ ].  We sanitise here so that
-                        // long course names never cause a System.ArgumentException in ClosedXML.
-                        string rawName = table.TableName ?? "Sheet";
-                        string safeName = SanitizeSheetName(rawName, usedNames);
-                        usedNames.Add(safeName);
+                        using (var workbook = new XLWorkbook())
+                        {
+                            var usedNames = new System.Collections.Generic.HashSet<string>(
+                                System.StringComparer.OrdinalIgnoreCase);
 
-                        // Clone with the safe name so the in-memory TableName stays unchanged.
-                        DataTable clone = table.Copy();
-                        clone.TableName = safeName;
+                            foreach (DataTable table in dataSet.Tables)
+                            {
+                                string rawName = table.TableName ?? "Sheet";
+                                string safeName = SanitizeSheetName(rawName, usedNames);
+                                usedNames.Add(safeName);
 
-                        workbook.Worksheets.Add(clone);
+                                DataTable clone = table.Copy();
+                                clone.TableName = safeName;
+                                workbook.Worksheets.Add(clone);
+                            }
+
+                            workbook.SaveAs(tempPath);
+                        }
+
+                        // Atomic swap — only replaces the real file after the temp
+                        // write has fully succeeded, so the original is never blanked.
+                        if (File.Exists(tempPath))
+                        {
+                            // Keep a .bak of the previous good version before overwriting
+                            if (File.Exists(filePath))
+                            {
+                                string backupPath = filePath + ".bak";
+                                try { File.Copy(filePath, backupPath, overwrite: true); } catch { /* best-effort */ }
+                            }
+
+                            File.Copy(tempPath, filePath, overwrite: true);
+                            File.Delete(tempPath);
+                        }
                     }
-
-                    workbook.SaveAs(filePath);
+                    catch
+                    {
+                        // Clean up any partial temp file before re-throwing so the
+                        // next save attempt starts from a clean state.
+                        if (File.Exists(tempPath))
+                            try { File.Delete(tempPath); } catch { /* best-effort */ }
+                        throw;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[CsvDataService] SaveFile failed for '{fileKey}': {ex.Message}");
+                    // Continue to next file — one failure must not block the others.
                 }
             }
         }

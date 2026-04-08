@@ -537,15 +537,29 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 }
                 // 3. Clear quarterly fee
                 //    The student's actual obligation is QuarterlyFeeAmount (after scholarship).
-                //    We reduce the file's quarterly column by the same discounted amount.
+                //    The file stores the RAW fee (before scholarship), so we must convert the
+                //    net payment back to a raw equivalent before writing it to the file.
+                //    Example: raw=9000, scholarship=10%, net due=8100.
+                //    Paying 8100 net → raw equivalent = 8100 / 0.90 = 9000 → file becomes 0.
+                //    This prevents the "900 raw left → 810 net shown" ghost-balance bug.
                 if (quarterlyCol != null && remaining > 0)
                 {
                     decimal qAmtDue = QuarterlyFeeAmount;           // scholarship-adjusted due
-                    decimal qInFile = ReadDec(targetRow, quarterlyCol);
+                    decimal qInFile = ReadDec(targetRow, quarterlyCol); // raw value in CSV
                     if (qAmtDue > 0)
                     {
-                        decimal d = Math.Min(qAmtDue, remaining);
-                        targetRow[quarterlyCol] = Math.Max(0m, qInFile - d).ToString("F2");
+                        decimal d = Math.Min(qAmtDue, remaining);   // net amount being paid now
+
+                        // Convert the net payment to the raw-file equivalent so the stored
+                        // raw balance is reduced by the correct proportion.
+                        decimal scholarshipFactor = ScholarshipPercentage > 0
+                            ? (1m - ScholarshipPercentage / 100m)
+                            : 1m;
+                        decimal dRaw = scholarshipFactor > 0
+                            ? Math.Round(d / scholarshipFactor, 2)
+                            : d;
+
+                        targetRow[quarterlyCol] = Math.Max(0m, qInFile - dRaw).ToString("F2");
                         totalApplied += d; remaining -= d;
                     }
                 }
@@ -596,6 +610,22 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     $"Previous Total: Rs{previousBalance:F2}\nNew Balance:    Rs{newBalance:F2}\n\n" +
                     $"Transaction logged. View in 'Payment History'.\nClick 'Save Changes' to persist.",
                     "Payment Applied", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                // ── PERSISTENCE FIX: auto-save immediately after every payment ──────
+                // Without this, data is lost if the admin closes the app without
+                // clicking "Save Changes". The button still works as a manual fallback.
+                try
+                {
+                    RemoveTransientFineColumns();
+                    _csvService.SaveFile();
+                    if (_fullSheetData != null)
+                        _fineService.InjectFinesIntoTable(_fullSheetData, _currentQuarterStart);
+                }
+                catch (Exception saveEx)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[FeeCollection] Auto-save after payment failed: {saveEx.Message}");
+                }
 
                 ApplyFeeFilter();
                 PaymentAmount = "0";
