@@ -82,6 +82,14 @@ namespace SchoolFeeSystem.Presentation.Services
 
             LoadFileInternal(originalPath, workingPath);
             SavePersistedFiles(); // stores originalPath in loaded_files.json
+
+            // Write sidecar immediately on first import so the correct Quarter
+            // (e.g. "Feb-Apr") is persisted even if the user never makes a payment.
+            // Without this, the first restart has no sidecar -> Quarter re-derived
+            // wrong -> potential transition loop.
+            string fk = Path.GetFileName(originalPath);
+            if (_filePaths.ContainsKey(fk) && _loadedFiles.ContainsKey(fk))
+                SaveSidecar(_filePaths[fk], _loadedFiles[fk]);
         }
 
         // Returns the AppData path for the working copy of a given original file.
@@ -92,13 +100,84 @@ namespace SchoolFeeSystem.Presentation.Services
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "SchoolFeeSystem", "data");
             Directory.CreateDirectory(dataDir);
-            // Hash the full original path to avoid name collisions between files from
-            // different folders that happen to share the same filename.
-            string hash = Math.Abs(originalPath.GetHashCode()).ToString("X8");
+
+            // ── CRITICAL: use SHA-256 for a stable, deterministic filename ──────
+            // The old code used GetHashCode() which is randomized per-process in
+            // .NET 6+ (hash randomization). Every app launch produced a different
+            // filename so the saved working copy was never found and all payments
+            // were lost on restart. SHA-256 is always the same for the same input.
+            string hash;
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            {
+                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(
+                    originalPath.ToUpperInvariant());
+                byte[] hashBytes = sha.ComputeHash(bytes);
+                hash = BitConverter.ToString(hashBytes, 0, 4).Replace("-", "");
+            }
+
             string fileName = Path.GetFileNameWithoutExtension(originalPath)
                               + "_" + hash
                               + Path.GetExtension(originalPath);
             return Path.Combine(dataDir, fileName);
+        }
+
+        // Returns the path of the JSON sidecar that stores ExtendedProperties for
+        // all DataTables in a given working copy.  E.g. "fees_A1B2.xlsx" →
+        // "fees_A1B2.xlsx.meta.json".  Lives next to the working copy in AppData.
+        private static string GetSidecarPath(string workingPath) =>
+            workingPath + ".meta.json";
+
+        // Persists all ExtendedProperties for every table in a DataSet to a JSON sidecar.
+        // Called by SaveFile() immediately after writing the Excel working copy.
+        private void SaveSidecar(string workingPath, DataSet dataSet)
+        {
+            try
+            {
+                // Build a dict:  tableName -> { key -> value }
+                var meta = new Dictionary<string, Dictionary<string, string>>();
+                foreach (DataTable table in dataSet.Tables)
+                {
+                    var props = new Dictionary<string, string>();
+                    foreach (System.Collections.DictionaryEntry entry in table.ExtendedProperties)
+                        props[entry.Key?.ToString() ?? ""] = entry.Value?.ToString() ?? "";
+                    meta[table.TableName] = props;
+                }
+                string json = JsonSerializer.Serialize(meta,
+                    new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(GetSidecarPath(workingPath), json);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CsvDataService] SaveSidecar failed: {ex.Message}");
+            }
+        }
+
+        // Restores ExtendedProperties from the JSON sidecar into the DataSet.
+        // Called by LoadFileInternal() after building the DataTables from Excel.
+        // Sidecar wins over re-derived metadata because it reflects the last saved state.
+        private void RestoreSidecar(string workingPath, DataSet dataSet)
+        {
+            string sidecarPath = GetSidecarPath(workingPath);
+            if (!File.Exists(sidecarPath)) return;
+            try
+            {
+                string json = File.ReadAllText(sidecarPath);
+                var meta = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, string>>>(json);
+                if (meta == null) return;
+
+                foreach (DataTable table in dataSet.Tables)
+                {
+                    if (!meta.TryGetValue(table.TableName, out var props)) continue;
+                    foreach (var kvp in props)
+                        table.ExtendedProperties[kvp.Key] = kvp.Value;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CsvDataService] RestoreSidecar failed: {ex.Message}");
+            }
         }
 
         // Core loader. originalPath = user-facing path (shown in UI / stored in JSON).
@@ -108,7 +187,10 @@ namespace SchoolFeeSystem.Presentation.Services
             if (!File.Exists(workingPath))
                 throw new FileNotFoundException($"Working copy not found: {workingPath}");
 
-            var workbook = new XLWorkbook(workingPath);
+            // CRITICAL: use 'using' so the file handle is released immediately.
+            // Without this, ClosedXML keeps the working copy locked and SaveFile()
+            // silently fails to write — all payments are lost on restart.
+            using var workbook = new XLWorkbook(workingPath);
             var dataSet = new DataSet();
             string fileKey = Path.GetFileName(originalPath); // key = original filename for display
 
@@ -165,6 +247,23 @@ namespace SchoolFeeSystem.Presentation.Services
             _loadedFiles[fileKey] = dataSet;
             _filePaths[fileKey] = workingPath;       // SaveFile() writes HERE (AppData copy)
             _originalPaths[fileKey] = originalPath;  // stored for display / re-import checks
+
+            // ── Restore persisted ExtendedProperties from the JSON sidecar ────────
+            // The sidecar stores Quarter, Department, Semester, Year, Period,
+            // CourseInfo, DisplayName etc. that were active when SaveFile() last ran.
+            // These override the values re-derived from the worksheet content, which
+            // would otherwise be wrong/empty because the saved working copy has no
+            // institute-header rows above the data-header row.
+            // IMPORTANT: only apply sidecar when loading a working copy (not the
+            // original import) — i.e. when a sidecar actually exists on disk.
+            RestoreSidecar(workingPath, dataSet);
+
+            // Call RecordFileImport AFTER RestoreSidecar so it sees the correct
+            // Quarter value (not the wrong re-derived one). This ensures
+            // _state.LastQuarter and OriginalImportDate are properly recorded.
+            if (CycleService != null)
+                foreach (DataTable table in dataSet.Tables)
+                    CycleService.RecordFileImport(table);
         }
 
         // ── Find the "Diploma - ..." / "Sub:-" course-description row for one block ─
@@ -332,12 +431,16 @@ namespace SchoolFeeSystem.Presentation.Services
             var table = new DataTable();
             table.Columns.Add("_Section");
 
-            var seenCols = new List<string>();
+            // Pre-seed seenCols with "_Section" so that any Excel column also named
+            // "_Section" gets renamed to "_Section_2" instead of crashing with
+            // DuplicateNameException. The DataTable already has "_Section" as col[0].
+            var seenCols = new List<string> { "_Section" };
             foreach (var (name, _) in blockCols)
             {
                 string finalName = name;
                 int suffix = 2;
-                while (seenCols.Contains(finalName, StringComparer.OrdinalIgnoreCase))
+                while (seenCols.Contains(finalName, StringComparer.OrdinalIgnoreCase)
+                       || table.Columns.Contains(finalName))
                     finalName = $"{name}_{suffix++}";
                 seenCols.Add(finalName);
                 table.Columns.Add(finalName);
@@ -1958,6 +2061,24 @@ namespace SchoolFeeSystem.Presentation.Services
         }
 
         /// <summary>
+        /// Removes a DataTable by name from whatever DataSet owns it.
+        /// Called by AcademicCycleService after a quarter transition so the old
+        /// DataTable is never written back to disk and never triggers a repeat transition.
+        /// </summary>
+        public void RemoveSheet(string tableName)
+        {
+            if (string.IsNullOrEmpty(tableName)) return;
+            foreach (var dataSet in _loadedFiles.Values)
+            {
+                if (dataSet.Tables.Contains(tableName))
+                {
+                    dataSet.Tables.Remove(tableName);
+                    return;
+                }
+            }
+        }
+
+        /// <summary>
         /// Recalculate fees for a specific row
         /// </summary>
         public void RecalculateRowFees(string sheetName, DataRow row)
@@ -2041,6 +2162,36 @@ namespace SchoolFeeSystem.Presentation.Services
 
                     // Get working copy path (AppData). May exist even if original was moved.
                     string workingPath = GetWorkingCopyPath(originalPath);
+
+                    // ── Migrate old random-hash working copies ──────────────────────
+                    // If new SHA-256 path doesn't exist, scan for an old GetHashCode-named
+                    // file and rename it so saved data is preserved after the fix.
+                    if (!File.Exists(workingPath))
+                    {
+                        try
+                        {
+                            string dataDir = Path.GetDirectoryName(workingPath);
+                            string baseName = Path.GetFileNameWithoutExtension(originalPath);
+                            string ext = Path.GetExtension(originalPath);
+                            if (Directory.Exists(dataDir))
+                            {
+                                var candidates = Directory.GetFiles(dataDir, baseName + "_*" + ext)
+                                    .Where(p => !p.EndsWith(".bak") && !p.EndsWith(".meta.json"))
+                                    .Select(p => new { Path = p, Modified = File.GetLastWriteTimeUtc(p) })
+                                    .OrderByDescending(x => x.Modified)
+                                    .FirstOrDefault();
+                                if (candidates != null && candidates.Path != workingPath)
+                                {
+                                    File.Copy(candidates.Path, workingPath, overwrite: false);
+                                    string oldSidecar = candidates.Path + ".meta.json";
+                                    string newSidecar = workingPath + ".meta.json";
+                                    if (File.Exists(oldSidecar) && !File.Exists(newSidecar))
+                                        File.Copy(oldSidecar, newSidecar, overwrite: false);
+                                }
+                            }
+                        }
+                        catch { /* migration is best-effort */ }
+                    }
 
                     // Decide which file to actually load from:
                     //   1. Working copy exists → load it (has all saved changes)
@@ -2263,7 +2414,15 @@ namespace SchoolFeeSystem.Presentation.Services
                                 string safeName = SanitizeSheetName(rawName, usedNames);
                                 usedNames.Add(safeName);
 
+                                // ── Strip the internal _Section column before writing ──
+                                // _Section is added by BuildDataTableForBlock as an internal
+                                // grouping aid. If we write it to Excel, on the next load
+                                // BuildDataTableForBlock tries to add it again and throws
+                                // DuplicateNameException: '_Section already belongs to DataTable'.
+                                // _Section is always re-created on load so it's safe to omit.
                                 DataTable clone = table.Copy();
+                                if (clone.Columns.Contains("_Section"))
+                                    clone.Columns.Remove("_Section");
                                 clone.TableName = safeName;
                                 workbook.Worksheets.Add(clone);
                             }
@@ -2284,6 +2443,14 @@ namespace SchoolFeeSystem.Presentation.Services
 
                             File.Copy(tempPath, filePath, overwrite: true);
                             File.Delete(tempPath);
+
+                            // Save ExtendedProperties (Quarter, Department, Semester …)
+                            // to a JSON sidecar alongside the working copy.
+                            // Without this, every reload re-derives metadata from the
+                            // worksheet rows — but the saved file has no institute-header
+                            // rows, so Quarter ends up empty/wrong and RunCycleCheck()
+                            // treats the sheet as a past quarter and wipes all payments.
+                            SaveSidecar(filePath, dataSet);
                         }
                     }
                     catch
@@ -2297,6 +2464,18 @@ namespace SchoolFeeSystem.Presentation.Services
                 }
                 catch (Exception ex)
                 {
+                    // Log to a persistent file so failures are visible even in Release builds.
+                    try
+                    {
+                        string logDir = Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                            "SchoolFeeSystem");
+                        string logPath = Path.Combine(logDir, "save_errors.log");
+                        string entry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] SaveFile FAILED for '{fileKey}': {ex.GetType().Name}: {ex.Message}";
+                        File.AppendAllText(logPath, entry);
+                    }
+                    catch { /* logging must never crash the app */ }
+
                     System.Diagnostics.Debug.WriteLine(
                         $"[CsvDataService] SaveFile failed for '{fileKey}': {ex.Message}");
                     // Continue to next file — one failure must not block the others.

@@ -196,9 +196,14 @@ namespace SchoolFeeSystem.Presentation.Services
                 SaveState();
             }
 
-            // Ensure the sheet's Quarter ExtendedProperty is set before snapshotting.
-            // If the file was imported without it, default to the current live quarter.
-            if (string.IsNullOrEmpty(sheet.ExtendedProperties["Quarter"]?.ToString()))
+            // Only default Quarter to CurrentQuarter when it's truly empty or unrecognised.
+            // If it already holds a valid quarter name (e.g. "Nov-Jan" from the sidecar),
+            // leave it alone so RunCycleCheck can do the correct one-time transition
+            // rather than silently overwriting the saved value.
+            string existingQ = sheet.ExtendedProperties["Quarter"]?.ToString() ?? "";
+            bool isKnownQuarter = Quarters.Any(q =>
+                string.Equals(q.Name, existingQ, StringComparison.OrdinalIgnoreCase));
+            if (!isKnownQuarter)
                 sheet.ExtendedProperties["Quarter"] = CurrentQuarter();
 
             DateTime imported = GetOriginalImportDate(name);
@@ -272,6 +277,13 @@ namespace SchoolFeeSystem.Presentation.Services
                     _state.CompletedQuarters.TryGetValue(name, out int done);
                     _state.CompletedQuarters[r.NewSheet] = done + 1;
                     RecordCurrent(r.NewSheet, cur, now);
+
+                    // KEY FIX: mark the OLD sheet as "already at cur" AND remove it from
+                    // memory so SaveFile never writes it back to disk. Without this the old
+                    // DataTable reloads on next startup, RunCycleCheck sees its past quarter,
+                    // and fires Advance() again — wiping data in an infinite loop.
+                    _state.LastQuarter[r.OldSheet] = cur;
+                    _csv.RemoveSheet(r.OldSheet);
 
                     // Propagate the original import date to the new sheet name
                     if (!_state.OriginalImportDate.ContainsKey(r.NewSheet))
