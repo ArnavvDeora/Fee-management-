@@ -209,6 +209,10 @@ namespace SchoolFeeSystem.Presentation.Services
 
                 if (headerRowNums.Count == 0) continue;
 
+                // Tracks the LAST non-LEET (parent) DataTable for this worksheet
+                // so LEET sub-blocks underneath it can be merged into it.
+                DataTable lastParentTable = null;
+
                 for (int b = 0; b < headerRowNums.Count; b++)
                 {
                     int headerNum = headerRowNums[b];
@@ -218,6 +222,95 @@ namespace SchoolFeeSystem.Presentation.Services
                     string courseRow = ExtractSubTableCourseRow(allRows, headerNum, b == 0);
                     var metadata = ExtractMetadataFromSubTable(worksheet, allRows, headerNum, courseRow);
                     DataTable table = BuildDataTableForBlock(allRows, headerNum, nextHeader, worksheet.Name);
+
+                    // ── LEET-MERGE DETECTION ─────────────────────────────────────────
+                    // LEET sub-blocks are lateral-entry students who joined the SAME
+                    // course as the parent block above them — NOT a separate course.
+                    //
+                    // Three independent detection signals (any one is sufficient):
+                    //
+                    //   (a) _Section tag contains "LEET" or "NEW ADMISSION"
+                    //       Catches: ME 3RD (banner "NEW ADMISSION 2023 LEET" sits in
+                    //       column A directly above the new sub-header).
+                    //
+                    //   (b) Course-row text itself contains "LEET"
+                    //       Catches: ME TD 2ND 19TH BATCH where the SECOND block has
+                    //       its own course title "Diploma - Mechanical Engineering
+                    //       (T&D) - 2nd Year LEET - 19TH BATCH" — no banner above.
+                    //
+                    //   (c) Scanning up to 5 rows above the header for ANY cell
+                    //       containing "NEW ADMISSION" or standalone "LEET"
+                    //       Catches: ME 3RD where the LEET banner sits 2 rows above
+                    //       the header (with a date string in between, which would
+                    //       trip the single-cell-row check in DeriveSectionLabel).
+                    bool isLeetBlock = false;
+
+                    if (b > 0 && lastParentTable != null)
+                    {
+                        // (a) _Section tag check
+                        if (table.Columns.Contains("_Section"))
+                        {
+                            foreach (DataRow r in table.Rows)
+                            {
+                                string section = r["_Section"]?.ToString() ?? "";
+                                if (section.IndexOf("LEET", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    section.IndexOf("NEW ADMISSION", StringComparison.OrdinalIgnoreCase) >= 0)
+                                    isLeetBlock = true;
+                                break;
+                            }
+                        }
+
+                        // (b) Course-row text check
+                        if (!isLeetBlock && !string.IsNullOrEmpty(courseRow) &&
+                            courseRow.IndexOf("LEET", StringComparison.OrdinalIgnoreCase) >= 0)
+                            isLeetBlock = true;
+
+                        // (c) Wide scan above the header — looks at every CELL in
+                        // every row up to 5 above the sub-table header, not just
+                        // single-cell rows like DeriveSectionLabel does.
+                        if (!isLeetBlock)
+                        {
+                            for (int offset = 1; offset <= 5 && !isLeetBlock; offset++)
+                            {
+                                int rowNum = headerNum - offset;
+                                if (rowNum < 1) break;
+                                var scanRow = allRows.FirstOrDefault(r => r.RowNumber() == rowNum);
+                                if (scanRow == null) continue;
+
+                                foreach (var cell in scanRow.CellsUsed())
+                                {
+                                    string txt = cell.GetString()?.Trim() ?? "";
+                                    if (txt.IndexOf("NEW ADMISSION", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                        System.Text.RegularExpressions.Regex.IsMatch(
+                                            txt, @"\bLEET\b",
+                                            System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                                    {
+                                        isLeetBlock = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (isLeetBlock)
+                    {
+                        // Override the LEET rows' _Section tag with a clear, consistent
+                        // label so the UI (and later fee/scholarship logic) can identify
+                        // lateral-entry students even when the Excel banner was ambiguous
+                        // ("(FEB 2026 to APRIL 2026)" instead of "NEW ADMISSION ... LEET").
+                        if (table.Columns.Contains("_Section"))
+                        {
+                            foreach (DataRow r in table.Rows)
+                                r["_Section"] = "LEET";
+                        }
+
+                        MergeBlockIntoParent(table, lastParentTable);
+                        // Don't add `table` to dataSet — the rows now live inside
+                        // lastParentTable. Also skip the metadata stamping below.
+                        continue;
+                    }
+                    // ─────────────────────────────────────────────────────────────────
 
                     string baseName = headerRowNums.Count == 1
                         ? worksheet.Name
@@ -241,6 +334,9 @@ namespace SchoolFeeSystem.Presentation.Services
 
                     dataSet.Tables.Add(table);
                     CycleService?.RecordFileImport(table);
+
+                    // Remember this as the parent for any LEET sub-block that follows.
+                    lastParentTable = table;
                 }
             }
 
@@ -292,6 +388,15 @@ namespace SchoolFeeSystem.Presentation.Services
 
                 string val = row.CellsUsed().FirstOrDefault()?.GetString()?.Trim() ?? "";
                 if (string.IsNullOrEmpty(val)) continue;
+
+                // LEET sub-blocks have banners like "NEW ADMISSION 2024 LEET" sitting
+                // immediately above their header row. These are NOT course titles —
+                // they're section markers that should be skipped. If we accepted the
+                // banner as the course title, ExtractMetadataFromSubTable would
+                // fall back to Semester=1/Year=1, creating a phantom "Sem 1" course.
+                if (val.IndexOf("NEW ADMISSION", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    val.Trim().Equals("LEET", StringComparison.OrdinalIgnoreCase))
+                    continue;
 
                 // Accept any row that describes a course/section
                 if (val.StartsWith("Diploma", StringComparison.OrdinalIgnoreCase) ||
@@ -371,12 +476,31 @@ namespace SchoolFeeSystem.Presentation.Services
                      courseText.Contains("C.S.E")) metadata.DepartmentCode = "CSE";
             else metadata.DepartmentCode = "MISC";
 
-            // ── Semester → Year conversion (the key fix for Bug 2) ────────────────
-            // Parse "3RD SEM", "5th Semester", "2nd Year" from THIS block's course row.
-            // Formula: Year = ceil(Sem / 2)  →  Sem 3 = Year 2, Sem 5 = Year 3.
+            // ── Semester / Year parsing ───────────────────────────────────────
+            //
+            // Three cases handled:
+            //
+            //   (1) "5th Semester" / "3rd Sem"        → Semester known, derive Year
+            //   (2) "3RD Year"     / "2nd Year LEET"  → Year known, derive Semester
+            //                                            from the current quarter
+            //   (3) Nothing parseable                 → leave at 0 so the caller
+            //                                            can decide a sensible default
+            //
+            // Quarter → semester-of-year mapping (school year starts in August):
+            //   Aug-Oct  → 1st sem of the year   → Semester = 2*Year − 1
+            //   Nov-Jan  → 1st sem of the year   → Semester = 2*Year − 1
+            //   Feb-Apr  → 2nd sem of the year   → Semester = 2*Year
+            //   May-Jul  → 2nd sem of the year   → Semester = 2*Year
+            //
+            // The OLD code matched both keywords against the same regex and
+            // unconditionally stored the captured digit as Semester. That
+            // turned "3RD Year" into Semester=3 (instead of Semester=6 with
+            // Year=3 for a Feb-Apr batch). Bug fix: branch on the keyword.
+
+            // Try Semester first (most specific match)
             var semMatch = System.Text.RegularExpressions.Regex.Match(
                 courseRow,
-                @"(\d+)\s*(?:st|nd|rd|th)\s+(?:Sem(?:ester)?|Year)",
+                @"(\d+)\s*(?:st|nd|rd|th)?\s*(?:Sem(?:ester)?|Sem\.)",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
             if (semMatch.Success)
@@ -387,22 +511,38 @@ namespace SchoolFeeSystem.Presentation.Services
             }
             else
             {
-                // Try bare "Xth Year" / "Xnd Year" without the Sem/Semester keyword
+                // Then Year — accept "3rd Year", "2nd Year LEET", "3RD YEAR", etc.
                 var yrMatch = System.Text.RegularExpressions.Regex.Match(
                     courseRow,
-                    @"(\d+)(?:st|nd|rd|th)\s+Year",
+                    @"(\d+)\s*(?:st|nd|rd|th)?\s+Year",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
                 if (yrMatch.Success)
                 {
                     int yr = int.Parse(yrMatch.Groups[1].Value);
                     metadata.Year = yr.ToString();
-                    metadata.Semester = yr * 2;   // approximate: 2nd Year ≈ Sem 4
+
+                    // Infer semester from the CURRENT quarter. We already
+                    // parsed metadata.Quarter above (line ~352). If it's
+                    // unset, fall back to "now".
+                    string activeQuarter = !string.IsNullOrEmpty(metadata.Quarter)
+                        ? metadata.Quarter
+                        : AcademicCycleService.CurrentQuarter();
+
+                    bool isFirstHalfOfYear =
+                        activeQuarter == "Aug-Oct" || activeQuarter == "Nov-Jan";
+
+                    metadata.Semester = isFirstHalfOfYear
+                        ? (2 * yr - 1)   // Sem 1, 3, 5, 7 for Years 1..4
+                        : (2 * yr);      // Sem 2, 4, 6, 8 for Years 1..4
                 }
                 else
                 {
+                    // Truly couldn't tell. Don't fabricate "Sem 1" — leave at 0.
+                    // ExtendedProperties will reflect this and the UI can show
+                    // "Year ?" rather than misleading "Sem 1".
                     metadata.Year = "1";
-                    metadata.Semester = 1;
+                    metadata.Semester = 0;
                 }
             }
 
@@ -490,6 +630,87 @@ namespace SchoolFeeSystem.Presentation.Services
             }
 
             return table;
+        }
+
+        // ────────────────────────────────────────────────────────────────────────
+        //  MergeBlockIntoParent
+        //  ───────────────────────────────────────────────────────────────────────
+        //  Appends every row of `child` into `parent`, matching by column NAME.
+        //  Used to fold LEET sub-blocks (lateral-entry students) into the main
+        //  block of the same course, so they don't get treated as a separate
+        //  phantom "Sem 1" course.
+        //
+        //  - Columns the child has but the parent doesn't are added to parent's
+        //    schema (e.g. EE 5th LEET has "Institutional Secutiry (Refundble)"
+        //    which the main EE 5th block lacks). Existing parent rows get empty
+        //    string for those new columns.
+        //  - Columns the parent has but the child doesn't are simply not written
+        //    for the appended LEET rows (left as default — empty string).
+        //  - The _Section tag is preserved per-row, so LEET students remain
+        //    distinguishable from regular ones.
+        //  - Column matching is case-insensitive and trims whitespace so minor
+        //    header-spelling variations don't create accidental duplicates.
+        // ────────────────────────────────────────────────────────────────────────
+        private static void MergeBlockIntoParent(DataTable child, DataTable parent)
+        {
+            if (child == null || parent == null) return;
+
+            // Build a name → DataColumn lookup on parent for fast matching.
+            // Case-insensitive and whitespace-trimmed so "Comprehensive Insurance"
+            // and " comprehensive insurance " collapse to the same key.
+            string Norm(string s) => (s ?? "").Trim().ToLowerInvariant();
+            var parentByNorm = parent.Columns
+                .Cast<DataColumn>()
+                .GroupBy(c => Norm(c.ColumnName))
+                .ToDictionary(g => g.Key, g => g.First());
+
+            // For each child column, find or create a corresponding parent column.
+            // We'll record the mapping as (childColumnName → parentColumnName).
+            var childToParent = new Dictionary<string, string>();
+            foreach (DataColumn cc in child.Columns)
+            {
+                string key = Norm(cc.ColumnName);
+                if (parentByNorm.TryGetValue(key, out DataColumn pc))
+                {
+                    childToParent[cc.ColumnName] = pc.ColumnName;
+                }
+                else
+                {
+                    // Add the missing column to parent's schema. Existing parent
+                    // rows will show "" for it (DataTable default for string).
+                    // Use the child's column name verbatim — but if a clash exists
+                    // (unlikely after the Norm lookup, but defensive), suffix it.
+                    string newName = cc.ColumnName;
+                    int suffix = 2;
+                    while (parent.Columns.Contains(newName))
+                        newName = $"{cc.ColumnName}_{suffix++}";
+
+                    parent.Columns.Add(newName);
+                    parentByNorm[Norm(newName)] = parent.Columns[newName];
+                    childToParent[cc.ColumnName] = newName;
+
+                    // Backfill existing parent rows with empty string so the new
+                    // column doesn't read DBNull (cleaner for downstream code that
+                    // does ToString() without null-checking).
+                    foreach (DataRow existing in parent.Rows)
+                        existing[newName] = "";
+                }
+            }
+
+            // Append every child row to parent, copying by mapped column name.
+            foreach (DataRow cr in child.Rows)
+            {
+                var nr = parent.NewRow();
+                foreach (DataColumn pc in parent.Columns)
+                    nr[pc.ColumnName] = ""; // initialise everything to empty
+
+                foreach (DataColumn cc in child.Columns)
+                {
+                    string targetName = childToParent[cc.ColumnName];
+                    nr[targetName] = cr[cc.ColumnName]?.ToString() ?? "";
+                }
+                parent.Rows.Add(nr);
+            }
         }
 
         private string DetectDepartment(DataTable table)
@@ -1385,18 +1606,35 @@ namespace SchoolFeeSystem.Presentation.Services
 
         public void ApplyScholarship(string sheetName, DataRow studentRow, decimal scholarshipPercentage)
         {
+            // Back-compat overload — preserves the old signature for any callers
+            // that don't pass a reason. Delegates to the new method.
+            ApplyScholarship(sheetName, studentRow, scholarshipPercentage, null);
+        }
+
+        public void ApplyScholarship(string sheetName, DataRow studentRow,
+                                     decimal scholarshipPercentage, string reason)
+        {
             var table = GetSheet(sheetName);
             if (table == null) return;
 
             // Find scholarship column
             var scholarshipCol = table.Columns.Cast<DataColumn>()
-                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("scholarship"));
+                .FirstOrDefault(c => c.ColumnName.ToLower().Contains("scholarship") &&
+                                     !c.ColumnName.ToLower().Contains("reason"));
 
             if (scholarshipCol == null)
             {
                 // Add scholarship column if it doesn't exist
                 scholarshipCol = table.Columns.Add("Scholarship", typeof(string));
             }
+
+            // Find / create the reason column (NEW). Stored separately so we don't
+            // disturb numeric parsing of the percentage column.
+            var reasonCol = table.Columns.Cast<DataColumn>()
+                .FirstOrDefault(c => c.ColumnName.IndexOf("scholarship", StringComparison.OrdinalIgnoreCase) >= 0
+                                  && c.ColumnName.IndexOf("reason", StringComparison.OrdinalIgnoreCase) >= 0);
+            if (reasonCol == null)
+                reasonCol = table.Columns.Add("Scholarship_Reason", typeof(string));
 
             // Find the row in the table
             DataRow targetRow = null;
@@ -1422,6 +1660,13 @@ namespace SchoolFeeSystem.Presentation.Services
             if (targetRow != null)
             {
                 targetRow[scholarshipCol] = scholarshipPercentage.ToString("G29");
+
+                // Write reason (empty string clears the field rather than leaving stale data).
+                // When percentage is 0 we still clear the reason so the row stays consistent.
+                if (scholarshipPercentage > 0)
+                    targetRow[reasonCol] = reason ?? "";
+                else
+                    targetRow[reasonCol] = "";
 
                 // Recalculate fees if there's a quarterly fees column
                 var quarterlyCol = table.Columns.Cast<DataColumn>()

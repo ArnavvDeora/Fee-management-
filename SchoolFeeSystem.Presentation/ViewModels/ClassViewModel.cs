@@ -1093,9 +1093,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
         }
 
-        [RelayCommand]
-        public void QuickEdit(CourseInfo course) => ViewCourseData(course);
-
         // ==========================
         // DATA VIEW COMMANDS
         // ==========================

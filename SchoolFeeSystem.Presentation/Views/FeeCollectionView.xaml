@@ -111,79 +111,88 @@
             </Grid>
         </Border>
 
-        <!-- ═══ ROW 1 — STAT CHIPS + CONTROLS ══════════════════════════ -->
+        <!-- ═══ ROW 1 — COURSE CONTEXT BAR + STAT CHIPS ═════════════════
+             Replaces the old "FileName - SheetName" dropdown with a clean
+             header that shows the current class as a human label and lets
+             the admin open a course-card popup to switch.
+             SelectedSheet still drives everything underneath. ─────────── -->
         <Border Grid.Row="1" Background="White"
                 BorderBrush="#E0E0E0" BorderThickness="0,0,0,1" Padding="20,12">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <!-- Sheet label -->
-                    <ColumnDefinition Width="14"/>
-                    <ColumnDefinition Width="220"/>
-                    <!-- Sheet search + dropdown -->
+                    <ColumnDefinition Width="*"/>
+                    <!-- Course context bar -->
                     <ColumnDefinition Width="20"/>
                     <ColumnDefinition Width="Auto"/>
                     <!-- Filter label -->
                     <ColumnDefinition Width="10"/>
-                    <ColumnDefinition Width="200"/>
+                    <ColumnDefinition Width="180"/>
                     <!-- Filter dropdown -->
-                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="20"/>
                     <ColumnDefinition Width="Auto"/>
                     <!-- Stat chips -->
                 </Grid.ColumnDefinitions>
 
-                <!-- Sheet selector -->
-                <TextBlock Grid.Column="0" Text="📋 Class / Sheet"
-                           FontSize="11" FontWeight="SemiBold" Foreground="#546E7A"
-                           VerticalAlignment="Bottom" Margin="0,0,0,4"/>
+                <!-- ── Course context bar (clickable to switch) ──────── -->
+                <Border Grid.Column="0" Background="#F8FAFC"
+                        BorderBrush="#CFD8DC" BorderThickness="1"
+                        CornerRadius="8" Padding="12,8" VerticalAlignment="Center">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
 
-                <Grid Grid.Column="2">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <TextBox Grid.Row="0"
-                             Text="{Binding SheetSearchText, UpdateSourceTrigger=PropertyChanged}"
-                             Padding="8,5" FontSize="12"
-                             BorderBrush="#90CAF9" BorderThickness="1.5" Margin="0,0,0,3">
-                        <TextBox.Style>
-                            <Style TargetType="TextBox">
-                                <Style.Triggers>
-                                    <Trigger Property="Text" Value="">
-                                        <Setter Property="Background">
-                                            <Setter.Value>
-                                                <VisualBrush Stretch="None" AlignmentX="Left">
-                                                    <VisualBrush.Visual>
-                                                        <TextBlock Text="🔍 Search sheets..."
-                                                                   Foreground="#9E9E9E" Margin="7,0,0,0"/>
-                                                    </VisualBrush.Visual>
-                                                </VisualBrush>
-                                            </Setter.Value>
-                                        </Setter>
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBox.Style>
-                    </TextBox>
-                    <ComboBox Grid.Row="1"
-                              ItemsSource="{Binding FilteredSheetNames}"
-                              SelectedItem="{Binding SelectedSheet}"
-                              Padding="8,5" FontSize="13"
-                              BorderBrush="#90CAF9" BorderThickness="1.5"/>
-                </Grid>
+                        <!-- Avatar circle with dept initials -->
+                        <Border Grid.Column="0" Width="44" Height="44"
+                                CornerRadius="22"
+                                Background="{Binding CurrentCourseAvatarBg}">
+                            <TextBlock Text="{Binding CurrentCourseInitials}"
+                                       FontSize="15" FontWeight="Bold"
+                                       Foreground="{Binding CurrentCourseAvatarFg}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Border>
 
-                <!-- Filter -->
-                <TextBlock Grid.Column="4" Text="🔍 Filter"
+                        <!-- Title + subtitle -->
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding CurrentCourseTitle}"
+                                       FontSize="15" FontWeight="SemiBold"
+                                       Foreground="#212121" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding CurrentCourseSubtitle}"
+                                       FontSize="11" Foreground="#607D8B"
+                                       Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+
+                        <!-- Switch Class button -->
+                        <Button Grid.Column="3"
+                                Command="{Binding OpenClassPickerCommand}"
+                                Style="{StaticResource FlatBtn}"
+                                Background="#1565C0" Foreground="White"
+                                Padding="14,8" FontSize="12" FontWeight="SemiBold"
+                                VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="⇄ " FontSize="13" Foreground="White"/>
+                                <TextBlock Text="Switch class" Foreground="White" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Border>
+
+                <!-- ── Filter ─────────────────────────────────────────── -->
+                <TextBlock Grid.Column="2" Text="🔍 Filter"
                            FontSize="11" FontWeight="SemiBold" Foreground="#546E7A"
-                           VerticalAlignment="Bottom" Margin="0,0,0,4"/>
-                <ComboBox Grid.Column="6"
+                           VerticalAlignment="Center" Margin="0,0,0,0"/>
+                <ComboBox Grid.Column="4"
                           ItemsSource="{Binding FeeFilterOptions}"
                           SelectedItem="{Binding SelectedFeeFilter}"
-                          Padding="8,5" FontSize="13" VerticalAlignment="Bottom"
+                          Padding="8,5" FontSize="13" VerticalAlignment="Center"
                           BorderBrush="#90CAF9" BorderThickness="1.5"/>
 
-                <!-- Stat chips -->
-                <StackPanel Grid.Column="8" Orientation="Horizontal" VerticalAlignment="Center">
+                <!-- ── Stat chips ─────────────────────────────────────── -->
+                <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Center">
 
                     <Border Background="#E3F2FD" CornerRadius="10" Padding="16,10"
                             Margin="0,0,10,0" Effect="{StaticResource CardShadow}">
@@ -756,5 +765,190 @@
             </Border>
 
         </Grid>
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             SWITCH-CLASS POPUP OVERLAY
+             ───────────────────────────────────────────────────────────────
+             Spans the entire UserControl. Visible only when
+             IsClassPickerOpen=True. Clicking the dim backdrop closes it.
+             The centered card shows a grid of mini course cards parsed from
+             the same ExtendedProperties ClassView uses.
+             ═══════════════════════════════════════════════════════════════ -->
+        <Grid Grid.Row="0" Grid.RowSpan="4"
+              Background="#88000000"
+              Visibility="{Binding IsClassPickerOpen, Converter={StaticResource BoolToVisibility}}">
+
+            <!-- Click-outside-to-close backdrop -->
+            <Button Command="{Binding CloseClassPickerCommand}"
+                    Background="Transparent" BorderThickness="0" Cursor="Arrow">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="Transparent"/>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+
+            <!-- Centered card -->
+            <Border Background="White" CornerRadius="12"
+                    Width="780" MaxHeight="560"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Effect="{StaticResource CardShadow}">
+                <Grid Margin="24,20,24,24">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <!-- Header -->
+                        <RowDefinition Height="Auto"/>
+                        <!-- Search -->
+                        <RowDefinition Height="*"/>
+                        <!-- Course grid -->
+                    </Grid.RowDefinitions>
+
+                    <!-- ── Header ────────────────────────────────────── -->
+                    <Grid Grid.Row="0" Margin="0,0,0,14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Switch Class"
+                                       FontSize="20" FontWeight="Bold" Foreground="#212121"/>
+                            <TextBlock Text="Pick a course to collect fees for"
+                                       FontSize="12" Foreground="#607D8B" Margin="0,2,0,0"/>
+                        </StackPanel>
+
+                        <!-- Close X -->
+                        <Button Grid.Column="1"
+                                Command="{Binding CloseClassPickerCommand}"
+                                Background="Transparent" BorderThickness="0"
+                                Width="32" Height="32" Cursor="Hand"
+                                VerticalAlignment="Top">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="{TemplateBinding Background}"
+                                            CornerRadius="16">
+                                        <TextBlock Text="✕" FontSize="14" Foreground="#607D8B"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Button.Template>
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Style.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Background" Value="#ECEFF1"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </Grid>
+
+                    <!-- ── Search box ────────────────────────────────── -->
+                    <Border Grid.Row="1" Background="#F5F7FA"
+                            BorderBrush="#CFD8DC" BorderThickness="1"
+                            CornerRadius="6" Padding="10,6" Margin="0,0,0,14">
+                        <TextBox Text="{Binding ClassPickerSearchText, UpdateSourceTrigger=PropertyChanged}"
+                                 Background="Transparent" BorderThickness="0"
+                                 FontSize="13" Padding="0">
+                            <TextBox.Style>
+                                <Style TargetType="TextBox">
+                                    <Style.Triggers>
+                                        <Trigger Property="Text" Value="">
+                                            <Setter Property="Background">
+                                                <Setter.Value>
+                                                    <VisualBrush Stretch="None" AlignmentX="Left">
+                                                        <VisualBrush.Visual>
+                                                            <TextBlock Text="🔍 Search by name, department, or semester..."
+                                                                       Foreground="#9E9E9E"/>
+                                                        </VisualBrush.Visual>
+                                                    </VisualBrush>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBox.Style>
+                        </TextBox>
+                    </Border>
+
+                    <!-- ── Course grid ───────────────────────────────── -->
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding FilteredCourses}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <!-- One mini course card -->
+                                    <Button Command="{Binding DataContext.PickCourseCommand,
+                                                    RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}"
+                                            Width="230" Margin="0,0,12,12"
+                                            Background="Transparent" BorderThickness="0"
+                                            Cursor="Hand" HorizontalContentAlignment="Stretch">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="CardBorder"
+                                                        Background="White"
+                                                        BorderBrush="#E0E0E0"
+                                                        BorderThickness="1"
+                                                        CornerRadius="8" Padding="14">
+                                                    <ContentPresenter/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="CardBorder" Property="BorderBrush" Value="#1565C0"/>
+                                                        <Setter TargetName="CardBorder" Property="Background" Value="#F5FAFF"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Button.Template>
+
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="10"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <!-- Avatar -->
+                                            <Border Grid.Column="0" Width="40" Height="40"
+                                                    CornerRadius="20"
+                                                    Background="{Binding AccentBg}"
+                                                    VerticalAlignment="Top">
+                                                <TextBlock Text="{Binding Initials}"
+                                                           FontSize="13" FontWeight="Bold"
+                                                           Foreground="{Binding AccentFg}"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"/>
+                                            </Border>
+
+                                            <!-- Text -->
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Title}"
+                                                           FontSize="13" FontWeight="SemiBold"
+                                                           Foreground="#212121"
+                                                           TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding Subtitle}"
+                                                           FontSize="10" Foreground="#607D8B"
+                                                           Margin="0,3,0,0"
+                                                           TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                </Grid>
+            </Border>
+        </Grid>
+        <!-- end Switch-Class popup overlay -->
+
     </Grid>
 </UserControl>

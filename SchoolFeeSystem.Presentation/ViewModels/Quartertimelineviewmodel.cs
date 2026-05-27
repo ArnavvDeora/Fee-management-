@@ -45,7 +45,30 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
         public ObservableCollection<QuarterEntryVM> Entries { get; } = new();
 
-        [ObservableProperty] private QuarterEntryVM selectedEntry;
+        // Suppresses auto-load while Open()/ReturnToLive() programmatically
+        // change SelectedEntry. Without this, opening the panel would load
+        // the snapshot for whatever entry happens to be selected first.
+        private bool _suppressAutoLoad;
+
+        private QuarterEntryVM _selectedEntry;
+        public QuarterEntryVM SelectedEntry
+        {
+            get => _selectedEntry;
+            set
+            {
+                if (!SetProperty(ref _selectedEntry, value)) return;
+
+                // FIX: clicking a row in the timeline ListBox now auto-loads
+                // that quarter's snapshot (or returns to live if the live row
+                // was clicked). Previously the user had to press the
+                // "📂 View Selected" button — clicks felt unresponsive.
+                if (_suppressAutoLoad) return;
+                if (value == null) return;
+
+                ViewSelectedQuarter();
+            }
+        }
+
         [ObservableProperty] private bool isVisible = false;
         [ObservableProperty] private DataTable activeSnapshot;
         [ObservableProperty] private string snapshotBanner = "";
@@ -143,7 +166,17 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
 
             // ── Default selection: the live (most recent) entry ────────────
-            SelectedEntry = Entries.LastOrDefault(e => e.IsCurrent) ?? Entries.LastOrDefault();
+            // Suppress auto-load — opening the panel should show LIVE data,
+            // not auto-load a snapshot just because a row got selected.
+            _suppressAutoLoad = true;
+            try
+            {
+                SelectedEntry = Entries.LastOrDefault(e => e.IsCurrent) ?? Entries.LastOrDefault();
+            }
+            finally
+            {
+                _suppressAutoLoad = false;
+            }
             ActiveSnapshot = null;
             IsShowingSnapshot = false;
             SnapshotBanner = "";
@@ -215,7 +248,14 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             SnapshotBanner = "";
 
             var live = Entries.FirstOrDefault(e => e.IsCurrent);
-            if (live != null) SelectedEntry = live;
+            if (live != null)
+            {
+                // Suppress auto-load — we already cleared the snapshot above,
+                // we don't want the setter to immediately try to re-load.
+                _suppressAutoLoad = true;
+                try { SelectedEntry = live; }
+                finally { _suppressAutoLoad = false; }
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════

@@ -98,6 +98,30 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         [ObservableProperty] private bool hasActiveNote;
 
         // ═════════════════════════════════════════════════════════════════
+        // COURSE CONTEXT BAR  +  "Switch class" popup picker
+        //
+        // Replaces the old "FileName - TableName" dropdown. The current sheet
+        // is shown as a clean Department / Semester / Quarter label, and the
+        // admin opens a popup of mini course cards to switch.
+        //
+        // SelectedSheet is still the source of truth — these new properties
+        // just give it a friendlier face. Setting SelectedSheet from
+        // PickCourseCommand goes through the existing OnSelectedSheetChanged
+        // pipeline, so LoadSheetData / fines / scholarships keep working.
+        // ═════════════════════════════════════════════════════════════════
+
+        public ObservableCollection<CourseChoice> AvailableCourses { get; } = new();
+
+        [ObservableProperty] private string currentCourseTitle = "No class selected";
+        [ObservableProperty] private string currentCourseSubtitle = "Click 'Switch class' to begin";
+        [ObservableProperty] private string currentCourseInitials = "?";
+        [ObservableProperty] private string currentCourseAvatarBg = "#ECEFF1";
+        [ObservableProperty] private string currentCourseAvatarFg = "#546E7A";
+        [ObservableProperty] private bool isClassPickerOpen;
+        [ObservableProperty] private string classPickerSearchText;
+        [ObservableProperty] private ObservableCollection<CourseChoice> filteredCourses = new();
+
+        // ═════════════════════════════════════════════════════════════════
         // CONSTRUCTOR
         // ═════════════════════════════════════════════════════════════════
 
@@ -132,6 +156,267 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 SheetNames.Add(displayName);
                 FilteredSheetNames.Add(displayName);
             }
+
+            BuildAvailableCourses();
+        }
+
+        // ═════════════════════════════════════════════════════════════════
+        // BUILD COURSE LIST FOR THE PICKER POPUP
+        //
+        // Walks every loaded sheet and parses its ExtendedProperties into a
+        // CourseChoice with a clean label like "Mechanical Engineering — Sem 2".
+        // Sheets without a recognised department (or PASSOUT / PaymentHistory)
+        // are skipped — the picker only shows real active courses.
+        // ═════════════════════════════════════════════════════════════════
+
+        private void BuildAvailableCourses()
+        {
+            AvailableCourses.Clear();
+            FilteredCourses.Clear();
+
+            var displayNames = _csvService.GetSheetDisplayNames();
+            foreach (var displayName in displayNames)
+            {
+                if (displayName.Contains("_PaymentHistory") ||
+                    displayName.ToLower().Contains("payment history"))
+                    continue;
+
+                string tableName = _csvService.GetSheetNameFromDisplay(displayName);
+                var sheet = _csvService.GetSheet(tableName);
+                if (sheet == null) continue;
+
+                var choice = BuildCourseChoice(sheet, displayName);
+                if (choice == null) continue;
+
+                AvailableCourses.Add(choice);
+                FilteredCourses.Add(choice);
+            }
+
+            // Sort: by department, then semester, so the popup grid groups naturally.
+            var sorted = AvailableCourses
+                .OrderBy(c => c.DepartmentSortOrder)
+                .ThenBy(c => c.Semester)
+                .ThenBy(c => c.Title)
+                .ToList();
+            AvailableCourses.Clear();
+            FilteredCourses.Clear();
+            foreach (var c in sorted) { AvailableCourses.Add(c); FilteredCourses.Add(c); }
+        }
+
+        private CourseChoice BuildCourseChoice(DataTable sheet, string displayName)
+        {
+            string deptCode = ExtractDeptCode(sheet);
+            if (string.IsNullOrEmpty(deptCode) || deptCode == "PASSOUT") return null;
+
+            int semester = 0;
+            if (sheet.ExtendedProperties.ContainsKey("Semester") &&
+                int.TryParse(sheet.ExtendedProperties["Semester"]?.ToString(), out int s))
+                semester = s;
+
+            string quarter = sheet.ExtendedProperties["Quarter"]?.ToString() ?? "";
+
+            // Use admin-assigned name if present, otherwise build "Dept — Sem N"
+            string custom = sheet.ExtendedProperties["DisplayName"]?.ToString();
+            string deptName = DeptFullName(deptCode);
+            string title = !string.IsNullOrWhiteSpace(custom)
+                ? custom
+                : (semester > 0 ? $"{deptName} — Sem {semester}" : deptName);
+
+            int calYear = DateTime.Now.Year;
+            if (quarter == "Nov-Jan" && DateTime.Now.Month <= 1) calYear--;
+
+            string subtitle = string.IsNullOrEmpty(quarter)
+                ? deptName
+                : $"{quarter} {calYear}";
+
+            // Student count from the live sheet (excludes header/note rows)
+            int studentCount = CountStudentRows(sheet);
+            if (studentCount > 0)
+                subtitle += $"  ·  {studentCount} students";
+
+            // Uploaded-on badge
+            if (_cycleService != null)
+            {
+                DateTime imp = _cycleService.GetOriginalImportDate(sheet.TableName);
+                if (imp != DateTime.MinValue)
+                    subtitle += $"  ·  Uploaded {imp:dd MMM yyyy}";
+            }
+
+            return new CourseChoice
+            {
+                DisplayName = displayName,
+                Title = title,
+                Subtitle = subtitle,
+                DepartmentCode = deptCode,
+                DepartmentName = deptName,
+                Semester = semester,
+                Initials = DeptInitials(deptCode),
+                AccentBg = DeptAccentBg(deptCode),
+                AccentFg = DeptAccentFg(deptCode),
+                DepartmentSortOrder = DeptSortOrder(deptCode),
+                StudentCount = studentCount,
+            };
+        }
+
+        // ── Dept helpers (intentionally inlined here; keeps FeeCollection VM
+        //    self-contained, no cross-VM coupling with ClassViewModel) ────────
+
+        private static string ExtractDeptCode(DataTable sheet)
+        {
+            string meta = sheet.ExtendedProperties["Department"]?.ToString();
+            if (!string.IsNullOrEmpty(meta) && meta != "General" && meta != "MISC")
+                return meta;
+            string n = (sheet.TableName ?? "").ToUpper();
+            if (n.Contains("PASSOUT") || n.Contains("PASS OUT") || n.Contains("PASS-OUT")) return "PASSOUT";
+            if (n.Contains("MECHATRONICS")) return "MECHATRONICS";
+            if (n.Contains("ME") || n.Contains("MECH") || n.Contains("T&D") || n.Contains("TOOL")) return "ME";
+            if (n.Contains("EE") || n.Contains("ELECTRICAL")) return "EE";
+            if (n.Contains("CSE") || n.Contains("CS") || n.Contains("COMPUTER")) return "CSE";
+            return meta;
+        }
+
+        private static string DeptFullName(string code) => code switch
+        {
+            "ME" => "Mechanical Engineering",
+            "MECHATRONICS" => "Mechatronics Engineering",
+            "EE" => "Electrical Engineering",
+            "CSE" => "Computer Science Engineering",
+            "PASSOUT" => "Passed Out",
+            "MISC" => "Miscellaneous",
+            _ => code ?? "Unknown"
+        };
+
+        private static string DeptInitials(string code) => code switch
+        {
+            "ME" => "ME",
+            "MECHATRONICS" => "MT",
+            "EE" => "EE",
+            "CSE" => "CS",
+            "PASSOUT" => "PO",
+            _ => "?"
+        };
+
+        // Soft pastel backgrounds + matching foregrounds for the avatar circle.
+        // Same palette family as the rest of the app's category pills.
+        private static string DeptAccentBg(string code) => code switch
+        {
+            "ME" => "#E3F2FD",
+            "MECHATRONICS" => "#E8EAF6",
+            "EE" => "#FFF3E0",
+            "CSE" => "#E8F5E9",
+            _ => "#ECEFF1"
+        };
+
+        private static string DeptAccentFg(string code) => code switch
+        {
+            "ME" => "#1565C0",
+            "MECHATRONICS" => "#283593",
+            "EE" => "#E65100",
+            "CSE" => "#2E7D32",
+            _ => "#546E7A"
+        };
+
+        private static int DeptSortOrder(string code) => code switch
+        {
+            "ME" => 1,
+            "MECHATRONICS" => 2,
+            "EE" => 3,
+            "CSE" => 4,
+            _ => 99
+        };
+
+        private static int CountStudentRows(DataTable t)
+        {
+            var nameCol = t.Columns.Cast<DataColumn>().FirstOrDefault(c =>
+                c.ColumnName.IndexOf("name", StringComparison.OrdinalIgnoreCase) >= 0);
+            if (nameCol == null) return t.Rows.Count;
+            return t.Rows.Cast<DataRow>().Count(r =>
+            {
+                string s = r[nameCol]?.ToString()?.Trim() ?? "";
+                return !string.IsNullOrEmpty(s) && s.Length <= 60
+                    && !s.Equals("Name", StringComparison.OrdinalIgnoreCase)
+                    && !s.StartsWith("Note", StringComparison.OrdinalIgnoreCase);
+            });
+        }
+
+        // ═════════════════════════════════════════════════════════════════
+        // PICKER COMMANDS  (bound by the popup in FeeCollectionView.xaml)
+        // ═════════════════════════════════════════════════════════════════
+
+        [RelayCommand]
+        public void OpenClassPicker()
+        {
+            ClassPickerSearchText = string.Empty;
+            ApplyPickerSearch();
+            IsClassPickerOpen = true;
+        }
+
+        [RelayCommand]
+        public void CloseClassPicker() => IsClassPickerOpen = false;
+
+        [RelayCommand]
+        public void PickCourse(CourseChoice choice)
+        {
+            if (choice == null) return;
+            IsClassPickerOpen = false;
+            // Setting SelectedSheet triggers the existing OnSelectedSheetChanged
+            // handler which calls LoadSheetData() — fines / scholarships / cards
+            // all rebuild via the existing pipeline.
+            SelectedSheet = choice.DisplayName;
+        }
+
+        partial void OnClassPickerSearchTextChanged(string value) => ApplyPickerSearch();
+
+        private void ApplyPickerSearch()
+        {
+            FilteredCourses.Clear();
+            var src = string.IsNullOrWhiteSpace(ClassPickerSearchText)
+                ? AvailableCourses
+                : (IEnumerable<CourseChoice>)AvailableCourses.Where(c =>
+                    (c.Title ?? "").IndexOf(ClassPickerSearchText, StringComparison.OrdinalIgnoreCase) >= 0
+                 || (c.Subtitle ?? "").IndexOf(ClassPickerSearchText, StringComparison.OrdinalIgnoreCase) >= 0
+                 || (c.DepartmentName ?? "").IndexOf(ClassPickerSearchText, StringComparison.OrdinalIgnoreCase) >= 0);
+            foreach (var c in src) FilteredCourses.Add(c);
+        }
+
+        // ═════════════════════════════════════════════════════════════════
+        // REFRESH THE CONTEXT BAR LABEL
+        //
+        // Called whenever SelectedSheet changes — keeps the big "Mechanical
+        // Engineering — Sem 2" title in sync with the chosen sheet.
+        // ═════════════════════════════════════════════════════════════════
+
+        private void RefreshCurrentCourseLabel()
+        {
+            if (string.IsNullOrEmpty(SelectedSheet))
+            {
+                CurrentCourseTitle = "No class selected";
+                CurrentCourseSubtitle = "Click 'Switch class' to begin";
+                CurrentCourseInitials = "?";
+                CurrentCourseAvatarBg = "#ECEFF1";
+                CurrentCourseAvatarFg = "#546E7A";
+                return;
+            }
+
+            var match = AvailableCourses.FirstOrDefault(c =>
+                string.Equals(c.DisplayName, SelectedSheet, StringComparison.OrdinalIgnoreCase));
+            if (match == null)
+            {
+                // Sheet exists but wasn't in our parsed list (e.g. MISC) — show
+                // the raw display name as a fallback rather than going blank.
+                CurrentCourseTitle = SelectedSheet;
+                CurrentCourseSubtitle = "";
+                CurrentCourseInitials = "?";
+                CurrentCourseAvatarBg = "#ECEFF1";
+                CurrentCourseAvatarFg = "#546E7A";
+                return;
+            }
+
+            CurrentCourseTitle = match.Title;
+            CurrentCourseSubtitle = match.Subtitle;
+            CurrentCourseInitials = match.Initials;
+            CurrentCourseAvatarBg = match.AccentBg;
+            CurrentCourseAvatarFg = match.AccentFg;
         }
 
         // ═════════════════════════════════════════════════════════════════
@@ -155,6 +440,9 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                 LoadSheetData(value);
                 UpdateNoteInformation();
             }
+            // Refresh the big "Mechanical Engineering — Sem 2" header label
+            // whether the new value is a real sheet or null.
+            RefreshCurrentCourseLabel();
         }
 
         partial void OnSelectedFeeFilterChanged(string value) => ApplyFeeFilter();
@@ -836,5 +1124,39 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
             return null;
         }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  CourseChoice — one mini course card in the "Switch class" popup
+    //
+    //  Carries both the human-readable label (Title / Subtitle) and the
+    //  underlying displayName that FeeCollectionViewModel.SelectedSheet expects.
+    //  Picking a card from the popup just assigns choice.DisplayName back to
+    //  SelectedSheet, which triggers the existing load pipeline.
+    // ════════════════════════════════════════════════════════════════════════
+    public class CourseChoice
+    {
+        /// <summary>The raw "FileName - SheetName" (or admin DisplayName) used
+        /// internally by CsvDataService — what gets assigned to SelectedSheet.</summary>
+        public string DisplayName { get; set; }
+
+        /// <summary>Big readable label, e.g. "Mechanical Engineering — Sem 2".</summary>
+        public string Title { get; set; }
+
+        /// <summary>Small meta line, e.g. "Feb-Apr 2026 · 34 students · Uploaded 07 Apr 2026".</summary>
+        public string Subtitle { get; set; }
+
+        public string DepartmentCode { get; set; }
+        public string DepartmentName { get; set; }
+        public int Semester { get; set; }
+        public int StudentCount { get; set; }
+
+        // Avatar circle styling — matches the pastel category-pill family used
+        // elsewhere in the app so the popup feels native.
+        public string Initials { get; set; }
+        public string AccentBg { get; set; }
+        public string AccentFg { get; set; }
+
+        public int DepartmentSortOrder { get; set; }
     }
 }
