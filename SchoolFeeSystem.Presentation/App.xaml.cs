@@ -118,13 +118,15 @@ namespace SchoolFeeSystem.Presentation
             services.AddTransient<FeeViewModel>();
             services.AddTransient<FeeView>();
 
-            // FeeCollectionViewModel — 4 constructor args.
+            // FeeCollectionViewModel — 5 constructor args (QuarterHistoryService added
+            // so the repair-carry-forward command can read quarter snapshots).
             services.AddTransient<FeeCollectionViewModel>(sp =>
                 new FeeCollectionViewModel(
                     sp.GetRequiredService<CsvDataService>(),
                     sp.GetRequiredService<PaymentLogService>(),
                     sp.GetRequiredService<AcademicCycleService>(),
-                    sp.GetRequiredService<FineCalculationService>()
+                    sp.GetRequiredService<FineCalculationService>(),
+                    sp.GetRequiredService<QuarterHistoryService>()
                 ));
             services.AddTransient<FeeCollectionView>();
 

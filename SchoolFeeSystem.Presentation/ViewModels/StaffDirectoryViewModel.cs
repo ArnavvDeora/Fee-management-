@@ -198,11 +198,12 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         //      BankAccountNo, IfscCode, UanNumber, EsiNumber.
         //   3. Create NEW employees for rows that don't match anyone.
         //
-        // SS Master columns (as seen in file):
-        //  1=S NO  2=CODE(SsCode)  3=SECTION(Dept)  4=NAME
-        //  5=FATHER'S NAME  6=DESIGNATION  7=UAN  8=ESI NO
+        // SS Master columns (as seen in file — updated April 2026):
+        //  0=S NO  1=CODE(SsCode)  2=BIOMETRIC CODE  3=SECTION(Dept)
+        //  4=NAME  5=FATHER'S NAME  6=DESIGNATION  7=UAN  8=ESI NO
         //  9=BANK A/C NO  10=IFSC  11=BASIC SALARY
-        //  (columns 12-19 are payroll calculation columns, we skip them)
+        //  12=DAYS  13=OT  14=REC
+        //  (columns 15+ are payroll calculation columns, we skip them)
         // ────────────────────────────────────────────────────────────
 
         [RelayCommand]
@@ -289,24 +290,25 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                                 ? row[col]?.ToString()?.Trim() ?? ""
                                 : "";
 
-                            // ── Columns 1–11 are IDENTICAL in all 3 sheets ────────
-                            // col0=SNO  col1=CODE  col2=SECTION  col3=NAME
-                            // col4=FATHER  col5=DESIG  col6=UAN  col7=ESI
-                            // col8=BANK  col9=IFSC  col10=BASIC  col11=DAYS
-                            // col12=OT   col13=REC
+                            // ── Columns (updated April 2026: BIOMETRIC CODE added at col2) ──
+                            // col0=SNO  col1=CODE  col2=BIOMETRIC CODE  col3=SECTION
+                            // col4=NAME  col5=FATHER  col6=DESIG  col7=UAN  col8=ESI
+                            // col9=BANK  col10=IFSC  col11=BASIC  col12=DAYS
+                            // col13=OT   col14=REC
                             string ssCode = Get(1);
-                            string section = Get(2);
-                            string fullName = Get(3);
-                            string fatherName = Get(4);
-                            string desig = Get(5);
-                            string uan = Get(6);
-                            string esi = Get(7);
-                            string bankAcc = Get(8);
-                            string ifsc = Get(9);
-                            string salaryStr = Get(10);
-                            string daysStr = Get(11); // Days worked this month
-                            string otStr = Get(12); // OT hours
-                            string recStr = Get(13); // Recovery hours (late)
+                            string biometricCode = Get(2);  // ★ NEW — Biometric device code
+                            string section = Get(3);
+                            string fullName = Get(4);
+                            string fatherName = Get(5);
+                            string desig = Get(6);
+                            string uan = Get(7);
+                            string esi = Get(8);
+                            string bankAcc = Get(9);
+                            string ifsc = Get(10);
+                            string salaryStr = Get(11);
+                            string daysStr = Get(12); // Days worked this month
+                            string otStr = Get(13); // OT hours
+                            string recStr = Get(14); // Recovery hours (late)
 
                             // Skip empty / total rows
                             if (string.IsNullOrWhiteSpace(fullName)) continue;
@@ -317,40 +319,40 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                             decimal.TryParse(otStr, out decimal otHours);
                             decimal.TryParse(recStr, out decimal recHours);
 
-                            // ── Match employee by SsCode (primary key) ────────────
-                            // SS Code is unique per employee — always use it when present.
-                            // Name fallback ONLY when the Excel row itself has no SS Code,
+                            // ── Match employee: SsCode → BiometricId → Name ──────
+                            // SS Code is unique per employee — always try it first.
+                            // Biometric Code is also unique — try it second.
+                            // Name fallback ONLY when neither code is in the DB yet,
                             // because two different employees can share the same name
                             // (e.g. two people called RAKESH KUMAR or POONAM).
                             Employee emp = null;
+
+                            // Step 1: exact SS Code match
                             if (!string.IsNullOrEmpty(ssCode))
                             {
-                                // Step 1: exact SS Code match in DB
                                 emp = existingEmployees.FirstOrDefault(e =>
                                     e.SsCode?.Equals(ssCode, StringComparison.OrdinalIgnoreCase) == true);
-
-                                // Step 2: SS Code not yet in DB — find the one employee
-                                // with this name who does NOT already have any SS Code assigned.
-                                // This handles the very first import where no SS Codes exist yet.
-                                if (emp == null)
-                                {
-                                    string normName = NormalizeName(fullName);
-                                    var nameMatches = existingEmployees.Where(e =>
-                                        NormalizeName(e.FullName).Equals(normName, StringComparison.OrdinalIgnoreCase) &&
-                                        string.IsNullOrEmpty(e.SsCode)).ToList();
-
-                                    // Only use the name match if it is unambiguous (exactly one hit)
-                                    if (nameMatches.Count == 1)
-                                        emp = nameMatches[0];
-                                    // If 0 or 2+ matches → treat as new employee (will be created below)
-                                }
                             }
-                            else
+
+                            // Step 2: exact Biometric Code match (★ NEW)
+                            if (emp == null && !string.IsNullOrWhiteSpace(biometricCode))
                             {
-                                // No SS Code in the Excel row at all — fall back to name only
-                                string normName = NormalizeName(fullName);
                                 emp = existingEmployees.FirstOrDefault(e =>
-                                    NormalizeName(e.FullName).Equals(normName, StringComparison.OrdinalIgnoreCase));
+                                    !string.IsNullOrWhiteSpace(e.BiometricId) &&
+                                    e.BiometricId.Trim().Equals(biometricCode.Trim(), StringComparison.OrdinalIgnoreCase));
+                            }
+
+                            // Step 3: name fallback — only unambiguous matches
+                            if (emp == null && !string.IsNullOrWhiteSpace(fullName))
+                            {
+                                string normName = NormalizeName(fullName);
+                                var nameMatches = existingEmployees.Where(e =>
+                                    NormalizeName(e.FullName).Equals(normName, StringComparison.OrdinalIgnoreCase) &&
+                                    string.IsNullOrEmpty(e.SsCode)).ToList();
+
+                                if (nameMatches.Count == 1)
+                                    emp = nameMatches[0];
+                                // If 0 or 2+ matches → treat as new employee (will be created below)
                             }
 
                             if (emp != null)
@@ -365,6 +367,13 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                                 emp.BankAccountNo = string.IsNullOrEmpty(bankAcc) ? emp.BankAccountNo : bankAcc;
                                 emp.IfscCode = string.IsNullOrEmpty(ifsc) ? emp.IfscCode : ifsc;
                                 if (salary > 0) emp.BaseSalary = salary;
+
+                                // ★ NEW — Populate BiometricId from SS Master's BIOMETRIC CODE column.
+                                // This is the PRIMARY key for matching attendance files.
+                                // Only overwrite if the SS Master actually has a value.
+                                if (!string.IsNullOrWhiteSpace(biometricCode))
+                                    emp.BiometricId = biometricCode.Trim();
+
                                 _payrollService.UpdateEmployee(emp);
                                 updated++;
 
@@ -395,6 +404,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                                     Designation = string.IsNullOrWhiteSpace(desig) ? "Unknown" : desig,
                                     Department = string.IsNullOrWhiteSpace(section) ? "General" : section,
                                     SsCode = ssCode,
+                                    BiometricId = string.IsNullOrWhiteSpace(biometricCode) ? null : biometricCode.Trim(), // ★ NEW
                                     UanNumber = string.IsNullOrWhiteSpace(uan) ? "NA" : uan,
                                     EsiNumber = string.IsNullOrWhiteSpace(esi) ? "NA" : esi,
                                     BankAccountNo = string.IsNullOrWhiteSpace(bankAcc) ? "NA" : bankAcc,

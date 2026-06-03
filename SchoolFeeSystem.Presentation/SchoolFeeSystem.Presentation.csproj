@@ -19,6 +19,12 @@
 		<DebugType>None</DebugType>
 		<DebugSymbols>false</DebugSymbols>
 	</PropertyGroup>
+	<ItemGroup>
+	  <Compile Remove="ViewModels\Properties\PublishProfiles\**" />
+	  <EmbeddedResource Remove="ViewModels\Properties\PublishProfiles\**" />
+	  <None Remove="ViewModels\Properties\PublishProfiles\**" />
+	  <Page Remove="ViewModels\Properties\PublishProfiles\**" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<Compile Remove="ViewModels\StudentPaymentHistoryViewModel.cs" />

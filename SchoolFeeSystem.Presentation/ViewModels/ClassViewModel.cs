@@ -10,7 +10,7 @@ using System.Data;
 using System.Linq;
 using System.Windows;
 using System.Windows.Media;
-
+using SchoolFeeSystem.Core.Entities;
 namespace SchoolFeeSystem.Presentation.ViewModels
 {
     public partial class ClassViewModel : ObservableObject
@@ -356,7 +356,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     ? $"Sem {semester} (Year {year})"
                     : $"Year {year}";
 
-                // Use admin-assigned display name if available, else build from dept + semester
                 string customName = sheet.ExtendedProperties["DisplayName"]?.ToString();
                 string courseName = !string.IsNullOrWhiteSpace(customName)
                     ? customName
@@ -364,23 +363,25 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                         ? $"{GetDepartmentName(deptCode)} — Sem {semester}"
                         : $"{GetDepartmentName(deptCode)} — Year {year}";
 
-                // ── Quarter labels shown on the course card ────────────────────
-                // "Uploaded" quarter = the quarter tag embedded in the sheet's
-                //   ExtendedProperties["Quarter"] (set from the Excel header on import,
-                //   then updated each time the system advances the sheet).
-                // "Current" quarter = whichever quarter today's date falls in.
-                string liveQ = AcademicCycleService.CurrentQuarter();
-                string uploadedQ = quarter; // already extracted above
+                bool isLeet = string.Equals(
+                    sheet.ExtendedProperties["IsLeet"]?.ToString(), "true",
+                    StringComparison.OrdinalIgnoreCase);
 
-                // Format: "Feb-Apr 2026"
+                // Append a clear LEET marker to the course title so the name
+                // itself is also unambiguous (the card also gets a stripe + pill,
+                // but the title makes it clear in dropdowns, report headers, etc.)
+                if (isLeet && !courseName.Contains("LEET", StringComparison.OrdinalIgnoreCase))
+                    courseName = courseName + " (LEET)";
+
+                string liveQ = AcademicCycleService.CurrentQuarter();
+                string uploadedQ = quarter;
+
                 int calYear = DateTime.Now.Year;
-                // Nov-Jan spans two calendar years — the year shown is the start year
                 if (uploadedQ == "Nov-Jan" && DateTime.Now.Month <= 1) calYear--;
 
                 string uploadedLabel = $"{uploadedQ} {calYear}";
                 string liveLabel = $"{liveQ} {DateTime.Now.Year}";
 
-                // Get original import date if available
                 string importedOnText = "";
                 if (_cycleService != null)
                 {
@@ -403,6 +404,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     OriginalQuarterLabel = $"📂 {uploadedLabel}{importedOnText}",
                     CurrentQuarterLabel = $"📅 Now: {liveLabel}",
                     IsOnOriginalQuarter = uploadedQ == liveQ,
+                    IsLeet = isLeet,
                 };
 
                 CalculateCourseStatistics(courseInfo);
@@ -447,7 +449,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             var studentRows = course.DataTable.Rows.Cast<DataRow>()
                 .Where(r =>
                 {
-                    // Skip archived rows
                     if (course.DataTable.Columns.Contains("_Archived") &&
                         r["_Archived"]?.ToString() == "1") return false;
 
@@ -690,7 +691,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             var categoryCol = ColFind("category");
             var phoneCol = ColFind("phone") ?? ColFind("contact") ?? ColFind("mobile");
             var quarterlyCol = ColFind("quarterly") ?? ColFind("installment") ?? ColFind("fees");
-            var prevPendCol = ColFind("previous", "pending") ?? ColFind("pending");
+            var prevPendCol = ColFind("previous", "pending") ?? ColFind("previous") ?? ColFind("pending");
 
             var stationaryCol = ColFind("stationary");
             var welfareCol = ColFind("welfare");
@@ -706,7 +707,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             {
                 DataRow row = drv.Row;
 
-                // Skip archived rows
                 if (table.Columns.Contains("_Archived") &&
                     row["_Archived"]?.ToString() == "1") continue;
 
@@ -813,20 +813,14 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             string newName = dialog.NewName?.Trim();
             if (string.IsNullOrWhiteSpace(newName)) return;
 
-            // Persist in CsvDataService — GetSheetDisplayNames() now returns newName
-            // for this table, so FeeCollection, Reports, Scholarship, Fine Management
-            // all pick it up automatically on next load.
             _csvService.RenameSheet(course.SheetName, newName);
 
-            // Update the local card immediately so the UI reflects the change now
             course.CourseName = newName;
             course.DataTable.ExtendedProperties["DisplayName"] = newName;
 
-            // Refresh the course card header if we are in data-view for this course
             if (CurrentCourse == course)
                 CurrentViewTitle = newName + " - " + course.QuarterDisplay;
 
-            // Broadcast to FeeCollection, Reports, etc. so they rebuild their lists
             App.RaiseFeeDataChanged();
 
             MessageBox.Show(
@@ -975,32 +969,25 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
             var table = card.SourceRow.Row.Table;
 
-            // Try to find an existing phone/contact/mobile column
             var col = table.Columns.Cast<DataColumn>()
                 .FirstOrDefault(c =>
                     c.ColumnName.IndexOf("phone", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     c.ColumnName.IndexOf("contact", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     c.ColumnName.IndexOf("mobile", StringComparison.OrdinalIgnoreCase) >= 0);
 
-            // ── If no phone column exists yet, silently create one ───────────
             if (col == null)
             {
                 col = table.Columns.Add("Phone No.", typeof(string));
-
-                // Back-fill all existing rows with an empty string
                 foreach (DataRow r in table.Rows)
                     if (r.RowState != DataRowState.Deleted)
                         r[col] = "";
             }
-            // ────────────────────────────────────────────────────────────────
 
             card.SourceRow.Row[col] = newVal;
             card.PhoneNumber = newVal;
 
-            // Auto-save so the phone number persists to disk immediately.
-            // The user does not need to press Export / Save manually.
             try { _csvService.SaveFile(); }
-            catch { /* best-effort; data is already updated in memory */ }
+            catch { /* best-effort */ }
 
             App.RaiseFeeDataChanged();
         }
@@ -1027,6 +1014,61 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             card.SourceRow.Row[col] = newVal;
             card.Category = newVal;
             App.RaiseFeeDataChanged();
+        }
+
+        // ==========================
+        // ADD STUDENT MANUALLY  ← NEW
+        // ==========================
+
+        [RelayCommand]
+        public void AddStudent()
+        {
+            // Must be inside a batch (data view) to know which DataTable to append to
+            if (_originalData == null || CurrentCourse == null)
+            {
+                MessageBox.Show(
+                    "Please open a batch first, then click Add Student.",
+                    "No Batch Open",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var dialog = new AddStudentDialog();
+            dialog.Owner = Application.Current.MainWindow;
+
+            if (dialog.ShowDialog() != true) return;   // user cancelled
+
+            try
+            {
+                // Write the new row into the DataTable and persist to disk
+                _csvService.AddStudentRow(_originalData, dialog.Result);
+
+                // Rebuild the card list so the new student appears immediately
+                BuildStudentCards();
+
+                // Refresh the course statistics tile (total count, pending amount, etc.)
+                CalculateCourseStatistics(CurrentCourse);
+
+                // Tell FeeCollection, Reports, etc. that data changed
+                App.RaiseFeeDataChanged();
+
+                UpdateRowCountDisplay();
+
+                MessageBox.Show(
+                    $"Student \"{dialog.Result.Name}\" added successfully.",
+                    "Student Added",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Error adding student:\n{ex.Message}",
+                    "Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
         // ==========================
@@ -1155,7 +1197,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     int srNo = 1;
                     foreach (System.Data.DataRow row in _originalData.Rows)
                     {
-                        // Skip archived rows in export
                         if (_originalData.Columns.Contains("_Archived") &&
                             row["_Archived"]?.ToString() == "1") continue;
 
@@ -1408,7 +1449,6 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             else
             {
                 string search = SearchText.Replace("'", "''");
-                // Search across all string columns (no "Search in" dropdown any more)
                 var strCols = _originalData.Columns.Cast<DataColumn>()
                     .Where(c => c.DataType == typeof(string) && !c.ColumnName.StartsWith("_"))
                     .Select(c => $"[{c.ColumnName}] LIKE '%{search}%'");
@@ -1582,21 +1622,14 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             public bool CanPromote { get; set; }
             public Brush ColorBrush { get; set; }
 
-            // ── Quarter info shown on the card (outside "View Students") ──────
-            /// <summary>
-            /// The quarter the file was originally uploaded for.
-            /// e.g. "📂 Uploaded: Feb-Apr 2026"
-            /// </summary>
             public string OriginalQuarterLabel { get; set; }
-
-            /// <summary>
-            /// The real-world quarter right now.
-            /// e.g. "📅 Current: Feb-Apr 2026"
-            /// </summary>
             public string CurrentQuarterLabel { get; set; }
-
-            /// <summary>True when the file is still on the same quarter it was uploaded for.</summary>
             public bool IsOnOriginalQuarter { get; set; }
+
+            // ── LEET batch flag ───────────────────────────────────────────────────
+            // Set when CsvDataService detects this course as a lateral-entry block.
+            // Drives the orange-red stripe and "🎓 LEET batch" pill in ClassView.
+            public bool IsLeet { get; set; }
         }
     }
 }

@@ -389,23 +389,29 @@
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0" Orientation="Horizontal">
-                                            <Border Background="{Binding ColorBrush}" Width="4" CornerRadius="2" Margin="0,0,15,0"/>
+                                            <!-- Left stripe — orange-red for LEET, dept colour for regular -->
+                                            <Border Width="4" CornerRadius="2" Margin="0,0,15,0">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="{Binding ColorBrush}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsLeet}" Value="True">
+                                                                <Setter Property="Background" Value="#E64A19"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                            </Border>
                                             <StackPanel>
                                                 <TextBlock Text="{Binding CourseName}" FontSize="18" FontWeight="Bold" Foreground="#2196F3"/>
-                                                <!-- Sem + current quarter row -->
                                                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                                                     <TextBlock Text="{Binding YearDisplay}" FontSize="13" Foreground="#757575" Margin="0,0,15,0"/>
                                                     <TextBlock Text="•" FontSize="13" Foreground="#757575" Margin="0,0,15,0"/>
                                                     <TextBlock Text="{Binding QuarterDisplay}" FontSize="13" Foreground="#757575"/>
                                                 </StackPanel>
-                                                <!-- ── Quarter info badges ─────────────────────── -->
-                                                <!-- Line 1: always shown — when the file was uploaded and for which quarter -->
                                                 <TextBlock Text="{Binding OriginalQuarterLabel}"
                                                            FontSize="11" Foreground="#78909C"
                                                            Margin="0,3,0,0"/>
-                                                <!-- Line 2: only shown when the live quarter is DIFFERENT from the uploaded quarter
-                                                             i.e. the system has already advanced this sheet forward.
-                                                             Uses InverseBoolToVisibility so it hides when IsOnOriginalQuarter=True -->
                                                 <Border Background="#FFF8E1" CornerRadius="4"
                                                         Padding="6,2" Margin="0,3,0,0"
                                                         HorizontalAlignment="Left">
@@ -429,7 +435,7 @@
                                             </StackPanel>
                                         </StackPanel>
 
-                                        <!-- ── Action buttons ── -->
+                                        <!-- Action buttons -->
                                         <StackPanel Grid.Column="2" Orientation="Horizontal">
 
                                             <!-- View Students -->
@@ -439,7 +445,7 @@
                                                     Background="#2196F3" Foreground="White"
                                                     Style="{StaticResource CardActionBtn}"/>
 
-                                            <!-- ★ NEW: Rename course -->
+                                            <!-- Rename course -->
                                             <Button Content="🏷️ Rename"
                                                     Command="{Binding DataContext.RenameCourseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                     CommandParameter="{Binding}"
@@ -522,7 +528,25 @@
                                                 Visibility="{Binding HasPendingFees, Converter={StaticResource BoolToVisibility}}">
                                             <TextBlock Text="⚠️ Has Pending Fees" FontSize="11" Foreground="#F57C00" FontWeight="SemiBold"/>
                                         </Border>
-
+                                        <!-- LEET batch pill — only visible when IsLeet = True -->
+                                        <Border Padding="10,5" CornerRadius="4" Margin="0,0,8,0"
+                                                Background="#FBE9E7" BorderBrush="#E64A19" BorderThickness="1">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsLeet}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="🎓 " FontSize="11"/>
+                                                <TextBlock Text="LEET batch" FontSize="11"
+                                                           Foreground="#BF360C" FontWeight="SemiBold"/>
+                                            </StackPanel>
+                                        </Border>
                                     </StackPanel>
 
                                 </Grid>
@@ -571,7 +595,7 @@
                                 Command="{Binding GoBackToDashboardCommand}"
                                 Style="{StaticResource BackButtonStyle}"/>
 
-                        <!-- BLOCK A: title + badges + History button -->
+                        <!-- Title + badges + History button -->
                         <DockPanel Grid.Column="1" LastChildFill="False"
                                    HorizontalAlignment="Center" VerticalAlignment="Center">
 
@@ -643,7 +667,7 @@
                     </Grid>
                 </Border>
 
-                <!-- ── BLOCK B: Snapshot warning banner (Row 1) ── -->
+                <!-- ── Snapshot warning banner (Row 1) ── -->
                 <Border Grid.Row="1"
                         Background="#FFF8E1" BorderBrush="#FFB300"
                         BorderThickness="0,0,0,2" Padding="14,7"
@@ -711,17 +735,28 @@
                     </StackPanel>
                 </Border>
 
-                <!-- ── Search and filter bar (Row 3) — Search-in dropdown REMOVED ── -->
+                <!-- ══════════════════════════════════════
+                     SEARCH / FILTER BAR  (Row 3)
+                     ── ➕ Add Student button lives here ──
+                     ══════════════════════════════════════ -->
                 <Border Grid.Row="3" Background="White" Padding="16,12"
                         BorderBrush="#E0E0E0" BorderThickness="0,0,0,1">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="320"/>
+                            <!-- 0: search icon -->
+                            <ColumnDefinition Width="280"/>
+                            <!-- 1: search box -->
                             <ColumnDefinition Width="16"/>
+                            <!-- 2: spacer -->
                             <ColumnDefinition Width="Auto"/>
+                            <!-- 3: "Filter:" label -->
                             <ColumnDefinition Width="*"/>
+                            <!-- 4: filter buttons -->
                             <ColumnDefinition Width="Auto"/>
+                            <!-- 5: count badge -->
+                            <ColumnDefinition Width="Auto"/>
+                            <!-- 6: ➕ Add Student -->
                         </Grid.ColumnDefinitions>
 
                         <!-- Search icon + box -->
@@ -759,6 +794,34 @@
                             <TextBlock Text="{Binding RowCountDisplay}" FontSize="12"
                                       Foreground="#1565C0" FontWeight="SemiBold"/>
                         </Border>
+
+                        <!-- ➕ Add Student button  ← NEW -->
+                        <Button Grid.Column="6"
+                                Content="➕ Add Student"
+                                Command="{Binding AddStudentCommand}"
+                                Padding="12,5" Margin="10,0,0,0"
+                                Background="#E8F5E9" Foreground="#2E7D32"
+                                BorderThickness="1" BorderBrush="#4CAF50"
+                                Cursor="Hand" FontSize="12" FontWeight="SemiBold"
+                                VerticalAlignment="Center">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="{TemplateBinding Background}"
+                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                            CornerRadius="6"
+                                            Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Background" Value="#C8E6C9"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+
                     </Grid>
                 </Border>
 
@@ -920,7 +983,7 @@
 
                                         </Grid>
 
-                                        <!-- ★ NEW: Student management action row ── -->
+                                        <!-- ── Student management action row ── -->
                                         <Border Background="#F8F9FA"
                                                 BorderBrush="#EEEEEE"
                                                 BorderThickness="0,1,0,0"
@@ -1180,8 +1243,8 @@
                                             </Border>
                                         </StackPanel>
                                         <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                            <TextBlock Text="{Binding TotalText}" FontSize="11" Foreground="#616161" Margin="0,0,10,0"/>
-                                            <TextBlock Text="{Binding PaidText}"  FontSize="11" Foreground="#2E7D32" Margin="0,0,10,0"/>
+                                            <TextBlock Text="{Binding TotalText}"   FontSize="11" Foreground="#616161" Margin="0,0,10,0"/>
+                                            <TextBlock Text="{Binding PaidText}"    FontSize="11" Foreground="#2E7D32" Margin="0,0,10,0"/>
                                             <TextBlock Text="{Binding PendingText}" FontSize="11" Foreground="#C62828"/>
                                         </StackPanel>
                                         <TextBlock Text="{Binding SnapshotDate}"

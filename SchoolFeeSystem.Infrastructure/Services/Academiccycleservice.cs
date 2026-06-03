@@ -62,7 +62,7 @@ namespace SchoolFeeSystem.Presentation.Services
         public const int GraceDays = 15;
         public const decimal FineDay1Rate = 10m;   // days 16-45  (~month 1 late)
         public const decimal FineDay2Rate = 20m;   // days 46-75  (~month 2 late)
-        public const decimal FineFlatMonth3 = 750m;  // day 76+
+        public const decimal FineFlatMonth3 = 1000m;  // day 76+
 
         // ── Persisted state ─────────────────────────────────────────────────
         public class CycleState
@@ -147,9 +147,9 @@ namespace SchoolFeeSystem.Presentation.Services
         /// <summary>
         /// Fine schedule:
         ///   Days  1-15  → ₹0
-        ///   Days 16-45  → ₹10/day
-        ///   Days 46-75  → ₹20/day
-        ///   Day  76+    → flat ₹750
+        ///   Days 16-EOM → ₹10/day
+        ///   Month 2     → ₹20/day
+        ///   Month 3+    → ₹1,000 flat per started month
         /// </summary>
         public static decimal CalculateFine(DateTime start, DateTime today)
         {
@@ -158,7 +158,10 @@ namespace SchoolFeeSystem.Presentation.Services
             int over = days - GraceDays;
             if (over <= 30) return over * FineDay1Rate;
             if (over <= 60) return 30 * FineDay1Rate + (over - 30) * FineDay2Rate;
-            return 30 * FineDay1Rate + 30 * FineDay2Rate + FineFlatMonth3;
+            // Month 3+: count each started month beyond day 60
+            int extraDays = over - 60;
+            int extraMonths = (extraDays / 30) + 1; // each started month counts
+            return 30 * FineDay1Rate + 30 * FineDay2Rate + extraMonths * FineFlatMonth3;
         }
 
         public decimal LiveFineForSheet(string sheetName)
@@ -406,14 +409,38 @@ namespace SchoolFeeSystem.Presentation.Services
 
                 // ── Column references on the OLD sheet ────────────────────────
                 var oldTotal = FC(old, "total", "fees") ?? FC(old, "total");
-                var oldPrevPend = FC(old, "previous", "pending");
+                var oldPrevPend = FC(old, "previous", "pending") ?? FC(old, "previous");
                 var oldQFee = FC(old, "quarterly");
                 var oldName = FC(old, "name");
                 var oldCat = FC(old, "category");
 
                 // ── Column references on the NEW sheet ────────────────────────
-                var nsPrevPend = FC(ns, "previous", "pending");
+                var nsPrevPend = FC(ns, "previous", "pending") ?? FC(ns, "previous");
                 var nsFine = FC(ns, "fine") ?? FC(ns, "remarks");
+
+                // ── Ensure Fine_Start_Date column exists on the new sheet ─────────
+                // This tracks the earliest date from which a student's fine should
+                // accrue. If they carried over an unpaid balance from the previous
+                // quarter, their fine reference date stays at the OLD quarter's start
+                // (not the new quarter's start). If they are fully paid up, the new
+                // quarter's start is used.
+                const string FineStartCol = "Fine_Start_Date";
+                if (!ns.Columns.Contains(FineStartCol))
+                    ns.Columns.Add(FineStartCol, typeof(string));
+
+                // Resolve the OLD quarter's start date for fine continuity.
+                // This is stored in the OLD sheet's ExtendedProperties["QuarterStart"]
+                // (cached by FineCalculationService) or we derive it from Period.
+                DateTime oldQuarterStart;
+                if (old.ExtendedProperties.ContainsKey("QuarterStart") &&
+                    old.ExtendedProperties["QuarterStart"] is DateTime oqs)
+                    oldQuarterStart = oqs;
+                else
+                {
+                    var oldPeriod = old.ExtendedProperties["Period"]?.ToString() ?? "";
+                    oldQuarterStart = FineCalculationService.TryParseQuarterStart(oldPeriod)
+                                      ?? new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+                }
 
                 foreach (DataRow or in old.Rows)
                 {
@@ -430,6 +457,8 @@ namespace SchoolFeeSystem.Presentation.Services
                     }
 
                     // Step 2: carry forward outstanding balance → Previous Quarter Pending
+                    // Use the Total column if available (it includes quarterly + prev pending
+                    // + all sub-fees). Fall back to quarterly + prevPending if no Total column.
                     decimal carry = 0m;
                     if (oldTotal != null)
                     {
@@ -453,6 +482,37 @@ namespace SchoolFeeSystem.Presentation.Services
 
                     if (nsPrevPend != null && carry > 0)
                         nr[nsPrevPend.ColumnName] = carry.ToString("F2");
+
+                    // Step 2b: set Fine_Start_Date
+                    // If the student has a carry-over balance, their fine has been
+                    // accruing since the OLD quarter's start (or their own old
+                    // Fine_Start_Date if they were already carrying from even earlier).
+                    // If they were fully paid up, the new quarter's start applies.
+                    if (carry > 0)
+                    {
+                        // Check if the old row itself had an earlier fine start date
+                        // (happens when debt spans 3+ quarters).
+                        string existingFineStart = old.Columns.Contains(FineStartCol)
+                            ? or[FineStartCol]?.ToString()?.Trim() : null;
+
+                        if (!string.IsNullOrEmpty(existingFineStart) &&
+                            DateTime.TryParse(existingFineStart, out DateTime previousFineStart) &&
+                            previousFineStart < oldQuarterStart)
+                        {
+                            // Debt is even older — keep the original start date.
+                            nr[FineStartCol] = previousFineStart.ToString("yyyy-MM-dd");
+                        }
+                        else
+                        {
+                            // Fine starts from when the OLD quarter began.
+                            nr[FineStartCol] = oldQuarterStart.ToString("yyyy-MM-dd");
+                        }
+                    }
+                    else
+                    {
+                        // Student is paid up — fine resets to the new quarter's start.
+                        nr[FineStartCol] = "";
+                    }
 
                     // Step 3: restore quarterly fee for the new quarter
                     //   Free categories (SC, ST, *FW*) always get ₹0
@@ -555,7 +615,7 @@ namespace SchoolFeeSystem.Presentation.Services
 
             var fineCol = FC(sheet, "fine") ?? FC(sheet, "remarks");
             var nameCol = FC(sheet, "name");
-            var pendCol = FC(sheet, "previous", "pending") ?? FC(sheet, "pending");
+            var pendCol = FC(sheet, "previous", "pending") ?? FC(sheet, "pending") ?? FC(sheet, "previous");
             if (fineCol == null) return;
 
             foreach (DataRow row in sheet.Rows)

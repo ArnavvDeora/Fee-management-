@@ -1,4 +1,5 @@
 ﻿using ClosedXML.Excel;
+using SchoolFeeSystem.Presentation.ViewModels; // AddStudentResult
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -223,31 +224,30 @@ namespace SchoolFeeSystem.Presentation.Services
                     var metadata = ExtractMetadataFromSubTable(worksheet, allRows, headerNum, courseRow);
                     DataTable table = BuildDataTableForBlock(allRows, headerNum, nextHeader, worksheet.Name);
 
-                    // ── LEET-MERGE DETECTION ─────────────────────────────────────────
-                    // LEET sub-blocks are lateral-entry students who joined the SAME
-                    // course as the parent block above them — NOT a separate course.
+                    // ── LEET DETECTION ───────────────────────────────────────────────
+                    // LEET sub-blocks are lateral-entry student batches that sit below
+                    // the main course block in the same Excel worksheet.
                     //
-                    // Three independent detection signals (any one is sufficient):
+                    // Instead of merging them (previous approach), we now keep them as
+                    // SEPARATE DataTables so ClassView can show them as distinct courses.
+                    // We stamp ExtendedProperties["IsLeet"] = "true" so the UI can render
+                    // a LEET badge and stripe on their course cards.
                     //
+                    // If the LEET block has no explicit year/sem of its own (e.g. the
+                    // banner just says "NEW ADMISSION 2023 LEET" with no "Xth Year" or
+                    // "Xth Sem"), we inherit the parent block's Year and Semester so the
+                    // course sorts and displays correctly.
+                    //
+                    // Three detection signals (any one marks the block as LEET):
                     //   (a) _Section tag contains "LEET" or "NEW ADMISSION"
-                    //       Catches: ME 3RD (banner "NEW ADMISSION 2023 LEET" sits in
-                    //       column A directly above the new sub-header).
-                    //
-                    //   (b) Course-row text itself contains "LEET"
-                    //       Catches: ME TD 2ND 19TH BATCH where the SECOND block has
-                    //       its own course title "Diploma - Mechanical Engineering
-                    //       (T&D) - 2nd Year LEET - 19TH BATCH" — no banner above.
-                    //
-                    //   (c) Scanning up to 5 rows above the header for ANY cell
-                    //       containing "NEW ADMISSION" or standalone "LEET"
-                    //       Catches: ME 3RD where the LEET banner sits 2 rows above
-                    //       the header (with a date string in between, which would
-                    //       trip the single-cell-row check in DeriveSectionLabel).
+                    //   (b) Course-row text itself contains the word "LEET"
+                    //   (c) Wide row-scan: any cell within 5 rows above the header
+                    //       contains "NEW ADMISSION" or standalone word "LEET"
                     bool isLeetBlock = false;
 
                     if (b > 0 && lastParentTable != null)
                     {
-                        // (a) _Section tag check
+                        // (a) _Section tag
                         if (table.Columns.Contains("_Section"))
                         {
                             foreach (DataRow r in table.Rows)
@@ -260,14 +260,12 @@ namespace SchoolFeeSystem.Presentation.Services
                             }
                         }
 
-                        // (b) Course-row text check
+                        // (b) Course-row text
                         if (!isLeetBlock && !string.IsNullOrEmpty(courseRow) &&
                             courseRow.IndexOf("LEET", StringComparison.OrdinalIgnoreCase) >= 0)
                             isLeetBlock = true;
 
-                        // (c) Wide scan above the header — looks at every CELL in
-                        // every row up to 5 above the sub-table header, not just
-                        // single-cell rows like DeriveSectionLabel does.
+                        // (c) Wide scan — catches banners separated from header by date rows
                         if (!isLeetBlock)
                         {
                             for (int offset = 1; offset <= 5 && !isLeetBlock; offset++)
@@ -291,24 +289,21 @@ namespace SchoolFeeSystem.Presentation.Services
                                 }
                             }
                         }
-                    }
 
-                    if (isLeetBlock)
-                    {
-                        // Override the LEET rows' _Section tag with a clear, consistent
-                        // label so the UI (and later fee/scholarship logic) can identify
-                        // lateral-entry students even when the Excel banner was ambiguous
-                        // ("(FEB 2026 to APRIL 2026)" instead of "NEW ADMISSION ... LEET").
-                        if (table.Columns.Contains("_Section"))
+                        // When a LEET block has no parseable year/sem of its own
+                        // (metadata.Semester == 0 means the parser found nothing),
+                        // inherit the parent's Year and Semester so the course
+                        // slots into the right place in the timeline and sort order.
+                        if (isLeetBlock && metadata.Semester == 0)
                         {
-                            foreach (DataRow r in table.Rows)
-                                r["_Section"] = "LEET";
-                        }
+                            if (int.TryParse(
+                                    lastParentTable.ExtendedProperties["Semester"]?.ToString(),
+                                    out int parentSem) && parentSem > 0)
+                                metadata.Semester = parentSem;
 
-                        MergeBlockIntoParent(table, lastParentTable);
-                        // Don't add `table` to dataSet — the rows now live inside
-                        // lastParentTable. Also skip the metadata stamping below.
-                        continue;
+                            if (string.IsNullOrEmpty(metadata.Year) || metadata.Year == "0")
+                                metadata.Year = lastParentTable.ExtendedProperties["Year"]?.ToString() ?? "1";
+                        }
                     }
                     // ─────────────────────────────────────────────────────────────────
 
@@ -332,11 +327,17 @@ namespace SchoolFeeSystem.Presentation.Services
                     table.ExtendedProperties["InstituteName"] = metadata.InstituteName;
                     table.ExtendedProperties["OriginalSheetName"] = worksheet.Name;
 
+                    // Stamp the LEET flag so ClassViewModel / ClassView can render
+                    // the LEET badge and stripe without re-scanning rows.
+                    if (isLeetBlock)
+                        table.ExtendedProperties["IsLeet"] = "true";
+
                     dataSet.Tables.Add(table);
                     CycleService?.RecordFileImport(table);
 
-                    // Remember this as the parent for any LEET sub-block that follows.
-                    lastParentTable = table;
+                    // Remember this as the parent for any LEET sub-block below it.
+                    if (!isLeetBlock)
+                        lastParentTable = table;
                 }
             }
 
@@ -2578,7 +2579,92 @@ namespace SchoolFeeSystem.Presentation.Services
             row["Archived"] = "Yes";
             SaveFile();
         }
+        /// <summary>
+        /// Adds a brand-new student row to the given DataTable (a live batch sheet)
+        /// and writes the change back to disk immediately.
+        ///
+        /// The method is column-name driven: it locates every known column by the same
+        /// fuzzy keyword match that BuildStudentCards() uses, so it works regardless of
+        /// which optional columns are present in this particular batch's sheet.
+        ///
+        /// If a column that a non-zero fee value requires does not yet exist, the column
+        /// is created on the fly and all existing rows are back-filled with 0 / "" so
+        /// Excel column order stays intact.
+        /// </summary>
+        public void AddStudentRow(DataTable table, AddStudentResult data)
+        {
+            if (table == null || data == null) return;
 
+            // ── Fuzzy column locator (same logic as BuildStudentCards) ─────────────
+            DataColumn ColFind(params string[] keywords)
+                => table.Columns.Cast<DataColumn>()
+                    .FirstOrDefault(c => keywords.All(k =>
+                        c.ColumnName.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0));
+
+            // ── Ensure-column helper: returns existing col or creates a new one ────
+            DataColumn EnsureCol(string preferredName, params string[] keywords)
+            {
+                var existing = ColFind(keywords);
+                if (existing != null) return existing;
+
+                // Column doesn't exist yet — add it and back-fill existing rows with empty
+                var newCol = table.Columns.Add(preferredName, typeof(string));
+                foreach (DataRow existingRow in table.Rows)
+                    if (existingRow.RowState != DataRowState.Deleted)
+                        existingRow[newCol] = "";
+                return newCol;
+            }
+
+            // ── Locate / create every column we might write to ────────────────────
+            var nameCol = EnsureCol("Name", "name");
+            var fatherCol = EnsureCol("Father Name", "father");
+            var phoneCol = EnsureCol("Phone No.", "phone");   // also matches "contact","mobile" via fallback below
+                                                              // Phone: prefer exact match on "phone", fallback to contact/mobile
+            var phoneColActual = ColFind("phone") ?? ColFind("contact") ?? ColFind("mobile") ?? phoneCol;
+
+            var categoryCol = EnsureCol("Category", "category");
+            var quarterlyCol = EnsureCol("Quarterly Fees", "quarterly");
+            var insuranceCol = EnsureCol("Comprehensive Insurance", "insurance");
+            var redCrossCol = EnsureCol("Red Cross Fund", "red", "cross");
+            var welfareCol = EnsureCol("Development & Welfare", "welfare");
+            var activitiesCol = EnsureCol("Student Activities", "student", "activ");
+            var institutionalCol = EnsureCol("Institutional Security", "institutional");
+            var stationaryCol = EnsureCol("Stationary", "stationary");
+            var hostelCol = EnsureCol("Hostel", "hostel");
+            var prevPendCol = EnsureCol("Previous Quarter Pending Fees", "previous", "pending");
+
+            // ── Build the new DataRow ─────────────────────────────────────────────
+            DataRow newRow = table.NewRow();
+
+            // Back-fill every column with empty string first, so no cell is DBNull
+            foreach (DataColumn col in table.Columns)
+                newRow[col] = "";
+
+            // ── Identity ──────────────────────────────────────────────────────────
+            newRow[nameCol] = data.Name;
+            newRow[fatherCol] = data.FatherName;
+            newRow[phoneColActual] = data.PhoneNumber;
+            newRow[categoryCol] = data.Category;
+
+            // ── Fee amounts (write "0" for zero values, matching the Excel convention) ─
+            // Writing decimal directly ensures the cell is numeric so ClosedXML
+            // stores it as a number cell, not a text cell.
+            static string FmtFee(decimal v) => v == 0m ? "0" : v.ToString("G29");
+
+            newRow[quarterlyCol] = FmtFee(data.QuarterlyFee);
+            newRow[insuranceCol] = FmtFee(data.ComprehensiveInsurance);
+            newRow[redCrossCol] = FmtFee(data.RedCrossFund);
+            newRow[welfareCol] = FmtFee(data.DevelopmentWelfare);
+            newRow[activitiesCol] = FmtFee(data.StudentActivities);
+            newRow[institutionalCol] = FmtFee(data.InstitutionalSecurity);
+            newRow[stationaryCol] = FmtFee(data.Stationary);
+            newRow[hostelCol] = FmtFee(data.Hostel);
+            newRow[prevPendCol] = FmtFee(data.PreviousPending);
+
+            // ── Append and persist ────────────────────────────────────────────────
+            table.Rows.Add(newRow);
+            SaveFile();
+        }
         /// <summary>
         /// Save all changes to files
         /// </summary>

@@ -268,7 +268,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                         ColVal(sheet, row, c => c.Contains("father")),
                         ColVal(sheet, row, c => c.Contains("category")),
                         ColVal(sheet, row, c => c.Contains("quarterly") || c.Contains("installment")),
-                        ColVal(sheet, row, c => c.Contains("previous") && c.Contains("pending")),
+                        ColVal(sheet, row, c => c.Contains("previous")),
                         ColVal(sheet, row, c => c.Equals("fine")),
                         ColVal(sheet, row, c => c.Contains("phone") || c.Contains("contact") || c.Contains("mobile"))
                     );
@@ -307,7 +307,8 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             var nameCol = FindCol(_fullData, "name");
             var fatherCol = FindCol(_fullData, "father");
             var pendingCol = FindCol(_fullData, "previous", "pending") ??
-                              FindCol(_fullData, "pending");
+                              FindCol(_fullData, "pending") ??
+                              FindCol(_fullData, "previous");
             var quarterlyCol = FindCol(_fullData, "quarterly", "installment");
             var fineCol = _fullData.Columns.Contains("Fine")
                                 ? _fullData.Columns["Fine"] : null;

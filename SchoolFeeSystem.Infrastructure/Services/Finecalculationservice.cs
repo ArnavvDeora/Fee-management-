@@ -34,7 +34,7 @@ namespace SchoolFeeSystem.Presentation.Services
         // ── Fine rates ───────────────────────────────────────────────────────
         private const decimal Month1DailyRate = 10m;
         private const decimal Month2DailyRate = 20m;
-        private const decimal Month3FlatRate = 750m;
+        private const decimal Month3FlatRate = 1000m;
         private const int GraceDays = 15;
 
         // ── Quarter definitions (same as AcademicCycleService) ───────────────
@@ -219,13 +219,15 @@ namespace SchoolFeeSystem.Presentation.Services
             DataColumn prevCol = FindColAny(table, "previous pending", "previous");
             DataColumn qCol = FindColAny(table, "quarterly fees", "installment", "quarterly fee");
             DataColumn paidCol = FindColAny(table, "amount paid", "paid amount", "paid");
-            // "Fine Waiver" is a PERSISTENT column written by ApplyFineWaiver and
-            // saved to disk.  We subtract it from the live fine so waivers survive
-            // reloads and the net fine keeps accruing correctly day by day.
             DataColumn waiverCol = FindColAny(table, "fine waiver");
+            // Fine_Start_Date: written by AcademicCycleService.Advance() for students
+            // whose debt originated in an earlier quarter. When present, the fine
+            // accrues from that earlier date rather than the current quarter start.
+            DataColumn fineStartCol = FindColAny(table, "Fine_Start_Date");
 
-            // ── Calculate today's gross fine for this quarter ─────────────────
-            decimal grossFine = Calculate(quarterStart, DateTime.Now.Date);
+            // ── Calculate today's gross fine for this quarter (default) ──────
+            // Used for students who have no carry-over debt (fine starts fresh).
+            decimal defaultGrossFine = Calculate(quarterStart, DateTime.Now.Date);
 
             // ── Write net fine into each student row ──────────────────────────
             foreach (DataRow row in table.Rows)
@@ -241,14 +243,37 @@ namespace SchoolFeeSystem.Presentation.Services
                     continue;
                 }
 
-                // Subtract any admin-granted waiver from the live gross fine.
-                // The waiver is a one-time credit, not a daily reduction; the fine
-                // continues to accrue past the waiver date.
-                // e.g. grossFine=15, waiver=5 → net=10 (not 0, because a new day
-                //      has passed since the waiver was applied).
+                // ── Determine effective fine start date ───────────────────────
+                // If this student has a carry-over from a previous quarter, their
+                // fine has been accruing since the original debt started — not from
+                // the current quarter's grace-period end. One fine stream from the
+                // earliest unpaid date covers everything (the month-3+ flat rate
+                // already accounts for each month the debt remains unpaid).
+                decimal grossFine;
+                if (fineStartCol != null && prevAmt > 0)
+                {
+                    string fsd = row[fineStartCol]?.ToString()?.Trim() ?? "";
+                    if (!string.IsNullOrEmpty(fsd) &&
+                        DateTime.TryParse(fsd, out DateTime originalStart) &&
+                        originalStart < quarterStart)
+                    {
+                        // Single fine stream from the original debt date
+                        grossFine = Calculate(originalStart, DateTime.Now.Date);
+                    }
+                    else
+                    {
+                        // No valid earlier date — use the current quarter start.
+                        grossFine = defaultGrossFine;
+                    }
+                }
+                else
+                {
+                    // No carry-over — fine accrues from current quarter start.
+                    grossFine = defaultGrossFine;
+                }
+
                 decimal waived = waiverCol != null ? ReadDec(row, waiverCol) : 0m;
                 decimal netFine = Math.Max(0m, grossFine - waived);
-
                 row[FineColName] = netFine.ToString("F2");
             }
         }

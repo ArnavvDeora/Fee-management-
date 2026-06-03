@@ -21,6 +21,7 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         private readonly PaymentLogService _paymentLogService;
         private readonly AcademicCycleService _cycleService;
         private readonly FineCalculationService _fineService;
+        private readonly QuarterHistoryService _historyService;
 
         private DataTable _fullSheetData;
         private string _currentSheetName;
@@ -128,12 +129,14 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         public FeeCollectionViewModel(CsvDataService csvService,
                                       PaymentLogService paymentLogService,
                                       AcademicCycleService cycleService,
-                                      FineCalculationService fineService)
+                                      FineCalculationService fineService,
+                                      QuarterHistoryService historyService)
         {
             _csvService = csvService;
             _paymentLogService = paymentLogService;
             _cycleService = cycleService;
             _fineService = fineService;
+            _historyService = historyService;
 
             var transitions = _cycleService.RunCycleCheck();
             if (transitions.Count > 0)
@@ -694,7 +697,18 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     CurrentFineAmount = Math.Max(0m, liveFine - waived);
                 }
 
-                var bd = _fineService.GetBreakdown(_currentQuarterStart, DateTime.Now);
+                // Use Fine_Start_Date for the breakdown if available
+                var fineStartCol = FindCol(t, "fine_start_date");
+                DateTime breakdownStart = _currentQuarterStart;
+                if (fineStartCol != null && PreviousPendingAmount > 0)
+                {
+                    string fsd = SelectedRow.Row[fineStartCol]?.ToString()?.Trim() ?? "";
+                    if (!string.IsNullOrEmpty(fsd) &&
+                        DateTime.TryParse(fsd, out DateTime origStart) &&
+                        origStart < _currentQuarterStart)
+                        breakdownStart = origStart;
+                }
+                var bd = _fineService.GetBreakdown(breakdownStart, DateTime.Now);
                 FineBreakdownText = bd.Summary;
             }
             else
@@ -1043,6 +1057,178 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             }
         }
 
+        // ═════════════════════════════════════════════════════════════════
+        // REPAIR CARRY-FORWARD
+        // ─────────────────────────────────────────────────────────────────
+        // Fixes the current quarter when Advance() ran before the carry-forward
+        // fix was deployed. Reads the last snapshot, writes prev pending AND
+        // Fine_Start_Date so fines correctly accrue from the original debt date.
+        // ═════════════════════════════════════════════════════════════════
+        [RelayCommand]
+        public void RepairCarryForward()
+        {
+            if (_fullSheetData == null || string.IsNullOrEmpty(SelectedSheet))
+            {
+                MessageBox.Show("Please select a class first.",
+                    "No class selected", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var history = _historyService?.GetHistory(_fullSheetData);
+            if (history == null || history.Count < 2)
+            {
+                MessageBox.Show("No previous quarter snapshot found for this course.",
+                    "Nothing to repair", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            string liveQ = AcademicCycleService.CurrentQuarter();
+            var prevEntry = history
+                .Where(e => e.Quarter != liveQ)
+                .OrderByDescending(e => e.SnapshotTaken)
+                .FirstOrDefault();
+
+            if (prevEntry == null)
+            {
+                MessageBox.Show("Could not find a prior-quarter snapshot to repair from.",
+                    "Nothing to repair", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var snapshot = _historyService.LoadSnapshot(prevEntry);
+            if (snapshot == null)
+            {
+                MessageBox.Show($"Snapshot for {prevEntry.QuarterLabel} could not be loaded.",
+                    "Snapshot unavailable", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Build name → (balance, fineStartDate) from snapshot
+            var snapNameCol = FindCol(snapshot, "name");
+            var snapTotalCol = FindCol(snapshot, "total", "fees") ?? FindCol(snapshot, "total");
+            if (snapNameCol == null || snapTotalCol == null)
+            {
+                MessageBox.Show("Could not identify Name/Total columns in snapshot.",
+                    "Column not found", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Resolve what quarter the snapshot belongs to (for Fine_Start_Date)
+            DateTime snapQuarterStart = DateTime.MinValue;
+            if (snapshot.ExtendedProperties.ContainsKey("QuarterStart") &&
+                snapshot.ExtendedProperties["QuarterStart"] is DateTime sq)
+                snapQuarterStart = sq;
+            else
+            {
+                string period = snapshot.ExtendedProperties["Period"]?.ToString() ?? "";
+                snapQuarterStart = FineCalculationService.TryParseQuarterStart(period)
+                                   ?? new DateTime(prevEntry.CalendarYear,
+                                       QuarterNameToStartMonth(prevEntry.Quarter) > 0
+                                           ? QuarterNameToStartMonth(prevEntry.Quarter) : 1, 1);
+            }
+
+            var balanceByName = new Dictionary<string, (decimal Balance, string FineStart)>(
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (DataRow sr in snapshot.Rows)
+            {
+                string nm = sr[snapNameCol]?.ToString()?.Trim() ?? "";
+                if (string.IsNullOrEmpty(nm) || nm.Length > 60) continue;
+                if (!decimal.TryParse(sr[snapTotalCol]?.ToString(),
+                        System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out decimal bal) || bal <= 0) continue;
+
+                // Check if the snapshot row itself has an even older Fine_Start_Date
+                string fsd = "";
+                if (snapshot.Columns.Contains("Fine_Start_Date"))
+                {
+                    string existing = sr["Fine_Start_Date"]?.ToString()?.Trim() ?? "";
+                    if (!string.IsNullOrEmpty(existing) &&
+                        DateTime.TryParse(existing, out DateTime existingDate) &&
+                        existingDate < snapQuarterStart)
+                        fsd = existing;  // debt is even older — preserve original date
+                }
+                if (string.IsNullOrEmpty(fsd))
+                    fsd = snapQuarterStart.ToString("yyyy-MM-dd");
+
+                balanceByName[nm] = (bal, fsd);
+            }
+
+            if (balanceByName.Count == 0)
+            {
+                MessageBox.Show("All students in the snapshot show ₹0 outstanding.",
+                    "All paid", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var liveNameCol = FindCol(_fullSheetData, "name");
+            var livePrevCol = FindCol(_fullSheetData, "previous", "pending")
+                            ?? FindCol(_fullSheetData, "previous");
+            var liveTotalCol = FindCol(_fullSheetData, "total", "fees")
+                            ?? FindCol(_fullSheetData, "total");
+
+            if (livePrevCol == null)
+            {
+                MessageBox.Show("The current sheet has no 'Previous fee' column.",
+                    "Column not found", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Ensure Fine_Start_Date column exists on the live sheet
+            const string FSD = "Fine_Start_Date";
+            if (!_fullSheetData.Columns.Contains(FSD))
+                _fullSheetData.Columns.Add(FSD, typeof(string));
+
+            int repaired = 0;
+            foreach (DataRow lr in _fullSheetData.Rows)
+            {
+                string nm = liveNameCol != null
+                    ? lr[liveNameCol]?.ToString()?.Trim() ?? "" : "";
+                if (!balanceByName.TryGetValue(nm, out var info)) continue;
+
+                decimal current = 0m;
+                decimal.TryParse(lr[livePrevCol]?.ToString(),
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out current);
+                if (current != 0) continue;
+
+                lr[livePrevCol] = info.Balance.ToString("F2");
+                lr[FSD] = info.FineStart;  // ← write the original debt date
+
+                if (liveTotalCol != null)
+                {
+                    var liveQFeeCol = FindCol(_fullSheetData, "quarterly");
+                    decimal qFee = 0m;
+                    if (liveQFeeCol != null)
+                        decimal.TryParse(lr[liveQFeeCol]?.ToString(),
+                            System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture, out qFee);
+                    lr[liveTotalCol] = (qFee + info.Balance).ToString("F2");
+                }
+                repaired++;
+            }
+
+            if (repaired == 0)
+            {
+                MessageBox.Show("No rows updated — prev pending already set, or no name matches.",
+                    "No changes", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            _csvService.SaveFile();
+            LoadSheetData(SelectedSheet);
+            RebuildCards();
+
+            MessageBox.Show(
+                $"✅ Repaired {repaired} student(s).\n\n" +
+                $"Previous quarter : {prevEntry.QuarterLabel}\n" +
+                $"Students updated : {repaired}\n\n" +
+                $"Prev pending and fine start date have been set.\n" +
+                $"Fines will now accrue from the original debt date.",
+                "Repair complete", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
         [RelayCommand]
         public void GoBack() =>
             Application.Current.MainWindow.Content =
@@ -1067,7 +1253,34 @@ namespace SchoolFeeSystem.Presentation.ViewModels
                     return parsed.Value;
                 }
             }
-            return new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+
+            // Advance-created sheets always have Quarter set (e.g. "May-Jul")
+            // even when Period is stale or unparseable.
+            string quarter = table.ExtendedProperties["Quarter"]?.ToString() ?? "";
+            int startMonth = QuarterNameToStartMonth(quarter);
+            if (startMonth > 0)
+            {
+                int year = DateTime.Now.Year;
+                if (startMonth == 11 && DateTime.Now.Month == 1) year--;
+                var fromQuarter = new DateTime(year, startMonth, 1);
+                table.ExtendedProperties["QuarterStart"] = fromQuarter;
+                return fromQuarter;
+            }
+
+            var fallback = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+            table.ExtendedProperties["QuarterStart"] = fallback;
+            return fallback;
+        }
+
+        private static int QuarterNameToStartMonth(string quarterLabel)
+        {
+            if (string.IsNullOrWhiteSpace(quarterLabel)) return 0;
+            string q = quarterLabel.Trim().ToUpperInvariant();
+            if (q.StartsWith("FEB") || q.StartsWith("FEBRUARY")) return 2;
+            if (q.StartsWith("MAY")) return 5;
+            if (q.StartsWith("AUG") || q.StartsWith("AUGUST")) return 8;
+            if (q.StartsWith("NOV") || q.StartsWith("NOVEMBER")) return 11;
+            return 0;
         }
 
         private static DataColumn FindCol(DataTable t, params string[] keywords) =>
