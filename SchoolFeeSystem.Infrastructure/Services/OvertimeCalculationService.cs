@@ -16,10 +16,13 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
         // Constants
         private const int STANDARD_START_HOUR = 9;    // 9:00 AM
+        private const int STANDARD_START_MINUTE = 5;   // 9:05 AM (grace ends here; 9:06+ is late)
         private const int STANDARD_END_HOUR = 17;     // 5:30 PM (hour part)
         private const int STANDARD_END_MINUTE = 30;   // 5:30 PM (minute part)
-        private const int GRACE_PERIOD_MINUTES = 15;  // 15-minute grace period for late arrivals
+        private const int GRACE_PERIOD_MINUTES = 0;   // No additional grace — 9:05 is the hard cutoff
         private const int LATE_PENALTY_BLOCK = 30;    // Round up to 30-minute blocks
+        private const int FULL_DAY_MINUTES = 510;     // 8h 30m — early-shift workers who clock this are full-day
+        private const int PAID_OT_CAP_MINUTES = 120;  // Heat/Forge: first 2 hrs (5:30-7:30) paid, rest to bank
 
         // Departments eligible for PAID overtime (get cash, not allowance time)
         private static readonly string[] OT_PAID_DEPARTMENTS = {
@@ -61,20 +64,43 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
             bool isOTPaid = IsOTPaidDepartment(employee.Department);
 
-            // ===== STEP 1: Calculate Late Minutes =====
-            var standardStart = new TimeSpan(STANDARD_START_HOUR, 0, 0);
-            if (inTime > standardStart)
+            // ===== EARLY SHIFT CHECK =====
+            // If someone clocks in before 9:00 and works 8h30m+, they're on an early
+            // shift → exempt from late penalties. OT still only counts after 17:30.
+            var totalWorked = outTime - inTime;
+            if (totalWorked.TotalMinutes < 0) totalWorked = totalWorked.Add(TimeSpan.FromHours(24));
+            bool isFullDayEarlyShift = totalWorked.TotalMinutes >= FULL_DAY_MINUTES
+                                       && inTime < new TimeSpan(STANDARD_START_HOUR, 0, 0);
+
+            // ===== STEP 1: Calculate Late Penalty =====
+            // Rules:
+            //   ≤ 9:05 → on time (no penalty)
+            //   9:06 – 9:30 → 30 min deducted
+            //   9:31 – 10:59 → 60 min (1 hour) deducted
+            //   11:00+ → half day (240 min = 4 hours deducted)
+            // Early-shift workers (8h30m+ starting before 9:00) are exempt.
+            var standardStart = new TimeSpan(STANDARD_START_HOUR, STANDARD_START_MINUTE, 0);
+            var halfDayCutoff = new TimeSpan(11, 0, 0);
+            var oneHourCutoff = new TimeSpan(9, 31, 0);  // 9:31+
+
+            if (inTime > standardStart && !isFullDayEarlyShift)
             {
                 record.LateMinutes = (int)(inTime - standardStart).TotalMinutes;
 
-                if (record.LateMinutes <= GRACE_PERIOD_MINUTES)
+                if (inTime >= halfDayCutoff)
                 {
-                    record.LatePenaltyMinutes = 0;
+                    // 11:00 AM or later → half day
+                    record.LatePenaltyMinutes = 240;  // 4 hours
+                }
+                else if (inTime >= oneHourCutoff)
+                {
+                    // 9:31 – 10:59 → 1 hour deducted
+                    record.LatePenaltyMinutes = 60;
                 }
                 else
                 {
-                    int penalisableMinutes = record.LateMinutes - GRACE_PERIOD_MINUTES;
-                    record.LatePenaltyMinutes = (int)Math.Ceiling(penalisableMinutes / (double)LATE_PENALTY_BLOCK) * LATE_PENALTY_BLOCK;
+                    // 9:06 – 9:30 → 30 min deducted
+                    record.LatePenaltyMinutes = 30;
                 }
             }
             else
@@ -83,29 +109,62 @@ namespace SchoolFeeSystem.Infrastructure.Services
                 record.LatePenaltyMinutes = 0;
             }
 
-            // ===== STEP 2: Calculate Overtime Minutes (after 5:30 PM) =====
+            // ===== STEP 2: Calculate Overtime Minutes (ONLY after 5:30 PM) =====
+            // OT is always measured from 17:30, regardless of early shift or not.
             var standardEnd = new TimeSpan(STANDARD_END_HOUR, STANDARD_END_MINUTE, 0);
             record.OvertimeMinutes = outTime > standardEnd
                 ? (int)(outTime - standardEnd).TotalMinutes
                 : 0;
 
-            // ===== STEP 3: Bank TODAY's OT FIRST =====
-            // OT must be banked before penalty offset so same-day OT can cover penalties.
-            // AsNoTracking in GetOrCreateAllowance ensures we always read fresh from DB.
-            if (record.OvertimeMinutes > 0 && !isOTPaid)
+            // ===== STEP 3: Bank / Pay OT =====
+            // For HEAT TREATMENT & FORGE SHOP (OT-paid departments):
+            //   First 2 hours (120 min) after 17:30 → paid as cash (stays in OvertimeMinutes)
+            //   After 19:30 (beyond 120 min) → goes to allowance bank
+            // For all other departments:
+            //   All OT goes to allowance bank
+            if (record.OvertimeMinutes > 0)
             {
-                var allowance = GetOrCreateAllowance(record.EmployeeId);
-                allowance.TotalAllowanceMinutes += record.OvertimeMinutes;
-                allowance.LastUpdated = DateTime.Now;
+                if (isOTPaid)
+                {
+                    // Split: first 120 min is paid, rest goes to bank
+                    int paidMinutes = Math.Min(record.OvertimeMinutes, PAID_OT_CAP_MINUTES);
+                    int bankMinutes = record.OvertimeMinutes - paidMinutes;
 
-                // Detach any existing tracked instance before attaching updated one
-                var tracked = _context.ChangeTracker.Entries<OvertimeAllowance>()
-                    .FirstOrDefault(e => e.Entity.EmployeeId == record.EmployeeId);
-                if (tracked != null)
-                    tracked.State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+                    // OvertimeMinutes stores only the PAID portion for OT-paid depts.
+                    // GetPaidOvertimeHours sums this field, so it must reflect paid OT only.
+                    record.OvertimeMinutes = paidMinutes;
 
-                _context.OvertimeAllowances.Update(allowance);
-                _context.SaveChanges();
+                    // Bank the remainder (after 7:30 PM)
+                    if (bankMinutes > 0)
+                    {
+                        var allowance = GetOrCreateAllowance(record.EmployeeId);
+                        allowance.TotalAllowanceMinutes += bankMinutes;
+                        allowance.LastUpdated = DateTime.Now;
+
+                        var tracked = _context.ChangeTracker.Entries<OvertimeAllowance>()
+                            .FirstOrDefault(e => e.Entity.EmployeeId == record.EmployeeId);
+                        if (tracked != null)
+                            tracked.State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+
+                        _context.OvertimeAllowances.Update(allowance);
+                        _context.SaveChanges();
+                    }
+                }
+                else
+                {
+                    // Non-paid departments: all OT goes to allowance bank
+                    var allowance = GetOrCreateAllowance(record.EmployeeId);
+                    allowance.TotalAllowanceMinutes += record.OvertimeMinutes;
+                    allowance.LastUpdated = DateTime.Now;
+
+                    var tracked = _context.ChangeTracker.Entries<OvertimeAllowance>()
+                        .FirstOrDefault(e => e.Entity.EmployeeId == record.EmployeeId);
+                    if (tracked != null)
+                        tracked.State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+
+                    _context.OvertimeAllowances.Update(allowance);
+                    _context.SaveChanges();
+                }
             }
 
             // ===== STEP 4: Offset Penalty — Gate Pass FIRST, then OT Bank =====
@@ -125,7 +184,6 @@ namespace SchoolFeeSystem.Infrastructure.Services
                 // 4b: Personal OT allowance bank for whatever penalty remains
                 if (remainingPenalty > 0)
                 {
-                    // Fresh read from DB after Step 3 saved
                     var allowance = GetOrCreateAllowance(record.EmployeeId);
                     int bankUsed = Math.Min(remainingPenalty, allowance.AvailableMinutes);
 
@@ -134,7 +192,6 @@ namespace SchoolFeeSystem.Infrastructure.Services
                         allowance.UsedAllowanceMinutes += bankUsed;
                         allowance.LastUpdated = DateTime.Now;
 
-                        // Detach stale tracked instance before update
                         var tracked = _context.ChangeTracker.Entries<OvertimeAllowance>()
                             .FirstOrDefault(e => e.Entity.EmployeeId == record.EmployeeId);
                         if (tracked != null)

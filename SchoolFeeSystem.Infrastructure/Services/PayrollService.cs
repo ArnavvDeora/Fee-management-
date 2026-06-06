@@ -291,27 +291,28 @@ namespace SchoolFeeSystem.Infrastructure.Services
                     int presentDays = attendanceRecords.Count(a => a.Status == "Present");
                     int absentDays = attendanceRecords.Count(a => a.Status == "Absent");
 
-                    // PAYABLE DAYS = calendarDays − absentDays
-                    //
-                    // Why: A monthly salary already covers ALL days in the month,
-                    // including Weekly Offs (Sundays). Only genuine absent days should
-                    // reduce pay. Weekly Offs are NOT saved to the attendance DB
-                    // (the import skips WO rows), so we cannot count them directly.
-                    // Instead: payable = calendar − absent  (WO days cancel out naturally).
-                    //
-                    // Example — Gareeb Dass, July 2025:
-                    //   calendarDays=31, present=25, absent=2, WO=4 (not in DB)
-                    //   OLD (wrong): payable = presentDays = 25  (penalised 4 WO days!)
-                    //   NEW (right): payable = 31 − 2      = 29  (only 2 absent deducted)
-                    //
-                    //   Salary: 23,050 × 29 ÷ 31 = ₹21,563  (was ₹18,589 — underpaid by ₹2,974)
-
                     int holidays = _context.Holidays.Count(h =>
                         h.Date.Month == month && h.Date.Year == year);
 
-                    // Payable = all calendar days, minus absent, plus any declared holidays
-                    // (holidays are already excluded from absent, so add them as bonus paid days)
-                    daysWorkedFromData = calendarDays - absentDays + holidays;
+                    if (isDailyWage)
+                    {
+                        // DAILY-WAGE WORKERS: paid only for days physically present.
+                        // Weekly Offs do NOT count as paid days (unlike monthly employees).
+                        // MIS days with a valid punch are already saved as "Present" by
+                        // the biometric import, so presentDays includes them.
+                        // Verified against SS Master: P+MIS = Master Days for all 4 workers.
+                        daysWorkedFromData = presentDays;
+                    }
+                    else
+                    {
+                        // MONTHLY SALARIED: payable = calendarDays − absentDays
+                        //
+                        // A monthly salary covers ALL days including Weekly Offs.
+                        // Only genuine absent days reduce pay. WO rows are not saved
+                        // to the DB (import skips them), so we can't count them.
+                        // Instead: payable = calendar − absent (WO cancels naturally).
+                        daysWorkedFromData = calendarDays - absentDays + holidays;
+                    }
 
                     int totalLatePenaltyMinutes = attendanceRecords
                         .Where(a => a.Status == "Present")
