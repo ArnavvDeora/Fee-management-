@@ -19,7 +19,7 @@ namespace SchoolFeeSystem.Core.Entities
 
         // Flags for Rules
         public bool IsLate { get; set; }
-        public bool IsEarlyExit { get; set; }
+        public bool IsEarlyExit { get; set; } = false;
         // Overtime tracking
         public int OvertimeMinutes { get; set; } = 0;          // Minutes worked after 5:00 PM
         public int LateMinutes { get; set; } = 0;              // Minutes late arrival

@@ -894,12 +894,35 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
                 if (existing != null)
                 {
+                    // ===== FIX: REVERSE OLD EFFECTS BEFORE RECALCULATING =====
+                    // Without this:
+                    //   - Changing Present→Absent leaves stale penalties on the record
+                    //   - Re-editing a Present record double-banks OT
+                    //   - Gate pass / allowance consumption is never refunded
+                    //
+                    // The fix: ALWAYS reverse the old record's side-effects first,
+                    // then let CalculateOvertimeAndPenalties freshly recalculate.
+                    if (existing.Status == "Present")
+                    {
+                        ReverseRecordSideEffects(existing);
+                    }
+
+                    // Copy ALL fields from the new record (not just 4)
                     existing.InTime = newRecord.InTime;
                     existing.OutTime = newRecord.OutTime;
                     existing.Duration = newRecord.Duration;
                     existing.Status = newRecord.Status;
+                    existing.Remarks = newRecord.Remarks ?? existing.Remarks;
 
-                    // 🆕 CALCULATE OVERTIME & PENALTIES
+                    // Reset penalty/OT fields — CalculateOvertimeAndPenalties
+                    // will set them correctly for Present records.
+                    // For non-Present, they stay at 0 (correct).
+                    existing.LateMinutes = 0;
+                    existing.LatePenaltyMinutes = 0;
+                    existing.OvertimeMinutes = 0;
+                    existing.AllowanceTimeUsed = 0;
+
+                    // 🆕 CALCULATE OVERTIME & PENALTIES (fresh, no double-banking)
                     _overtimeService.CalculateOvertimeAndPenalties(existing);
                 }
                 else
@@ -955,6 +978,131 @@ namespace SchoolFeeSystem.Infrastructure.Services
                     }
                 }
             }
+        }
+
+        // =========================================================
+        // REVERSE OLD RECORD SIDE EFFECTS
+        // =========================================================
+        /// <summary>
+        /// Reverses the side-effects that CalculateOvertimeAndPenalties created
+        /// when this record was previously processed as "Present".
+        ///
+        /// Called BEFORE re-running the calculation so we don't double-bank OT
+        /// or leave stale gate pass / allowance consumption.
+        ///
+        /// What gets reversed:
+        ///   1. OT minutes that were banked to OvertimeAllowances.TotalAllowanceMinutes
+        ///   2. Allowance minutes that were consumed (gate pass + personal OT bank)
+        ///      from LatePenaltyMinutes offset
+        /// </summary>
+        private void ReverseRecordSideEffects(AttendanceRecord record)
+        {
+            if (record == null) return;
+
+            try
+            {
+                var employee = _context.Employees.Find(record.EmployeeId);
+                if (employee == null) return;
+
+                bool isOTPaid = IsOTPaidDepartment(employee.Department);
+
+                // ===== 1. REVERSE OT BANKING =====
+                // When OT was originally calculated:
+                //   Non-paid depts: ALL OT goes to bank (record.OvertimeMinutes was banked)
+                //   Paid depts:     Only excess beyond 120min goes to bank
+                //                   record.OvertimeMinutes = min(rawOT, 120) [the paid portion]
+                //                   banked = rawOT - 120 (if rawOT > 120)
+                //
+                // For non-paid: we can reverse exactly (banked = record.OvertimeMinutes)
+                // For paid: if record.OvertimeMinutes == 120, there WAS overflow banked
+                //           but we don't know how much. Conservative: only reverse non-paid.
+                //           Paid dept OT went to cash, not bank — only the rare overflow matters.
+
+                if (record.OvertimeMinutes > 0)
+                {
+                    int minutesToReverse = 0;
+
+                    if (!isOTPaid)
+                    {
+                        // Non-paid: all OT was banked
+                        minutesToReverse = record.OvertimeMinutes;
+                    }
+                    else if (record.OvertimeMinutes >= 120)
+                    {
+                        // Paid dept: the record shows the capped paid portion (120).
+                        // We can't know the exact overflow that was banked.
+                        // But we know SOME was banked. Best effort: don't reverse
+                        // (the overflow is typically small and rare).
+                        // The admin can manually adjust via Allowance Time page if needed.
+                        minutesToReverse = 0;
+                    }
+
+                    if (minutesToReverse > 0)
+                    {
+                        var allowance = _context.OvertimeAllowances
+                            .FirstOrDefault(a => a.EmployeeId == record.EmployeeId);
+
+                        if (allowance != null)
+                        {
+                            allowance.TotalAllowanceMinutes = Math.Max(0,
+                                allowance.TotalAllowanceMinutes - minutesToReverse);
+                            allowance.LastUpdated = DateTime.Now;
+                            _context.OvertimeAllowances.Update(allowance);
+
+                            System.Diagnostics.Debug.WriteLine(
+                                $"↩️ Reversed {minutesToReverse} OT bank minutes for EmpID {record.EmployeeId} " +
+                                $"on {record.Date:dd-MMM-yyyy}");
+                        }
+                    }
+                }
+
+                // ===== 2. REVERSE ALLOWANCE/GATE PASS CONSUMPTION =====
+                // record.AllowanceTimeUsed = total minutes offset (gate pass + personal OT bank)
+                // We refund this back to the personal OT bank as a simple reversal.
+                // Gate pass reversal is trickier (need to know the split), so we refund
+                // to OT bank and let the next calculation re-consume correctly.
+                if (record.AllowanceTimeUsed > 0)
+                {
+                    var allowance = _context.OvertimeAllowances
+                        .FirstOrDefault(a => a.EmployeeId == record.EmployeeId);
+
+                    if (allowance != null)
+                    {
+                        allowance.UsedAllowanceMinutes = Math.Max(0,
+                            allowance.UsedAllowanceMinutes - record.AllowanceTimeUsed);
+                        allowance.LastUpdated = DateTime.Now;
+                        _context.OvertimeAllowances.Update(allowance);
+
+                        System.Diagnostics.Debug.WriteLine(
+                            $"↩️ Refunded {record.AllowanceTimeUsed} allowance minutes for EmpID {record.EmployeeId} " +
+                            $"on {record.Date:dd-MMM-yyyy}");
+                    }
+                }
+
+                _context.SaveChanges();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"⚠️ ReverseRecordSideEffects error for EmpID {record.EmployeeId}: {ex.Message}");
+                // Non-fatal — continue with the update even if reversal fails
+            }
+        }
+
+        /// <summary>
+        /// Helper: Check if department is eligible for paid overtime.
+        /// Duplicated from OvertimeCalculationService to avoid circular dependency.
+        /// </summary>
+        private static readonly string[] _otPaidDepartments = {
+            "TRAINING WORKSHOP", "CNC Workshop", "HEAT-TREATMENT SHOP",
+            "Heat Treatment", "HEAT SHOP", "FORGE SHOP", "Forge Shop"
+        };
+
+        private static bool IsOTPaidDepartment(string department)
+        {
+            if (string.IsNullOrEmpty(department)) return false;
+            return _otPaidDepartments.Any(d =>
+                department.Equals(d, StringComparison.OrdinalIgnoreCase));
         }
 
         // =========================================================

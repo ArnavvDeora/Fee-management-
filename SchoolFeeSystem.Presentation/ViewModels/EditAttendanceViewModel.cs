@@ -2,6 +2,7 @@
 using CommunityToolkit.Mvvm.Input;
 using SchoolFeeSystem.Core.Entities;
 using SchoolFeeSystem.Core.Interfaces;
+using System;
 using System.Collections.ObjectModel;
 using System.Windows;
 
@@ -44,39 +45,50 @@ namespace SchoolFeeSystem.Presentation.ViewModels
         {
             if (_actualRecord == null) return;
 
-            // 2. Commit changes ONLY when Save is clicked
-            _actualRecord.InTime = EditInTime?.Trim();
-            _actualRecord.OutTime = EditOutTime?.Trim();
-            _actualRecord.Status = EditStatus;
+            // ===== FIX: Don't mutate _actualRecord directly =====
+            // _actualRecord is an EF-tracked entity. If we zero its OT/penalty fields
+            // here, AddOrUpdateAttendanceBatch can't read the OLD values to reverse
+            // OT banking and allowance consumption. Instead, build a NEW record object
+            // with the edited values and pass that. The batch method will find the
+            // original tracked entity (old values intact), reverse side-effects, then
+            // overwrite with the new values.
 
-            // FIX 1: Recalculate Duration from the new InTime/OutTime
-            // Without this, the attendance grid shows the old duration after editing.
-            if (TimeSpan.TryParse(_actualRecord.InTime, out var tIn) &&
-                TimeSpan.TryParse(_actualRecord.OutTime, out var tOut) &&
+            // Calculate new duration from edited times
+            string newDuration = "0h 0m";
+            if (TimeSpan.TryParse(EditInTime?.Trim(), out var tIn) &&
+                TimeSpan.TryParse(EditOutTime?.Trim(), out var tOut) &&
                 tOut > TimeSpan.Zero)
             {
                 var diff = tOut - tIn;
                 if (diff.TotalMinutes < 0) diff = diff.Add(TimeSpan.FromHours(24));
-                _actualRecord.Duration = $"{(int)diff.TotalHours}h {diff.Minutes}m";
+                newDuration = $"{(int)diff.TotalHours}h {diff.Minutes}m";
             }
-            else
+
+            // Build a detached record with the edited values
+            var updatedRecord = new AttendanceRecord
             {
-                _actualRecord.Duration = "0h 0m";
-            }
+                Id = _actualRecord.Id,
+                EmployeeId = _actualRecord.EmployeeId,
+                Date = _actualRecord.Date,
+                InTime = EditInTime?.Trim() ?? "00:00",
+                OutTime = EditOutTime?.Trim() ?? "00:00",
+                Status = EditStatus,
+                Duration = newDuration,
+                Remarks = _actualRecord.Remarks,
+                IsManualEntry = true,
 
-            // FIX 2: Reset penalty/OT fields before recalculation so stale values
-            // don't carry over. e.g. admin removes lateness — AllowanceTimeUsed must
-            // reset to 0 or OvertimeCalc will apply the old offset incorrectly.
-            _actualRecord.LateMinutes = 0;
-            _actualRecord.LatePenaltyMinutes = 0;
-            _actualRecord.OvertimeMinutes = 0;
-            _actualRecord.AllowanceTimeUsed = 0;
+                // Zeroed — CalculateOvertimeAndPenalties will set them fresh for Present
+                LateMinutes = 0,
+                LatePenaltyMinutes = 0,
+                OvertimeMinutes = 0,
+                AllowanceTimeUsed = 0
+            };
 
-            // 3. Update Database (MarkAttendance → AddOrUpdateAttendanceBatch
-            //    → CalculateOvertimeAndPenalties recalculates everything fresh)
-            _attendanceService.MarkAttendance(_actualRecord);
+            // MarkAttendance → AddOrUpdateAttendanceBatch finds the OLD tracked record
+            // (with original OT/penalty values), reverses side-effects, THEN overwrites.
+            _attendanceService.MarkAttendance(updatedRecord);
 
-            // 4. Close Window
+            // Close Window
             if (window != null)
             {
                 window.DialogResult = true; // Returns "True" to the parent to trigger refresh

@@ -14,7 +14,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
     {
         private readonly AppDbContext _context;
 
-        // Constants
+        // Constants — MONTHLY EMPLOYEES (9:00 AM – 5:30 PM)
         private const int STANDARD_START_HOUR = 9;    // 9:00 AM
         private const int STANDARD_START_MINUTE = 5;   // 9:05 AM (grace ends here; 9:06+ is late)
         private const int STANDARD_END_HOUR = 17;     // 5:30 PM (hour part)
@@ -23,6 +23,20 @@ namespace SchoolFeeSystem.Infrastructure.Services
         private const int LATE_PENALTY_BLOCK = 30;    // Round up to 30-minute blocks
         private const int FULL_DAY_MINUTES = 510;     // 8h 30m — early-shift workers who clock this are full-day
         private const int PAID_OT_CAP_MINUTES = 120;  // Heat/Forge: first 2 hrs (5:30-7:30) paid, rest to bank
+
+        // Constants — DAILY-WAGE EMPLOYEES (8:30 AM – 5:00 PM)
+        // From questionnaire: "08:30 to 5:00 (deduction after 8:35)"
+        private const int DW_START_HOUR = 8;          // 8:30 AM
+        private const int DW_START_MINUTE = 35;        // 8:35 AM (grace ends here; 8:36+ is late)
+        private const int DW_END_HOUR = 17;           // 5:00 PM
+        private const int DW_END_MINUTE = 0;           // 5:00 PM
+
+        // OT threshold — must stay at least 30 min after shift end to count
+        // From questionnaire: "30 mins" minimum to count OT
+        private const int OT_MINIMUM_THRESHOLD_MINUTES = 30;
+
+        // Daily-wage detection threshold (Basic < 1000 = daily-rate worker)
+        private const decimal DAILY_WAGE_THRESHOLD = 1000m;
 
         // Departments eligible for PAID overtime (get cash, not allowance time)
         private static readonly string[] OT_PAID_DEPARTMENTS = {
@@ -41,12 +55,24 @@ namespace SchoolFeeSystem.Infrastructure.Services
         }
 
         /// <summary>
-        /// Calculate overtime and late penalties for an attendance record
-        /// Called after attendance import or manual entry
+        /// Calculate overtime, late penalties, AND early exit penalties for an attendance record.
+        /// Called after attendance import or manual entry.
         ///
-        /// FIX 1: OT is banked BEFORE penalty offset (so same-day OT can cover penalties)
-        /// FIX 2: Gate Pass is consumed FIRST before personal OT bank
-        /// FIX 3: Single allowance object reused to avoid stale-object overwrites
+        /// SHIFT TIMINGS (from questionnaire):
+        ///   Monthly employees : 09:00 – 17:30  (grace until 09:05, late at 09:06+)
+        ///   Daily-wage workers: 08:30 – 17:00  (grace until 08:35, late at 08:36+)
+        ///
+        /// LATE ARRIVAL PENALTIES:
+        ///   After grace   – shift+0:30 → 30 min deducted
+        ///   After shift+0:30 – 10:59   → 60 min deducted
+        ///   11:00+                      → 240 min (half day)
+        ///
+        /// EARLY EXIT PENALTIES (from questionnaire):
+        ///   Before shift end           → 30 min deducted
+        ///   Before shift end minus 30m → 60 min (1 hour)
+        ///   Before 15:30 (3:30 PM)     → 240 min (half day)
+        ///
+        /// OT THRESHOLD: Must stay ≥30 min after shift end to count.
         /// </summary>
         public void CalculateOvertimeAndPenalties(AttendanceRecord record)
         {
@@ -63,58 +89,132 @@ namespace SchoolFeeSystem.Infrastructure.Services
             if (employee == null) return;
 
             bool isOTPaid = IsOTPaidDepartment(employee.Department);
+            bool isDailyWage = employee.BaseSalary < DAILY_WAGE_THRESHOLD;
+
+            // ===== RESOLVE SHIFT TIMINGS =====
+            // Daily-wage workers: 08:30–17:00 (grace until 08:35)
+            // Monthly employees:  09:00–17:30 (grace until 09:05)
+            TimeSpan shiftStart;      // grace cutoff (09:05 or 08:35)
+            TimeSpan shiftEnd;        // standard end (17:30 or 17:00)
+            TimeSpan oneHourCutoff;   // after this → 1-hour penalty (09:31 or 09:01)
+
+            if (isDailyWage)
+            {
+                shiftStart = new TimeSpan(DW_START_HOUR, DW_START_MINUTE, 0);       // 08:35
+                shiftEnd = new TimeSpan(DW_END_HOUR, DW_END_MINUTE, 0);           // 17:00
+                oneHourCutoff = new TimeSpan(DW_START_HOUR + 1, DW_START_MINUTE - 5, 0); // 09:30 (shift+1hr roughly)
+                // Adjust: 8:35 + ~55min grace block = one-hour penalty starts at 9:01
+                oneHourCutoff = new TimeSpan(9, 1, 0);  // 9:01 AM for daily-wage
+            }
+            else
+            {
+                shiftStart = new TimeSpan(STANDARD_START_HOUR, STANDARD_START_MINUTE, 0); // 09:05
+                shiftEnd = new TimeSpan(STANDARD_END_HOUR, STANDARD_END_MINUTE, 0);     // 17:30
+                oneHourCutoff = new TimeSpan(9, 31, 0);  // 9:31 AM for monthly
+            }
+
+            var halfDayCutoff = new TimeSpan(11, 0, 0);  // 11:00 AM → half day (same for both)
 
             // ===== EARLY SHIFT CHECK =====
-            // If someone clocks in before 9:00 and works 8h30m+, they're on an early
-            // shift → exempt from late penalties. OT still only counts after 17:30.
+            // If someone clocks in before their shift start and works 8h30m+, they're on an early
+            // shift → exempt from late penalties. OT still only counts after shift end.
             var totalWorked = outTime - inTime;
             if (totalWorked.TotalMinutes < 0) totalWorked = totalWorked.Add(TimeSpan.FromHours(24));
+
+            TimeSpan shiftStartRaw = isDailyWage
+                ? new TimeSpan(DW_START_HOUR, 30, 0)    // 08:30 (without grace)
+                : new TimeSpan(STANDARD_START_HOUR, 0, 0); // 09:00 (without grace)
+
             bool isFullDayEarlyShift = totalWorked.TotalMinutes >= FULL_DAY_MINUTES
-                                       && inTime < new TimeSpan(STANDARD_START_HOUR, 0, 0);
+                                       && inTime < shiftStartRaw;
 
-            // ===== STEP 1: Calculate Late Penalty =====
+            // ===== STEP 1a: Calculate LATE ARRIVAL Penalty =====
             // Rules:
-            //   ≤ 9:05 → on time (no penalty)
-            //   9:06 – 9:30 → 30 min deducted
-            //   9:31 – 10:59 → 60 min (1 hour) deducted
-            //   11:00+ → half day (240 min = 4 hours deducted)
-            // Early-shift workers (8h30m+ starting before 9:00) are exempt.
-            var standardStart = new TimeSpan(STANDARD_START_HOUR, STANDARD_START_MINUTE, 0);
-            var halfDayCutoff = new TimeSpan(11, 0, 0);
-            var oneHourCutoff = new TimeSpan(9, 31, 0);  // 9:31+
+            //   ≤ grace cutoff → on time (no penalty)
+            //   grace+1 min – oneHourCutoff → 30 min deducted
+            //   oneHourCutoff – 10:59        → 60 min (1 hour) deducted
+            //   11:00+                       → half day (240 min = 4 hours deducted)
+            // Early-shift workers (8h30m+ starting before shift) are exempt.
 
-            if (inTime > standardStart && !isFullDayEarlyShift)
+            int latePenalty = 0;
+
+            if (inTime > shiftStart && !isFullDayEarlyShift)
             {
-                record.LateMinutes = (int)(inTime - standardStart).TotalMinutes;
+                record.LateMinutes = (int)(inTime - shiftStart).TotalMinutes;
 
                 if (inTime >= halfDayCutoff)
                 {
                     // 11:00 AM or later → half day
-                    record.LatePenaltyMinutes = 240;  // 4 hours
+                    latePenalty = 240;  // 4 hours
                 }
                 else if (inTime >= oneHourCutoff)
                 {
-                    // 9:31 – 10:59 → 1 hour deducted
-                    record.LatePenaltyMinutes = 60;
+                    // 9:31+ (monthly) or 9:01+ (daily-wage) → 1 hour deducted
+                    latePenalty = 60;
                 }
                 else
                 {
-                    // 9:06 – 9:30 → 30 min deducted
-                    record.LatePenaltyMinutes = 30;
+                    // Just past grace → 30 min deducted
+                    latePenalty = 30;
                 }
             }
             else
             {
                 record.LateMinutes = 0;
-                record.LatePenaltyMinutes = 0;
             }
 
-            // ===== STEP 2: Calculate Overtime Minutes (ONLY after 5:30 PM) =====
-            // OT is always measured from 17:30, regardless of early shift or not.
-            var standardEnd = new TimeSpan(STANDARD_END_HOUR, STANDARD_END_MINUTE, 0);
-            record.OvertimeMinutes = outTime > standardEnd
-                ? (int)(outTime - standardEnd).TotalMinutes
+            // ===== STEP 1b: Calculate EARLY EXIT Penalty =====
+            // From questionnaire:
+            //   Left before shift end          → 30 min deducted
+            //   Left before shift end - 30 min → 60 min (1 hour)
+            //   Left before 3:30 PM            → 240 min (half day)
+            //
+            // Monthly: shift end = 17:30, so before 17:30 → 30m, before 17:00 → 60m
+            // Daily:   shift end = 17:00, so before 17:00 → 30m, before 16:30 → 60m
+            //
+            // NOTE: If employee arrived late AND left early, BOTH penalties apply.
+            //       This matches the SS Master behavior (REC = late + early penalties combined).
+
+            int earlyExitPenalty = 0;
+            record.IsEarlyExit = false;
+
+            // Only apply early exit if not a full-day early shift and actually left before shift end
+            if (outTime < shiftEnd && !isFullDayEarlyShift && outTime > TimeSpan.Zero)
+            {
+                record.IsEarlyExit = true;
+
+                var earlyExitHalfDay = new TimeSpan(15, 30, 0);                // 3:30 PM
+                var earlyExitOneHour = shiftEnd.Subtract(TimeSpan.FromMinutes(30)); // 17:00 (monthly) or 16:30 (daily)
+
+                if (outTime <= earlyExitHalfDay)
+                {
+                    // Left at or before 3:30 PM → half day
+                    earlyExitPenalty = 240;
+                }
+                else if (outTime <= earlyExitOneHour)
+                {
+                    // Left before (shift end - 30 min) → 1 hour
+                    earlyExitPenalty = 60;
+                }
+                else
+                {
+                    // Left before shift end but after (shift end - 30 min) → 30 min
+                    earlyExitPenalty = 30;
+                }
+            }
+
+            // ===== COMBINE: Total penalty = late + early exit =====
+            // Cap at half day (240 min) — can't deduct more than half a day total
+            record.LatePenaltyMinutes = Math.Min(240, latePenalty + earlyExitPenalty);
+
+            // ===== STEP 2: Calculate Overtime Minutes =====
+            // OT is measured from shift end (17:30 for monthly, 17:00 for daily-wage).
+            // THRESHOLD: Must stay ≥30 minutes after shift end to count as OT.
+            // From questionnaire: "30 mins" minimum.
+            int rawOT = outTime > shiftEnd
+                ? (int)(outTime - shiftEnd).TotalMinutes
                 : 0;
+            record.OvertimeMinutes = rawOT >= OT_MINIMUM_THRESHOLD_MINUTES ? rawOT : 0;
 
             // ===== STEP 3: Bank / Pay OT =====
             // For HEAT TREATMENT & FORGE SHOP (OT-paid departments):
