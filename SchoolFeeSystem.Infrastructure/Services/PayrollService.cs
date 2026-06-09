@@ -291,13 +291,32 @@ namespace SchoolFeeSystem.Infrastructure.Services
                     int presentDays = attendanceRecords.Count(a => a.Status == "Present");
                     int absentDays = attendanceRecords.Count(a => a.Status == "Absent");
 
-                    int holidays = _context.Holidays.Count(h =>
-                        h.Date.Month == month && h.Date.Year == year);
+                    // ✅ HOLIDAY FIX: Get actual holiday dates for precise matching.
+                    // The old code did `calendarDays - absentDays + holidays` which double-counted.
+                    // NEW: Holiday-status records (auto-marked by AddHoliday or attendance import)
+                    // are already NOT counted in absentDays. But for holidays added BEFORE
+                    // attendance import (where absent records weren't created at all), we need
+                    // to count holiday records too.
+                    var holidayDatesInMonth = _context.Holidays
+                        .Where(h => h.Date.Month == month && h.Date.Year == year)
+                        .Select(h => h.Date.Date)
+                        .ToHashSet();
+
+                    // Count "Holiday" status records (absences converted to holidays)
+                    int holidayRecordCount = attendanceRecords.Count(a => a.Status == "Holiday");
+
+                    // Count absences that STILL fall on holiday dates (edge case: holiday added
+                    // but RecalculateAttendanceForHolidayDate hasn't run yet)
+                    int absentOnHolidays = attendanceRecords
+                        .Count(a => a.Status == "Absent" && holidayDatesInMonth.Contains(a.Date.Date));
+
+                    // Adjusted absent = raw absent minus those on holidays
+                    int trueAbsentDays = absentDays - absentOnHolidays;
 
                     if (isDailyWage)
                     {
                         // DAILY-WAGE WORKERS: paid only for days physically present.
-                        // Weekly Offs do NOT count as paid days (unlike monthly employees).
+                        // Weekly Offs and Holidays do NOT count as paid days.
                         // MIS days with a valid punch are already saved as "Present" by
                         // the biometric import, so presentDays includes them.
                         // Verified against SS Master: P+MIS = Master Days for all 4 workers.
@@ -305,13 +324,13 @@ namespace SchoolFeeSystem.Infrastructure.Services
                     }
                     else
                     {
-                        // MONTHLY SALARIED: payable = calendarDays − absentDays
+                        // MONTHLY SALARIED: payable = calendarDays − trueAbsentDays
                         //
-                        // A monthly salary covers ALL days including Weekly Offs.
-                        // Only genuine absent days reduce pay. WO rows are not saved
-                        // to the DB (import skips them), so we can't count them.
-                        // Instead: payable = calendar − absent (WO cancels naturally).
-                        daysWorkedFromData = calendarDays - absentDays + holidays;
+                        // From questionnaire: "Calendar days - Absent (WO, Holiday not deducted)"
+                        // Meaning: WO and Holiday days are PAID. Only genuine absences reduce pay.
+                        // Holiday records are not counted as absent. WO rows are not saved
+                        // to the DB (import skips them), so they don't affect the count.
+                        daysWorkedFromData = calendarDays - trueAbsentDays;
                     }
 
                     int totalLatePenaltyMinutes = attendanceRecords

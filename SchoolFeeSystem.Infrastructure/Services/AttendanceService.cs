@@ -913,6 +913,48 @@ namespace SchoolFeeSystem.Infrastructure.Services
             }
 
             _context.SaveChanges();
+
+            // ✅ HOLIDAY FIX: After saving attendance, check if any newly saved
+            // "Absent" records fall on a known holiday date. If so, mark them "Holiday".
+            var monthsInBatch = newRecords.Select(r => new { r.Date.Month, r.Date.Year }).Distinct().ToList();
+            foreach (var period in monthsInBatch)
+            {
+                var holidayDates = _context.Holidays
+                    .Where(h => h.Date.Month == period.Month && h.Date.Year == period.Year)
+                    .Select(h => h.Date.Date)
+                    .ToHashSet();
+
+                if (holidayDates.Any())
+                {
+                    var absentOnHolidays = _context.AttendanceRecords
+                        .Where(a => empIds.Contains(a.EmployeeId) &&
+                                    a.Date.Month == period.Month &&
+                                    a.Date.Year == period.Year &&
+                                    a.Status == "Absent")
+                        .ToList()
+                        .Where(a => holidayDates.Contains(a.Date.Date))
+                        .ToList();
+
+                    foreach (var rec in absentOnHolidays)
+                    {
+                        rec.Status = "Holiday";
+                        rec.Remarks = string.IsNullOrEmpty(rec.Remarks)
+                            ? "Holiday (auto-marked)"
+                            : rec.Remarks + " | Holiday (auto-marked)";
+                        rec.LatePenaltyMinutes = 0;
+                        rec.LateMinutes = 0;
+                        rec.AllowanceTimeUsed = 0;
+                    }
+
+                    if (absentOnHolidays.Any())
+                    {
+                        _context.SaveChanges();
+                        System.Diagnostics.Debug.WriteLine(
+                            $"✅ Post-import holiday sync: {absentOnHolidays.Count} absent records " +
+                            $"converted to Holiday for {period.Month}/{period.Year}");
+                    }
+                }
+            }
         }
 
         // =========================================================
@@ -982,11 +1024,159 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
         public void MarkAttendance(AttendanceRecord record) => AddOrUpdateAttendanceBatch(new List<AttendanceRecord> { record }, isManualEdit: true);
         public void BulkMarkAttendance(List<AttendanceRecord> records) => AddOrUpdateAttendanceBatch(records);
-        public void AddHoliday(Holiday holiday) { if (!_context.Holidays.Any(h => h.Date == holiday.Date)) { _context.Holidays.Add(holiday); _context.SaveChanges(); } }
-        public void DeleteHoliday(int id) { var item = _context.Holidays.Find(id); if (item != null) { _context.Holidays.Remove(item); _context.SaveChanges(); } }
+        public void AddHoliday(Holiday holiday)
+        {
+            if (!_context.Holidays.Any(h => h.Date == holiday.Date))
+            {
+                _context.Holidays.Add(holiday);
+                _context.SaveChanges();
+
+                // ✅ HOLIDAY FIX: Retroactively update attendance for this date.
+                // Any "Absent" record on a holiday should become "Holiday" so it
+                // doesn't reduce payable days in salary calculation.
+                RecalculateAttendanceForHolidayDate(holiday.Date);
+            }
+        }
+
+        public void DeleteHoliday(int id)
+        {
+            var item = _context.Holidays.Find(id);
+            if (item != null)
+            {
+                DateTime deletedDate = item.Date;
+                _context.Holidays.Remove(item);
+                _context.SaveChanges();
+
+                // ✅ HOLIDAY FIX: Revert "Holiday" attendance records back to "Absent"
+                // since this date is no longer a holiday.
+                RevertAttendanceForDeletedHoliday(deletedDate);
+            }
+        }
+
         public List<Holiday> GetHolidays(int year) => _context.Holidays.Where(h => h.Date.Year == year).OrderBy(h => h.Date).ToList();
+
+        // =========================================================
+        // HOLIDAY ↔ ATTENDANCE SYNC METHODS
+        // =========================================================
+
+        /// <summary>
+        /// When a holiday is added (even retroactively), update all attendance records
+        /// for that date. Any employee who was marked "Absent" on this date gets their
+        /// status changed to "Holiday" so it counts as a paid day for monthly employees.
+        /// Also resets any late penalties / OT for that date since nobody should be
+        /// penalized for not coming on a holiday.
+        /// </summary>
+        private void RecalculateAttendanceForHolidayDate(DateTime holidayDate)
+        {
+            var date = holidayDate.Date;
+
+            // 1. Find all "Absent" records on this date → convert to "Holiday"
+            var absentRecords = _context.AttendanceRecords
+                .Where(a => a.Date == date && a.Status == "Absent")
+                .ToList();
+
+            foreach (var record in absentRecords)
+            {
+                record.Status = "Holiday";
+                record.Remarks = string.IsNullOrEmpty(record.Remarks)
+                    ? "Holiday (auto-marked)"
+                    : record.Remarks + " | Holiday (auto-marked)";
+                record.LatePenaltyMinutes = 0;
+                record.LateMinutes = 0;
+                record.OvertimeMinutes = 0;
+                record.AllowanceTimeUsed = 0;
+            }
+
+            // 2. Find "Present" records on this holiday — employee came in on a holiday.
+            //    Keep them as-is (they get credit for working + the holiday is still paid).
+            //    But reset late penalties since holiday timings may differ.
+            var presentOnHoliday = _context.AttendanceRecords
+                .Where(a => a.Date == date && a.Status == "Present")
+                .ToList();
+
+            // NOTE: We keep Present records as-is. The employee worked on a holiday,
+            // which may count as OT in some companies. Don't penalize for late arrival
+            // on a holiday though — clear penalties.
+            foreach (var record in presentOnHoliday)
+            {
+                record.LatePenaltyMinutes = 0;
+                record.LateMinutes = 0;
+                // Keep OvertimeMinutes — working on a holiday could be OT
+            }
+
+            _context.SaveChanges();
+
+            System.Diagnostics.Debug.WriteLine(
+                $"✅ Holiday sync: {date:dd-MMM-yyyy} — " +
+                $"{absentRecords.Count} absent→holiday, " +
+                $"{presentOnHoliday.Count} present (penalties cleared)");
+        }
+
+        /// <summary>
+        /// When a holiday is deleted, revert "Holiday" attendance records back to "Absent"
+        /// and re-run OT/penalty calculations for any "Present" records on that date.
+        /// </summary>
+        private void RevertAttendanceForDeletedHoliday(DateTime date)
+        {
+            date = date.Date;
+
+            // 1. Revert "Holiday" records back to "Absent"
+            var holidayRecords = _context.AttendanceRecords
+                .Where(a => a.Date == date && a.Status == "Holiday")
+                .ToList();
+
+            foreach (var record in holidayRecords)
+            {
+                record.Status = "Absent";
+                record.Remarks = (record.Remarks ?? "")
+                    .Replace(" | Holiday (auto-marked)", "")
+                    .Replace("Holiday (auto-marked)", "")
+                    .Trim();
+            }
+
+            // 2. Re-run penalty calculations for Present records (penalties were cleared)
+            var presentRecords = _context.AttendanceRecords
+                .Where(a => a.Date == date && a.Status == "Present")
+                .ToList();
+
+            foreach (var record in presentRecords)
+            {
+                _overtimeService.CalculateOvertimeAndPenalties(record);
+            }
+
+            _context.SaveChanges();
+
+            System.Diagnostics.Debug.WriteLine(
+                $"✅ Holiday reverted: {date:dd-MMM-yyyy} — " +
+                $"{holidayRecords.Count} holiday→absent, " +
+                $"{presentRecords.Count} present (penalties recalculated)");
+        }
+
+        /// <summary>
+        /// Full recalculation: sync ALL holidays for a given month with attendance records.
+        /// Call this after bulk holiday imports or to fix inconsistencies.
+        /// </summary>
+        public void RecalculateHolidaysForMonth(int month, int year)
+        {
+            var holidays = _context.Holidays
+                .Where(h => h.Date.Month == month && h.Date.Year == year)
+                .Select(h => h.Date.Date)
+                .ToList();
+
+            foreach (var holidayDate in holidays)
+            {
+                RecalculateAttendanceForHolidayDate(holidayDate);
+            }
+
+            System.Diagnostics.Debug.WriteLine(
+                $"✅ Full holiday recalc for {month}/{year}: {holidays.Count} holidays synced");
+        }
         public void UpdateRecord(AttendanceRecord record) => MarkAttendance(record);
-        public void ImportHolidays(string filePath) { }
+        public void ImportHolidays(string filePath)
+        {
+            // NOTE: Actual file parsing is done by ImportHolidaysViewModel.
+            // After bulk import, call RecalculateHolidaysForMonth to sync attendance.
+        }
         public void ImportBiometricReport(string filePath) => ImportAttendance(filePath);
         public void AddAttendanceRecord(AttendanceRecord record) => MarkAttendance(record);
         IEnumerable<AttendanceRecord> IAttendanceService.GetRecords(int id, int month, int year) => GetAttendance(month, year, id);

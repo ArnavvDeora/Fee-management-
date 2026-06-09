@@ -86,13 +86,17 @@ namespace SchoolFeeSystem.Presentation.ViewModels
 
                 if (newHolidays.Count > 0)
                 {
-                    // Save individually or add a BulkAdd method to your Service
+                    // Save individually — each AddHoliday call now also syncs
+                    // attendance records for that date (converts Absent → Holiday)
                     foreach (var h in newHolidays)
                     {
                         _attendanceService.AddHoliday(h);
                     }
 
-                    MessageBox.Show($"Success! Imported {newHolidays.Count} holidays.");
+                    MessageBox.Show(
+                        $"Success! Imported {newHolidays.Count} holidays.\n\n" +
+                        "Attendance records have been automatically updated.\n" +
+                        "Salary calculations will now count these dates as paid holidays.");
                     GoBack();
                 }
                 else

@@ -46,14 +46,37 @@ namespace SchoolFeeSystem.Presentation.ViewModels
             var holiday = new Holiday { Date = NewHolidayDate, Name = NewHolidayName, IsRecurring = true };
             _attendanceService.AddHoliday(holiday);
 
+            // ✅ HOLIDAY FIX: AddHoliday now auto-syncs attendance records for this date.
+            // Any "Absent" records on this date are converted to "Holiday" status,
+            // so salary calculations will count this as a paid day.
+
             NewHolidayName = "";
             LoadHolidays();
+
+            MessageBox.Show(
+                $"Holiday '{holiday.Name}' added on {holiday.Date:dd-MMM-yyyy}.\n\n" +
+                "Attendance records have been automatically updated.\n" +
+                "Any employee marked absent on this date will now show as Holiday.",
+                "Holiday Added",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
         }
 
         [RelayCommand]
         public void DeleteHoliday(Holiday holiday)
         {
             if (holiday == null) return;
+
+            var confirm = MessageBox.Show(
+                $"Remove holiday '{holiday.Name}' on {holiday.Date:dd-MMM-yyyy}?\n\n" +
+                "This will also revert any 'Holiday' attendance records on this date back to 'Absent'.\n" +
+                "Salary calculations will be affected.",
+                "Confirm Delete",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (confirm != MessageBoxResult.Yes) return;
+
             _attendanceService.DeleteHoliday(holiday.Id);
             Holidays.Remove(holiday);
         }

@@ -16,6 +16,7 @@ namespace SchoolFeeSystem.Core.Interfaces
         void BulkMarkAttendance(List<AttendanceRecord> records);
         void UpdateRecord(AttendanceRecord record);
         Task ImportAttendanceAsync(string filePath, IProgress<string> progress = null);
+        void RecalculateHolidaysForMonth(int month, int year);
 
         // --- FILE IMPORTS ---
         void ImportBiometricReport(string filePath);
