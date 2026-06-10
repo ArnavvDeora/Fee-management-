@@ -335,7 +335,7 @@ namespace SchoolFeeSystem.Infrastructure.Services
 
                     int totalLatePenaltyMinutes = attendanceRecords
                         .Where(a => a.Status == "Present")
-                        .Sum(a => Math.Max(0, a.LatePenaltyMinutes - a.AllowanceTimeUsed));
+                        .Sum(a => a.LatePenaltyMinutes);
                     penaltyHours = totalLatePenaltyMinutes / 60m;
 
                     otHoursFromData = _overtimeService.GetPaidOvertimeHours(employeeId, month, year);
