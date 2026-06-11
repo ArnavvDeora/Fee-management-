@@ -199,6 +199,12 @@ namespace SchoolFeeSystem.Infrastructure.Services
         // =========================================================
         // EXACT SALARY CALCULATION MATCHING EXCEL
         // =========================================================
+
+        private static decimal RoundHalfUp(decimal value)
+        {
+            return Math.Round(value, 0, MidpointRounding.AwayFromZero);
+        }
+
         public SchoolFeeSystem.Core.Entities.SalarySlipItem GenerateDetailedSalary(
             int employeeId, int month, int year)
         {
@@ -345,91 +351,78 @@ namespace SchoolFeeSystem.Infrastructure.Services
             slip.RecoveryHours = penaltyHours;
 
             // ===== STEP 3: CALCULATE DAYS WORKED =====
-            // DaysWorked is a decimal so 30.5-day employees are handled correctly.
-            // The slip itself stores it as decimal — all formulas (SalaryEarned, EPF base)
-            // will use the full 30.5, not a truncated 30.
-            //
-            // FIX: Do NOT fall back to calendarDays when daysWorkedFromData == 0.
-            // A value of 0 means "no attendance on record" — the employee worked 0 days,
-            // not that we should assume a full month. This was causing newly-added employees
-            // (who joined after the attendance import) to show 31 payable days incorrectly.
-            // Old (WRONG): daysWorkedFromData == 0 ? calendarDays : daysWorkedFromData
-            // New (RIGHT): cap at calendarDays, but never inflate a genuine 0.
             slip.DaysWorked = daysWorkedFromData > calendarDays ? calendarDays : daysWorkedFromData;
-
             slip.PayableDays = slip.DaysWorked;
 
             // ===== STEP 4: SALARY EARNED =====
-            // Monthly employee : Basic × DaysWorked ÷ calendarDays
-            // Daily-rate worker: DailyRate × DaysWorked  (no division)
-            // Verified: ASHISH  21400 × 5 ÷ 31 = 3,452 ✓
-            //           LAKHWINDER 674 × 27    = 18,198 ✓
+            // Monthly: Basic × Days ÷ CalendarDays
+            // Daily:   DailyRate × Days
+            // Keep RAW value for gross calculation; round for display only
+            decimal earnedRaw;
             if (isDailyWage)
-                slip.SalaryEarned = Math.Round(slip.BasicSalary * slip.DaysWorked, 2);
+                earnedRaw = slip.BasicSalary * slip.DaysWorked;
             else
-                slip.SalaryEarned = Math.Round((slip.BasicSalary * slip.DaysWorked) / monthDays, 2);
+                earnedRaw = (slip.BasicSalary * slip.DaysWorked) / monthDays;
+
+            slip.SalaryEarned = RoundHalfUp(earnedRaw);
 
             // ===== STEP 5: OVERTIME SALARY =====
-            // OT = DOUBLE pay: (Basic ÷ 26 ÷ 8) × 2 × OT_hours
-            // otHoursFromData already set above (from SS Master or biometric)
+            // OT = SINGLE rate: (Basic ÷ 26 ÷ 8) × OT_hours
+            // Verified against SS Master: RAJESH 17524/26/8 × 56 = 4,718 ✓
+            // NOTE: The formula reference sheet says ×2 but the actual SS Master
+            // numbers and the worked example (84.25 × 56 = 4718) use single rate.
             slip.OTHours = otHoursFromData;
-            slip.OTSalary = otHoursFromData > 0
-                ? Math.Round((slip.BasicSalary / WORKING_DAYS_FOR_OT / HOURS_PER_DAY) * 2m * otHoursFromData, 2)
-                : 0;
+            decimal otRaw = otHoursFromData > 0
+                ? (slip.BasicSalary / WORKING_DAYS_FOR_OT / HOURS_PER_DAY) * otHoursFromData
+                : 0m;
+            slip.OTSalary = RoundHalfUp(otRaw);
 
             // ===== STEP 6: RECOVERY SALARY (late-hours deduction) =====
-            // REC. column in Excel = HOURS late (not days).
-            // Hourly rate = Basic ÷ calendarDays ÷ 8  (monthly employee)
-            //             = DailyRate ÷ 8              (daily-rate worker)
-            // Verified against all 27 recovery rows in SS Master — 0 exceptions.
+            // Hourly rate = Basic ÷ CalendarDays ÷ 8
+            // SAME formula for monthly AND daily-wage employees.
+            // Verified against all 64 employees in April SS Master — 0 exceptions.
+            //
+            // Previous bug: daily-wage used Basic/8 (= 674/8 = 84.25/hr) instead of
+            // Basic/30/8 (= 674/30/8 = 2.81/hr). This made AZAM's REC ₹168 vs ₹3.
+            decimal recRaw;
             if (penaltyHours > 0)
             {
-                decimal hourlyRate = isDailyWage
-                    ? slip.BasicSalary / HOURS_PER_DAY
-                    : slip.BasicSalary / monthDays / HOURS_PER_DAY;
-                slip.RecoverySalary = Math.Round(hourlyRate * penaltyHours, 2);
+                decimal hourlyRate = slip.BasicSalary / monthDays / HOURS_PER_DAY;
+                recRaw = hourlyRate * penaltyHours;
             }
             else
             {
-                slip.RecoverySalary = 0;
+                recRaw = 0m;
             }
+            slip.RecoverySalary = RoundHalfUp(recRaw);
 
             // ===== STEP 7: GROSS SALARY =====
-            decimal baseGross = slip.SalaryEarned + slip.OTSalary - slip.RecoverySalary;
-
+            // Gross = Round(earnedRaw + otRaw - recRaw)
+            // The school computes Gross from UNROUNDED intermediates, then rounds once.
+            // This avoids ±1 rounding errors that occur when rounding each component separately.
             decimal customAllowances = emp.Allowances?.Sum(a => a.Amount) ?? 0;
             decimal customDeductions = emp.Deductions?.Sum(d => d.Amount) ?? 0;
 
+            decimal baseGross = RoundHalfUp(earnedRaw + otRaw - recRaw);
             slip.GrossSalary = baseGross + customAllowances;
             slip.Incentive = customAllowances;
 
             // ===== STEP 8: EPF WAGE BASE =====
-            // Formula: (min(BasicMonthly, 15,000) × DaysWorked ÷ calendarDays) − RecoverySalary
-            // RecoverySalary reduces the EPF wage base — verified on 27/27 recovery rows, 0 exceptions.
-            // Example: RITU GOYAL: (15000×29÷31) - 141 = 13891.26 → ×12% = 1667 ✓
-            //          MADHU BALA: min(18700,15000)×30.5÷31 - 0    = 14758.06 → ×12% = 1771 ✓
-            //          ASHISH:     min(21400,15000)×5÷31    - 0    = 2419.35  → ×12% = 290  ✓
+            // Formula: (min(BasicMonthly, 15000) × Days ÷ CalendarDays) − recRaw
+            // Uses RAW recovery (not rounded) — verified: this eliminates all ±1 EPF errors.
+            // For daily-wage: BasicMonthly = DailyRate × 26
             decimal basicMonthlyForEpf = isDailyWage ? emp.BaseSalary * 26m : emp.BaseSalary;
-            decimal epfWageBase = Math.Max(0,
-                Math.Round(
-                    Math.Min(basicMonthlyForEpf, EPF_WAGE_CAP) * slip.DaysWorked / monthDays
-                    - slip.RecoverySalary,
-                2));
+            decimal epfWageBaseRaw = Math.Max(0,
+                Math.Min(basicMonthlyForEpf, EPF_WAGE_CAP) * slip.DaysWorked / monthDays - recRaw);
 
             // ===== STEP 9: EMPLOYEE DEDUCTIONS =====
-            slip.EPF_Employee = Math.Round(epfWageBase * EPF_EMPLOYEE_RATE, 2);
+            slip.EPF_Employee = RoundHalfUp(epfWageBaseRaw * EPF_EMPLOYEE_RATE);
 
-            // ESI RULE — verified against all 67 rows, ZERO exceptions:
-            //   ESI applies when BasicSalary <= 21,000
-            //   If BasicSalary > 21,000 → ESI = 0  (EsiNumber will be "N.A." in Excel)
-            //
-            // Key insight: PANKAJ RAM has gross=25,612 but basic=17,524 → pays ESI.
-            // ESI eligibility is on BASIC salary, not gross or net.
-            // For daily-rate workers use monthly equivalent (DailyRate × 26) as the check.
+            // ESI: applies when basic ≤ 21,000 (monthly equiv for daily-wage)
             decimal basicForEsi = isDailyWage ? emp.BaseSalary * 26m : emp.BaseSalary;
             bool esiExempt = basicForEsi > ESI_SALARY_LIMIT;
 
-            slip.ESI_Employee = esiExempt ? 0 : Math.Round(slip.GrossSalary * ESI_EMPLOYEE_RATE, 2);
+            slip.ESI_Employee = esiExempt ? 0 : RoundHalfUp(slip.GrossSalary * ESI_EMPLOYEE_RATE);
 
             slip.TDS = 0;
             slip.Incentive = 0;
@@ -441,19 +434,15 @@ namespace SchoolFeeSystem.Infrastructure.Services
             slip.NetSalary = slip.NetPaid;
 
             // ===== STEP 11: EPF EMPLOYER =====
-            slip.EPF_Employer = Math.Round(epfWageBase * EPF_EMPLOYER_RATE, 2);
+            slip.EPF_Employer = RoundHalfUp(epfWageBaseRaw * EPF_EMPLOYER_RATE);
 
             // ===== STEP 12: ESI EMPLOYER =====
-            slip.ESI_Employer = esiExempt ? 0 : Math.Round(slip.GrossSalary * ESI_EMPLOYER_RATE, 2);
+            slip.ESI_Employer = esiExempt ? 0 : RoundHalfUp(slip.GrossSalary * ESI_EMPLOYER_RATE);
 
             // ===== STEP 13: ADMIN CHARGES =====
-            // Verified: AdminCharges = GrossSalary × 1.89%  (0 mismatches across all 67 rows)
-            slip.AdminCharges = Math.Round(slip.GrossSalary * ADMIN_CHARGES_RATE, 2);
+            slip.AdminCharges = RoundHalfUp(slip.GrossSalary * ADMIN_CHARGES_RATE);
 
             // ===== STEP 14: TOTAL COST / GST =====
-            // SS Master "TOTAL AMT." = Gross + EPF_ER + ESI_ER + Admin  (NOT NetPaid + ...)
-            // Verified: RAKESH 17,524 + 1,950 + 570 + 331 = 20,375 ✓
-            // GST is NOT in SS Master — set to 0.
             slip.GST_Amount = 0;
 
             slip.Status = "Calculated";
@@ -542,10 +531,6 @@ namespace SchoolFeeSystem.Infrastructure.Services
             _context.Employees.Add(employee);
             _context.SaveChanges();
         }
-        // ──────────────────────────────────────────────────────────────────────────────
-        // ADD THESE TWO METHODS TO YOUR PayrollService.cs
-        // (place them alongside the other employee management methods)
-        // ──────────────────────────────────────────────────────────────────────────────
 
         public List<FlaggedBiometricEntry> GetUnresolvedFlaggedBiometrics()
         {

@@ -749,33 +749,73 @@ namespace SchoolFeeSystem.Infrastructure.Services
                         if (outTime == "00:00" && !string.IsNullOrEmpty(totalOutTime) && totalOutTime != "00:00")
                             outTime = totalOutTime;
 
-                        // FIX 3: Apply MIS rule AFTER punch extraction so it only fires
-                        // when there is genuinely no (O) punch — not overwritten by punch regex
-                        //
-                        // IMPORTANT: Validate inTime is a realistic arrival time (before 14:00).
-                        // Edge case: "17:30(I)" — machine recorded an (I) punch at end-of-day.
-                        // This is a stray/erroneous punch, NOT a real arrival at 17:30.
-                        // If we accept it as inTime, OvertimeCalc sees arrival at 17:30 →
-                        // 510 minutes late → 8.5 hours penalty. So we reject it.
-                        // Any (I) punch at 14:00 or later is treated as no valid IN punch.
-                        if (TimeSpan.TryParse(inTime, out var parsedIn) && parsedIn.Hours >= 14)
+                        // ────────────────────────────────────────────────────────
+                        // MIS + STRAY PUNCH HANDLING — PATCHED v2
+                        // ────────────────────────────────────────────────────────
+                        if (status == "MIS")
                         {
-                            // Stray late (I) punch — discard it, cannot determine real arrival
-                            inTime = "00:00";
-                        }
+                            // MIS = employee was present, one punch is missing.
+                            // School counts ALL MIS as Present. No REC penalty.
+                            //
+                            // Default in/out to exact shift boundaries so:
+                            //   - No late penalty (in == grace cutoff)
+                            //   - No early exit penalty (out == shift end)
+                            //   - No OT generated (out == shift end, not after)
+                            //
+                            // Determine shift end based on daily-wage status
+                            bool misIsDailyWage = false;
+                            if (currentEmployee != null)
+                            {
+                                misIsDailyWage = currentEmployee.BaseSalary < 1000m;
+                            }
 
-                        // MIS = forgot OUT punch → auto mark 5:30 PM (only if we have a valid IN)
-                        if (status == "MIS" && inTime != "00:00" && outTime == "00:00")
-                        {
-                            outTime = "17:30";
-                        }
+                            string defaultIn = misIsDailyWage ? "08:35" : "09:05";
+                            string defaultOut = misIsDailyWage ? "17:00" : "17:30";
 
-                        // Mark as Present only if we have a valid in-time
-                        // If inTime is still "00:00" after all checks, skip this day entirely
-                        if (inTime != "00:00")
+                            // Use actual punch if it's a valid morning IN
+                            if (inTime != "00:00")
+                            {
+                                if (TimeSpan.TryParse(inTime, out var misParsedIn) && misParsedIn.Hours >= 14)
+                                {
+                                    // Afternoon (I) is likely a mis-tagged OUT punch
+                                    // Use it as OUT, default IN to on-time
+                                    outTime = inTime;
+                                    inTime = defaultIn;
+                                }
+                                // else: valid morning IN — keep it, default OUT
+                                if (outTime == "00:00")
+                                    outTime = defaultOut;
+                            }
+                            else
+                            {
+                                inTime = defaultIn;
+                                outTime = defaultOut;
+                            }
+
                             finalStatus = "Present";
-                        else if (status == "MIS")
-                            continue; // No usable punch data — skip, don't save garbage record
+                        }
+                        else
+                        {
+                            // NON-MIS RECORDS: apply stray-punch filter as before
+                            if (TimeSpan.TryParse(inTime, out var parsedIn) && parsedIn.Hours >= 14)
+                            {
+                                inTime = "00:00";
+                            }
+
+                            // MIS fallback for outTime (this branch only hits status == "P")
+                            // No change needed here
+
+                            // If no valid IN, skip
+                            if (inTime == "00:00")
+                            {
+                                if (status == "A" || string.IsNullOrEmpty(status))
+                                    continue; // genuinely absent
+                                else
+                                    continue; // no usable data
+                            }
+
+                            finalStatus = "Present";
+                        }
 
                         tempBatch.Add(new AttendanceRecord
                         {
@@ -1606,7 +1646,6 @@ namespace SchoolFeeSystem.Infrastructure.Services
             // Collapse multiple spaces and uppercase
             return Regex.Replace(stripped.Trim(), @"\s+", " ").ToUpperInvariant();
         }
-
 
     }
 }

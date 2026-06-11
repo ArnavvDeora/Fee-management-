@@ -331,20 +331,21 @@ namespace SchoolFeeSystem.Infrastructure.Services
         }
 
         /// <summary>
-        /// Calculate OT Salary based on Excel formula:
-        /// OT Salary = (Basic Salary ÷ 26 ÷ 8) × 2 × OT Hours
-        /// 
-        /// NOTE: This uses 26 WORKING DAYS, not 30 calendar days!
-        /// OVERTIME IS PAID AT DOUBLE THE HOURLY RATE
+        /// Calculate OT Salary based on verified SS Master formula:
+        /// OT Salary = (Basic Salary ÷ 26 ÷ 8) × OT Hours
+        ///
+        /// NOTE: Uses 26 WORKING DAYS, not 30 calendar days.
+        /// SINGLE RATE — verified against all Heat/Forge employees in April SS Master.
+        /// The formula reference sheet says "×2" but the actual numbers use single rate:
+        ///   RAJESH: (17524/26/8) × 56 = 84.25 × 56 = 4,718 ✓ (not 9,436)
+        ///   MAHANTH: (17524/26/8) × 84 = 84.25 × 84 = 7,077 ✓ (not 14,154)
         /// </summary>
         public decimal CalculateOTSalary(decimal basicSalary, decimal otHours)
         {
             if (otHours <= 0) return 0;
 
-            // Formula: (Basic Salary / 26 working days / 8 hours per day) * 2 * OT Hours
             decimal hourlyRate = basicSalary / 26m / 8m;
-            decimal overtimeRate = hourlyRate * 2m; // DOUBLE PAY for overtime
-            return Math.Round(overtimeRate * otHours, 2);
+            return Math.Round(hourlyRate * otHours, 0, MidpointRounding.AwayFromZero);
         }
 
         /// <summary>
